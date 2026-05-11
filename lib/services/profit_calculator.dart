@@ -45,7 +45,7 @@ class ProfitSummary {
 class ProfitCalculator {
   ProfitCalculator._();
 
-  static const double etcTollReconcileRate = 0.007;
+  static const double etcTollReconcileRate = 0.0035;
 
   static ProfitSummary calculate(TripLedger ledger) {
     final freight = ledger.routeLegs.fold<double>(0, (a, r) => a + r.freight);

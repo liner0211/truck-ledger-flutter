@@ -290,7 +290,7 @@ class TripExcelExporter {
     summaryLine('信息费(总)', fmt(sum.totalInfoFee));
     summaryLine('油费', fmt(sum.fuelExpense));
     summaryLine('高速费', fmt(sum.tollExpense));
-    summaryLine('高速ETC对账手续费(0.7%)', fmt(sum.etcTollReconcileFee));
+    summaryLine('高速ETC对账手续费(0.35%)', fmt(sum.etcTollReconcileFee));
     summaryLine('其他费用', fmt(sum.otherExpense));
     summaryLine('其中可报销(现金)', fmt(sum.reimbursableCashExpense));
     summaryLine('费用(总，利润口径)', fmt(sum.totalExpense));

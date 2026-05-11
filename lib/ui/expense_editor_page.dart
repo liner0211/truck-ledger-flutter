@@ -215,7 +215,7 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
           if (cat == ExpenseCategory.toll) ...[
             const SizedBox(height: 8),
             Text(
-              '请选择现金或 ETC。若同一笔同时含现金与 ETC，请新增两条高速费分别记录。选择 ETC 时，将按 ETC 金额的 0.7% 加计对账手续费（计入利润与公司侧支出）。',
+              '请选择现金或 ETC。若同一笔同时含现金与 ETC，请新增两条高速费分别记录。选择 ETC 时，将按 ETC 金额的 0.35% 加计对账手续费（计入利润与公司侧支出）。',
               style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline),
             ),
           ],

@@ -118,6 +118,25 @@ class HomeScreen extends StatelessWidget {
                           child: const Icon(Icons.delete, color: Colors.white),
                         ),
                         confirmDismiss: (_) async {
+                          final shouldDelete = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('是否删除圈次'),
+                              content: Text('确定删除「${round.title}」吗？删除后不可恢复。'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                  child: const Text('取消'),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  child: const Text('删除'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (shouldDelete != true) return false;
+
                           final c = context.read<LedgerController>();
                           final idx =
                               c.book.rounds.indexWhere((r) => r.id == round.id);
