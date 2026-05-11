@@ -1,0 +1,9 @@
+Package: com.liner0211.truckledger
+Name: 卡车记账
+Version: 0.0.0
+Architecture: iphoneos-arm64e
+Description: 卡车记账 Flutter（越狱 deb 安装包）。
+Maintainer: liner0211
+Author: liner0211
+Section: Utilities
+Depends: firmware (>= 14.0)
