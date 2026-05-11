@@ -37,6 +37,7 @@ migrate_working_dir/
 packages/
 ipa-out/
 .last_device_ip
+.device.env
 
 # Symbolication related
 app.*.symbols

@@ -58,8 +58,52 @@ else
   sed -i "s/^Version: .*/Version: ${VERSION_DEB}/" "$STAGE/DEBIAN/control"
 fi
 
+# 安装后修复权限（关键）：部分越狱环境在 resign/appatch 后会把 Frameworks 目录权限改得过严（700），导致秒闪。
+cat > "$STAGE/DEBIAN/postinst" <<'SH'
+#!/bin/sh
+set -e
+
+APP="/Applications/Runner.app"
+if [ -d "$APP" ]; then
+  # 让 mobile 进程可读取框架与资源
+  chmod -R a+rX "$APP" || true
+  chmod 755 "$APP" "$APP/Runner" 2>/dev/null || true
+fi
+
+exit 0
+SH
+chmod 755 "$STAGE/DEBIAN/postinst"
+
 echo "[package_deb] 复制 ${APP_NAME}.app -> staging/Applications/ ..."
 cp -a "$APP_SRC" "$STAGE/Applications/"
+APP_STAGE="$STAGE/Applications/${APP_NAME}.app"
+
+# GitHub artifact 解压后可能带来过严权限（如 700/600），会导致 mobile 进程无法读取 Framework 而闪退。
+# 这里统一修正为 iOS App 常见权限：目录 755，普通文件 644，可执行文件 755。
+echo "[package_deb] 规范化 ${APP_NAME}.app 权限..."
+python3 - "$APP_STAGE" <<'PY'
+import os
+import stat
+import sys
+
+root = sys.argv[1]
+
+for cur, dirs, files in os.walk(root):
+    for d in dirs:
+        p = os.path.join(cur, d)
+        if os.path.islink(p):
+            continue
+        os.chmod(p, 0o755)
+    for f in files:
+        p = os.path.join(cur, f)
+        if os.path.islink(p):
+            continue
+        mode = os.stat(p).st_mode
+        if mode & stat.S_IXUSR or mode & stat.S_IXGRP or mode & stat.S_IXOTH:
+            os.chmod(p, 0o755)
+        else:
+            os.chmod(p, 0o644)
+PY
 
 mkdir -p "$ROOT_DIR/packages"
 DEB_NAME="com.liner0211.truckledger_${VERSION_DEB}_iphoneos-arm64e.deb"

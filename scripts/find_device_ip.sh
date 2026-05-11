@@ -1,23 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 与 TheosUIApp/TruckLedger/deploy.sh 相同流程：打 deb → 发现设备 → scp + dpkg -i。
-# 依赖: python3、paramiko（pip install paramiko）
-#
+# 独立设备发现脚本：复用 deploy.sh 的自动找机逻辑（不打包、不安装）。
 # Usage:
-#   DEVICE_PASS=0211 ./deploy.sh
+#   DEVICE_PASS=0211 ./scripts/find_device_ip.sh [--verbose]
 # Optional:
-#   DEVICE_IP=192.168.0.129 DEVICE_USER=mobile DEVICE_PASS=0211 ./deploy.sh
+#   DEVICE_IP=192.168.0.128 DEVICE_USER=mobile DEVICE_PASS=0211 ./scripts/find_device_ip.sh
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_DIR"
 
-# 本地设备配置（不入库）：可在项目根放置 .device.env
-# 示例:
-#   DEVICE_IP=192.168.0.128
-#   DEVICE_USER=mobile
-#   DEVICE_PASS=0211
-#   SUDO_PASS=0211
+VERBOSE=0
+if [[ "${1:-}" == "--verbose" ]]; then
+  VERBOSE=1
+fi
+
 if [[ -f ".device.env" ]]; then
   # shellcheck disable=SC1091
   source ".device.env"
@@ -26,21 +23,17 @@ fi
 DEVICE_IP="${DEVICE_IP:-}"
 DEVICE_USER="${DEVICE_USER:-mobile}"
 DEVICE_PASS="${DEVICE_PASS:-}"
-SUDO_PASS="${SUDO_PASS:-$DEVICE_PASS}"
 MAKEFILE_DEFAULT_IP="$(awk -F'=' '/^THEOS_DEVICE_IP[[:space:]]*\?=/{gsub(/[[:space:]]/,"",$2); print $2; exit}' Makefile 2>/dev/null || true)"
 
 if [[ -z "$DEVICE_PASS" ]]; then
   echo "Error: DEVICE_PASS is required."
-  echo "Example: DEVICE_PASS=0211 ./deploy.sh"
+  echo "Example: DEVICE_PASS=0211 ./scripts/find_device_ip.sh"
   exit 1
 fi
 
-echo "[1/3] Building package..."
-./package_deb.sh
-
-echo "[2/3] Discovering device IP (or using provided DEVICE_IP)..."
+echo "Discovering device IP..."
 DETECTED_IP="$(
-python3 - "$DEVICE_IP" "$MAKEFILE_DEFAULT_IP" "$DEVICE_USER" "$DEVICE_PASS" <<'PY'
+python3 - "$DEVICE_IP" "$MAKEFILE_DEFAULT_IP" "$DEVICE_USER" "$DEVICE_PASS" "$VERBOSE" <<'PY'
 import ipaddress
 import os
 import re
@@ -55,9 +48,15 @@ provided_ip = sys.argv[1].strip()
 default_ip = sys.argv[2].strip()
 user = sys.argv[3]
 password = sys.argv[4]
+verbose = sys.argv[5].strip() == "1"
 cache_file = ".last_device_ip"
 
+def vlog(msg: str):
+    if verbose:
+        print(msg, file=sys.stderr, flush=True)
+
 def can_connect(ip: str) -> bool:
+    vlog(f"[try] {ip}:22")
     cli = paramiko.SSHClient()
     cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
@@ -73,8 +72,10 @@ def can_connect(ip: str) -> bool:
         _, stdout, _ = cli.exec_command("uname -s", timeout=3)
         out = stdout.read().decode("utf-8", errors="ignore").strip()
         cli.close()
+        vlog(f"[ok] {ip} uname={out}")
         return out == "Darwin"
     except Exception:
+        vlog(f"[fail] {ip}")
         return False
 
 def get_local_network() -> ipaddress.IPv4Network:
@@ -89,7 +90,6 @@ def get_local_network() -> ipaddress.IPv4Network:
         return ipaddress.IPv4Network(f"{ip}/24", strict=False)
     except Exception:
         pass
-
     host_ip = socket.gethostbyname(socket.gethostname())
     ip = ipaddress.IPv4Address(host_ip)
     return ipaddress.IPv4Network(f"{ip}/24", strict=False)
@@ -158,6 +158,7 @@ def try_ip_list(ips):
             sys.exit(0)
 
 if provided_ip:
+    vlog(f"[provided] {provided_ip}")
     if can_connect(provided_ip):
         write_cached_ip(provided_ip)
         print(provided_ip)
@@ -171,11 +172,12 @@ quick_candidates = [
     *read_known_host_ips(),
     *read_ip_neigh_ips(),
 ]
+vlog(f"[quick-candidates] {unique_ips(quick_candidates)}")
 try_ip_list(quick_candidates)
 
 network = get_local_network()
 candidates = [str(ip) for ip in network.hosts() if str(ip) not in set(quick_candidates)]
-
+vlog(f"[scan] local network {network} ({len(candidates)} hosts)")
 with ThreadPoolExecutor(max_workers=48) as pool:
     futures = {pool.submit(can_connect, ip): ip for ip in candidates}
     for fut in as_completed(futures):
@@ -194,6 +196,7 @@ fallback_nets = [
 ]
 for net in fallback_nets:
     more = [str(ip) for ip in net.hosts() if str(ip) not in set(quick_candidates)]
+    vlog(f"[scan] fallback network {net} ({len(more)} hosts)")
     with ThreadPoolExecutor(max_workers=48) as pool:
         futures = {pool.submit(can_connect, ip): ip for ip in more}
         for fut in as_completed(futures):
@@ -212,66 +215,9 @@ PY
 )"
 
 if [[ -z "$DETECTED_IP" ]]; then
-  echo "Error: failed to discover a reachable iOS device over SSH."
-  echo "Tip: provide DEVICE_IP explicitly, e.g. DEVICE_IP=192.168.0.129 DEVICE_PASS=xxxx ./deploy.sh"
+  echo "ERROR: failed to discover a reachable iOS device over SSH."
+  echo "Tip: ensure OpenSSH is running and phone + host are on same LAN."
   exit 1
 fi
 
 echo "Device found: $DETECTED_IP"
-
-LATEST_DEB="$(ls -t packages/*.deb | head -n 1)"
-if [[ -z "$LATEST_DEB" ]]; then
-  echo "Error: no deb package found in packages/"
-  exit 1
-fi
-
-REMOTE_DEB="/var/mobile/$(basename "$LATEST_DEB")"
-
-echo "[3/3] Uploading and installing package..."
-python3 - "$DETECTED_IP" "$DEVICE_USER" "$DEVICE_PASS" "$SUDO_PASS" "$LATEST_DEB" "$REMOTE_DEB" <<'PY'
-import sys
-
-import paramiko
-
-host, user, password, sudo_pass, local_deb, remote_deb = sys.argv[1:7]
-
-cli = paramiko.SSHClient()
-cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-cli.connect(
-    hostname=host,
-    username=user,
-    password=password,
-    port=22,
-    timeout=10,
-    banner_timeout=10,
-    auth_timeout=10,
-)
-
-sftp = cli.open_sftp()
-sftp.put(local_deb, remote_deb)
-sftp.close()
-
-commands = [
-    f"echo '{sudo_pass}' | sudo -S dpkg -i {remote_deb}",
-    f"echo '{sudo_pass}' | sudo -S uicache -a",
-]
-
-for cmd in commands:
-    print(f"$ {cmd}")
-    _, stdout, stderr = cli.exec_command(cmd, timeout=180)
-    out = stdout.read().decode("utf-8", errors="ignore").strip()
-    err = stderr.read().decode("utf-8", errors="ignore").strip()
-    code = stdout.channel.recv_exit_status()
-    if out:
-        print(out)
-    if err:
-        print(err)
-    if code != 0:
-        cli.close()
-        raise SystemExit(code)
-
-cli.close()
-print("Install finished.")
-PY
-
-echo "Done. App deployed to $DETECTED_IP"

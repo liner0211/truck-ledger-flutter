@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/trip_models.dart';
 import '../services/profit_calculator.dart';
 import '../state/ledger_controller.dart';
+import 'about_screen.dart';
 import 'trip_detail_screen.dart';
 import 'trip_meta_editor.dart';
 
@@ -43,10 +44,25 @@ class HomeScreen extends StatelessWidget {
         title: const Text('圈次总览'),
         leading: IconButton(
           tooltip: ctrl.sortAscending ? '当前：开始时间升序，点击改为降序' : '当前：降序，点击改为升序',
-          icon: Icon(ctrl.sortAscending ? Icons.arrow_upward : Icons.arrow_downward),
+          icon:
+              Icon(ctrl.sortAscending ? Icons.arrow_upward : Icons.arrow_downward),
           onPressed: () => context.read<LedgerController>().toggleSortOrder(),
         ),
         actions: [
+          PopupMenuButton<String>(
+            tooltip: '更多',
+            onSelected: (v) {
+              if (v == 'about') {
+                Navigator.push<void>(
+                  context,
+                  MaterialPageRoute<void>(builder: (_) => const AboutScreen()),
+                );
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'about', child: Text('关于')),
+            ],
+          ),
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () => _addRound(context),
@@ -74,13 +90,16 @@ class HomeScreen extends StatelessWidget {
           ),
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text('每圈简写信息（点开查看详情）',
-                style: TextStyle(fontSize: 13, color: Colors.black54)),
+            child: Text(
+              '每圈简写信息（点开查看详情）',
+              style: TextStyle(fontSize: 13, color: Colors.black54),
+            ),
           ),
           Expanded(
             child: book.rounds.isEmpty
                 ? const Center(child: Text('暂无圈次，点击右上角新建'))
                 : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                     itemCount: book.rounds.length,
                     itemBuilder: (context, index) {
                       final round = book.rounds[index];
@@ -106,15 +125,83 @@ class HomeScreen extends StatelessWidget {
                           await c.deleteTripAt(idx);
                           return true;
                         },
-                        child: ListTile(
-                          title: Text(round.title),
-                          subtitle: Text(
-                            '分成：司机 ${ctrl.money(sum.driverShare)} / 老板 ${ctrl.money(sum.ownerShare)}\n'
-                            '状态：$reconcileText ｜ $salaryText',
+                        child: Card(
+                          margin: const EdgeInsets.symmetric(vertical: 6),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () => _openDetail(context, round, ctrl),
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          round.title,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleMedium
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Icon(
+                                        Icons.chevron_right,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .outline,
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: _pill(
+                                          context,
+                                          label: '司机分成',
+                                          value: ctrl.money(sum.driverShare),
+                                          icon: Icons.account_circle_outlined,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: _pill(
+                                          context,
+                                          label: '老板分成',
+                                          value: ctrl.money(sum.ownerShare),
+                                          icon: Icons.local_shipping_outlined,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      _statusChip(
+                                        context,
+                                        text: reconcileText,
+                                        ok: round.isReconciled,
+                                      ),
+                                      _statusChip(
+                                        context,
+                                        text: salaryText,
+                                        ok: round.isSalarySettled,
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
-                          isThreeLine: true,
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () => _openDetail(context, round, ctrl),
                         ),
                       );
                     },
@@ -152,4 +239,77 @@ class HomeScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+Widget _pill(
+  BuildContext context, {
+  required String label,
+  required String value,
+  required IconData icon,
+}) {
+  final cs = Theme.of(context).colorScheme;
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+    decoration: BoxDecoration(
+      color: cs.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: cs.outlineVariant),
+    ),
+    child: Row(
+      children: [
+        Icon(icon, size: 18, color: cs.onSurfaceVariant),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _statusChip(
+  BuildContext context, {
+  required String text,
+  required bool ok,
+}) {
+  final cs = Theme.of(context).colorScheme;
+  final bg = ok ? cs.primaryContainer : cs.surfaceContainerHighest;
+  final fg = ok ? cs.onPrimaryContainer : cs.onSurfaceVariant;
+  final icon = ok ? Icons.check_circle_outline : Icons.radio_button_unchecked;
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    decoration: BoxDecoration(
+      color: bg,
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(color: cs.outlineVariant),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: fg),
+        const SizedBox(width: 6),
+        Text(
+          text,
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(color: fg),
+        ),
+      ],
+    ),
+  );
 }

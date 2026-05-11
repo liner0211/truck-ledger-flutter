@@ -19,7 +19,7 @@ RUN_ID="${RUN_ID:-}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if [[ -z "$RUN_ID" ]]; then
-  RUN_ID="$(gh run list --repo "$REPO" --workflow "iOS Runner.app Build" --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+  RUN_ID="$(gh run list --repo "$REPO" --workflow "iOS Runner.app Build" --limit 10 --json databaseId,status,conclusion --jq '[.[] | select(.status=="completed" and .conclusion=="success")][0].databaseId')"
 fi
 
 if [[ -z "$RUN_ID" || "$RUN_ID" == "null" ]]; then

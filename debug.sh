@@ -12,6 +12,12 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
+# 本地设备配置（不入库）：可在项目根放置 .device.env
+if [[ -f ".device.env" ]]; then
+  # shellcheck disable=SC1091
+  source ".device.env"
+fi
+
 APP_NAME="${APP_NAME:-Runner}"
 BUNDLE_ID="${BUNDLE_ID:-com.liner0211.truckledger}"
 DEVICE_IP="${DEVICE_IP:-}"
