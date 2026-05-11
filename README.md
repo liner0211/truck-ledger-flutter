@@ -1,42 +1,61 @@
 # truck_ledger_flutter（卡车记账 · Flutter）
 
-与 **Theos iOS（Swift）**、`TruckLedgerAndroid`（Kotlin）并列的 **Flutter** 工程，双端包名均为 **`com.liner0211.truckledger`**，桌面显示名 **卡车记账**。
+与 **Theos iOS（Swift）**、Kotlin 安卓版并列的 Flutter 工程；包名 **`com.liner0211.truckledger`**，显示名 **卡车记账**。数据为本地 JSON + 附件目录，可与原版 iOS 数据格式对齐使用。
 
-## 环境
+## 新环境从哪里开始
 
-- 安装 **Flutter stable**（本仓库在 WSL 下可使用 `/home/liner0211/Code/.flutter_toolchain/flutter`，或改用你本机 Flutter）。
-- **Android**：Android SDK + 接受许可（`flutter doctor --android-licenses`）。
-- **iOS**：必须在 **macOS + Xcode** 上执行 `flutter build ios` / 归档；无法在纯 Linux/WSL 完成官方 iOS 签名构建。
+**完整步骤（编译、CI、deb/ipa、越狱安装、环境变量、常见问题）见：[`BUILD_AND_DEPLOY.md`](./BUILD_AND_DEPLOY.md)。**  
+**新 Cursor / AI 对话请先读：[`AGENTS.md`](./AGENTS.md)。**
 
-## 常用命令
+克隆后第一步建议：`cp dev/machine.env.example dev/machine.env`，按需填写 **`FLUTTER_BIN_PATH`**、**`DEVICE_PASS`**、**`GITHUB_REPO`** 等；可选 `./dev/apply_git_config.sh` 写入本仓库 Git 用户名与 `origin`。
+
+**VS Code**：`终端 → 运行任务` → 「一键：生成 APK / IPA / deb / 安装」等（见 `.vscode/tasks.json`）。
+
+下面仅保留最短备忘。
+
+### Flutter
+
+- 安装 **Flutter stable**，确保使用 **当前系统可执行的 SDK**（Linux/WSL 不要用 Windows 分区里只有 `.exe` 的 Flutter）。
+- 验证：`flutter doctor -v`，在项目根执行：`flutter pub get`。
+
+### Android
 
 ```bash
-export PATH="/home/liner0211/Code/.flutter_toolchain/flutter/bin:$PATH"
-cd /path/to/truck_ledger_flutter
-
-flutter pub get
-flutter analyze
-flutter test
-
-# Android：调试 APK
-flutter build apk --debug
-# 输出：build/app/outputs/flutter-apk/app-debug.apk
-
-# Android：发布 APK（需配置 release 签名后再改 android/app/build.gradle.kts）
 flutter build apk --release
-
-# iOS（仅 Mac）
-flutter build ios
+# 产物：build/app/outputs/flutter-apk/app-release.apk
+adb install -r build/app/outputs/flutter-apk/app-release.apk
 ```
 
-也可执行：`./scripts/build_apk.sh`（默认使用上述 WSL 内 Flutter 路径，可通过环境变量 `FLUTTER_BIN_PATH` 覆盖）。
+可使用 `./scripts/build_apk.sh`；新机器请设置 `FLUTTER_BIN_PATH` 指向你的 `flutter/bin`。
 
-## 安装到设备
+### iOS
 
-- **Android**：`adb install -r build/app/outputs/flutter-apk/app-debug.apk`，或在 Android Studio / VS Code 里 Run。
-- **iOS**：用 Xcode 打开 `ios/Runner.xcodeproj`（或 `flutter open ios`）连接真机运行；与当前 **Theos + deb** 流程不同，Flutter iOS 走 **Xcode / TestFlight / IPA**，不会自动生成 Theos 的 deb。
+- **本机有 macOS + Xcode**：可直接 `flutter build ios --release --no-codesign`，再 `./package_deb.sh` / `./package_ipa.sh`。
+- **无 Xcode（如 Linux/WSL）**：用 **GitHub Actions** 构建 `Runner.app`，本机通过 **`gh`** 拉取产物后打包。
 
-## 注意
+一键（需 `gh auth login`，deb 安装还需 `.device.env` 与 `paramiko`）：
 
-- **applicationId / Bundle ID** 与现有原生安卓工程相同，**同一台设备上不能同时安装两个包名一致的应用**；调试 Flutter 版前请先卸载 Kotlin 版或临时改掉一方包名。
-- Theos 越狱直装的 **TruckLedger** 与商店/Xcode 签名的 Flutter iOS **包名若相同会冲突**，上架或侧载时请按需区分 Bundle ID。
+```bash
+./one_click_ipa.sh           # → ipa-out/Runner.ipa
+./one_click_deb_install.sh   # → 打 deb 并 SSH 安装到越狱设备
+```
+
+或：`make ipa-one`、`make deb-install-one`。
+
+### 本机配置（勿提交）
+
+推荐 **`dev/machine.env`**（从 `dev/machine.env.example` 复制，已 gitignore）。仍可使用项目根 **`.device.env`**（在 `machine.env` 之后加载）。详见 [`BUILD_AND_DEPLOY.md`](./BUILD_AND_DEPLOY.md) 第 3 节。
+
+## 与其他版本的并存
+
+- **同一 Android 设备**上包名相同则不能同时安装 Flutter APK 与旧 Kotlin 版，调试前请卸载其一或临时修改一方 `applicationId`。
+- **iOS**：越狱 deb 与 Xcode/TestFlight 签名包若 Bundle ID 相同也可能冲突，按需区分。
+
+## 文档与脚本索引
+
+| 文档 / 脚本 | 用途 |
+|-------------|------|
+| [**BUILD_AND_DEPLOY.md**](./BUILD_AND_DEPLOY.md) | 新机器全流程手册 |
+| `package_deb.sh` / `package_ipa.sh` | deb / ipa |
+| `deploy.sh` / `debug.sh` | 越狱机安装与调试 |
+| `.github/workflows/ios-runner-app-build.yml` | macOS 上构建 Runner.app |

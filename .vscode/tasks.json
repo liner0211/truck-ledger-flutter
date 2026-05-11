@@ -2,37 +2,87 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "一键：生成 APK（Release）",
+      "type": "shell",
+      "command": "./scripts/with_project_env.sh ./scripts/build_apk.sh --release",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "一键：生成 IPA（CI 拉取 Runner.app）",
+      "type": "shell",
+      "command": "./scripts/with_project_env.sh ./one_click_ipa.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "一键：拉取 CI 并打 deb（不安装）",
+      "type": "shell",
+      "command": "./scripts/with_project_env.sh ./scripts/fetch_runner_and_package_deb.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "一键：deb 安装到越狱机（仅 dev/machine.env，不提示密码）",
+      "type": "shell",
+      "command": "./scripts/with_project_env.sh ./one_click_deb_install.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "一键：deb 安装到越狱机（任务里输入密码，覆盖配置）",
+      "type": "shell",
+      "command": "DEVICE_PASS=${input:devicePass} ./scripts/with_project_env.sh ./one_click_deb_install.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "仅安装：deploy.sh（已有 deb / 会重新打包）",
+      "type": "shell",
+      "command": "DEVICE_PASS=${input:devicePass} SKIP_BUILD=1 ./scripts/with_project_env.sh ./deploy.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
       "label": "TruckLedger Flutter: ios-build (flutter)",
       "type": "shell",
-      "command": "flutter build ios --release --no-codesign",
+      "command": "./scripts/with_project_env.sh flutter build ios --release --no-codesign",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
     {
       "label": "TruckLedger Flutter: Package deb (package_deb.sh)",
       "type": "shell",
-      "command": "./package_deb.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    },
-    {
-      "label": "TruckLedger Flutter: Deploy to device (deploy.sh)",
-      "type": "shell",
-      "command": "DEVICE_PASS=${input:devicePass} ./deploy.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    },
-    {
-      "label": "TruckLedger Flutter: Debug device (debug.sh)",
-      "type": "shell",
-      "command": "DEVICE_PASS=${input:devicePass} ./debug.sh",
+      "command": "./scripts/with_project_env.sh ./package_deb.sh",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
     {
       "label": "TruckLedger Flutter: Package ipa (package_ipa.sh)",
       "type": "shell",
-      "command": "./package_ipa.sh",
+      "command": "./scripts/with_project_env.sh ./package_ipa.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "TruckLedger Flutter: Deploy to device (deploy.sh)",
+      "type": "shell",
+      "command": "DEVICE_PASS=${input:devicePass} ./scripts/with_project_env.sh ./deploy.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "TruckLedger Flutter: Debug device (debug.sh)",
+      "type": "shell",
+      "command": "DEVICE_PASS=${input:devicePass} ./scripts/with_project_env.sh ./debug.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "本机：应用 Git 配置（dev/machine.env 中 GIT_*）",
+      "type": "shell",
+      "command": "./dev/apply_git_config.sh",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     }
@@ -41,7 +91,7 @@
     {
       "id": "devicePass",
       "type": "promptString",
-      "description": "iPhone SSH 密码（DEVICE_PASS）",
+      "description": "iPhone SSH 密码（DEVICE_PASS）；若已写入 dev/machine.env 可随意填占位",
       "password": true
     }
   ]

@@ -38,6 +38,7 @@ packages/
 ipa-out/
 .last_device_ip
 .device.env
+/dev/machine.env
 
 # Symbolication related
 app.*.symbols

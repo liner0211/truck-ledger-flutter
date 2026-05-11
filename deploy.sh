@@ -6,22 +6,16 @@ set -euo pipefail
 #
 # Usage:
 #   DEVICE_PASS=0211 ./deploy.sh
+# 推荐在 dev/machine.env（或 .device.env）中配置 DEVICE_PASS 等，脚本会自动加载。
 # Optional:
 #   DEVICE_IP=192.168.0.129 DEVICE_USER=mobile DEVICE_PASS=0211 ./deploy.sh
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
-# 本地设备配置（不入库）：可在项目根放置 .device.env
-# 示例:
-#   DEVICE_IP=192.168.0.128
-#   DEVICE_USER=mobile
-#   DEVICE_PASS=0211
-#   SUDO_PASS=0211
-if [[ -f ".device.env" ]]; then
-  # shellcheck disable=SC1091
-  source ".device.env"
-fi
+# 本地配置（不入库）：优先 dev/machine.env，其次 .device.env（后者可覆盖）
+# shellcheck disable=SC1091
+source "$PROJECT_DIR/scripts/project_env.sh"
 
 DEVICE_IP="${DEVICE_IP:-}"
 DEVICE_USER="${DEVICE_USER:-mobile}"
