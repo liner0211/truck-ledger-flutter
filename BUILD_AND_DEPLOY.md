@@ -199,6 +199,7 @@ deb 输出目录：**`packages/`**，文件名形如 `com.liner0211.truckledger_
 
 | 现象 | 处理方向 |
 |------|----------|
+| **改代码后一键 deb/ipa 仍是旧界面** | 一键任务下载的是 **GitHub Actions 已成功构建的那次提交** 的 `Runner.app`，**不是**你当前工作区未编译的代码。需 **`git push`**，等 **「iOS Runner.app Build」** 变绿后再跑一键；或在 **Mac + Xcode** 本机 `flutter build ios` 后用 `package_deb.sh` / `package_ipa.sh`（勿依赖 CI 下载）。脚本会在本地 `HEAD` 与 CI 提交不一致时打印 **警告**（可用 `SKIP_SHA_CHECK=1` 跳过提示）。 |
 | WSL 里 `flutter` / `dart` 无法运行 | 使用 Linux 原生 Flutter，不要用 Windows 分区上的 SDK |
 | `gh run list` / API 504 | 稍后重试；或用网页 Actions 查看 run id，`RUN_ID=xxx ./scripts/fetch_runner_and_package_deb.sh` |
 | `deploy.sh` 要求 `DEVICE_PASS` | 配置 `.device.env` 或导出环境变量 |

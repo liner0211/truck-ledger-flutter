@@ -21,6 +21,8 @@ Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`。数据为�
 
 ## 一键脚本（项目根）
 
+**注意**：一键 ipa / 一键 deb 安装使用的是 **CI 已构建的 Runner.app**，与当前工作区代码一致的前提是：**改动已 push 且「iOS Runner.app Build」已成功**。仅本地改代码未推远程时，打出来仍是旧包；Mac 本机可直接 `flutter build ios` 后跑 `package_deb.sh` / `package_ipa.sh`。
+
 | 脚本 | 作用 |
 |------|------|
 | `./one_click_ipa.sh` | `gh` 拉最新成功 CI 的 Runner.app → `ipa-out/Runner.ipa` |
