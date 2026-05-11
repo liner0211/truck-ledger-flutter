@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -51,8 +55,12 @@ class HomeScreen extends StatelessWidget {
         actions: [
           PopupMenuButton<String>(
             tooltip: '更多',
-            onSelected: (v) {
+            onSelected: (v) async {
+              if (v == 'import') {
+                await _pickAndImportLedger(context);
+              }
               if (v == 'about') {
+                if (!context.mounted) return;
                 Navigator.push<void>(
                   context,
                   MaterialPageRoute<void>(builder: (_) => const AboutScreen()),
@@ -60,6 +68,7 @@ class HomeScreen extends StatelessWidget {
               }
             },
             itemBuilder: (context) => const [
+              PopupMenuItem(value: 'import', child: Text('导入账本…')),
               PopupMenuItem(value: 'about', child: Text('关于')),
             ],
           ),
@@ -136,6 +145,7 @@ class HomeScreen extends StatelessWidget {
                             ),
                           );
                           if (shouldDelete != true) return false;
+                          if (!context.mounted) return false;
 
                           final c = context.read<LedgerController>();
                           final idx =
@@ -257,6 +267,113 @@ class HomeScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  static Future<void> _pickAndImportLedger(BuildContext context) async {
+    final picked = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['json'],
+      withData: true,
+    );
+    if (!context.mounted) return;
+    if (picked == null || picked.files.isEmpty) return;
+
+    final f = picked.files.single;
+    String? raw;
+    if (f.bytes != null && f.bytes!.isNotEmpty) {
+      raw = utf8.decode(f.bytes!);
+    } else if (f.path != null) {
+      try {
+        raw = await File(f.path!).readAsString();
+      } catch (_) {
+        raw = null;
+      }
+    }
+    if (!context.mounted) return;
+    if (raw == null || raw.isEmpty) {
+      _snack(context, '无法读取文件内容');
+      return;
+    }
+
+    final incoming = LedgerBook.tryParse(raw);
+    if (incoming == null) {
+      _snack(context, '不是有效的账本 JSON（需含 rounds 数组，或为单圈次备份对象）');
+      return;
+    }
+    if (incoming.rounds.isEmpty) {
+      _snack(context, '文件中没有圈次数据');
+      return;
+    }
+    if (!context.mounted) return;
+
+    final n = incoming.rounds.length;
+    final mode = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('导入账本'),
+        content: Text(
+          '已解析 $n 个圈次。\n\n'
+          '「合并」：追加到当前列表；若某圈次 id 与本地重复，会为该圈次及子项分配新 id。\n'
+          '「覆盖」：清空本设备全部圈次并替换为文件内容（不可恢复）。\n\n'
+          '说明：仅写入 JSON 中的字段；附件图片需对应文件已在应用沙盒内才会显示。',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'merge'),
+            child: const Text('合并'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(ctx, 'replace'),
+            child: const Text('覆盖'),
+          ),
+        ],
+      ),
+    );
+
+    if (mode == null) return;
+    if (!context.mounted) return;
+    final ctrl = context.read<LedgerController>();
+
+    if (mode == 'merge') {
+      await ctrl.importMerge(incoming);
+      if (!context.mounted) return;
+      _snack(context, '已合并 $n 个圈次');
+      return;
+    }
+
+    if (mode == 'replace') {
+      if (!context.mounted) return;
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('确认覆盖？'),
+          content: const Text('将删除本设备上的全部圈次与记账数据，且不可恢复。确定继续？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('确定覆盖'),
+            ),
+          ],
+        ),
+      );
+      if (!context.mounted || ok != true) return;
+      await ctrl.importReplace(incoming);
+      if (!context.mounted) return;
+      _snack(context, '已用导入文件替换当前账本（$n 个圈次）');
+    }
+  }
+
+  static void _snack(BuildContext context, String msg) {
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(msg)));
   }
 }
 

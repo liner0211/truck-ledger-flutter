@@ -370,6 +370,30 @@ class LedgerBook {
     }
     return LedgerBook.empty();
   }
+
+  /// 用于「导入」：格式合法则返回账本，否则 `null`（不抛异常）。
+  /// 支持 `{"rounds":[...]}` 或与 [parse] 相同的单圈次对象。
+  static LedgerBook? tryParse(String raw) {
+    if (raw.trim().isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final m = Map<String, dynamic>.from(decoded);
+      if (m.containsKey('rounds')) {
+        if (m['rounds'] is! List) return null;
+        return LedgerBook.fromJson(m);
+      }
+      if (m['id'] is! String) return null;
+      if (!m.containsKey('routeLegs') &&
+          !m.containsKey('expenses') &&
+          !m.containsKey('title')) {
+        return null;
+      }
+      return LedgerBook(rounds: [TripLedger.fromJson(m)]);
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 String makeTripTitle(String start, String end) {

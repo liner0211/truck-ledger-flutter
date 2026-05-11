@@ -92,5 +92,86 @@ class LedgerController extends ChangeNotifier {
     await _persist();
   }
 
+  /// 用导入文件**完全替换**当前账本（需由 UI 二次确认）。
+  Future<void> importReplace(LedgerBook incoming) async {
+    _book = LedgerBook(
+      rounds: incoming.rounds.map((e) => e.copy()).toList(),
+    );
+    _sortRounds();
+    await _persist();
+  }
+
+  /// 将导入的圈次**追加**到当前账本；圈次 `id` 与本地冲突时整圈复制并换新 id（含子项 id）。
+  Future<void> importMerge(LedgerBook incoming) async {
+    final existingIds = _book.rounds.map((r) => r.id).toSet();
+    for (final trip in incoming.rounds) {
+      final TripLedger toAdd;
+      if (existingIds.contains(trip.id)) {
+        toAdd = _cloneTripWithFreshIds(trip, _uuid.v4());
+        existingIds.add(toAdd.id);
+      } else {
+        toAdd = trip.copy();
+        existingIds.add(toAdd.id);
+      }
+      _book.rounds.add(toAdd);
+    }
+    _sortRounds();
+    await _persist();
+  }
+
+  TripLedger _cloneTripWithFreshIds(TripLedger src, String newTripId) {
+    return TripLedger(
+      id: newTripId,
+      title: src.title,
+      startPlace: src.startPlace,
+      endPlace: src.endPlace,
+      createdAt: src.createdAt,
+      isReconciled: src.isReconciled,
+      isSalarySettled: src.isSalarySettled,
+      routeLegs: src.routeLegs
+          .map(
+            (l) => RouteLeg(
+              id: _uuid.v4(),
+              loadPlace: l.loadPlace,
+              unloadPlace: l.unloadPlace,
+              freight: l.freight,
+              infoFee: l.infoFee,
+              infoFeePaymentSource: l.infoFeePaymentSource,
+              note: l.note,
+              attachments: List<String>.from(l.attachments),
+              createdAt: l.createdAt,
+            ),
+          )
+          .toList(),
+      expenses: src.expenses
+          .map(
+            (e) => ExpenseItem(
+              id: _uuid.v4(),
+              category: e.category,
+              title: e.title,
+              amount: e.amount,
+              paymentSource: e.paymentSource,
+              isReimbursable: e.isReimbursable,
+              attachments: List<String>.from(e.attachments),
+              createdAt: e.createdAt,
+              tollCashAmount: e.tollCashAmount,
+              tollEtcAmount: e.tollEtcAmount,
+            ),
+          )
+          .toList(),
+      cashAdvances: src.cashAdvances
+          .map(
+            (a) => CashAdvance(
+              id: _uuid.v4(),
+              title: a.title,
+              amount: a.amount,
+              attachments: List<String>.from(a.attachments),
+              createdAt: a.createdAt,
+            ),
+          )
+          .toList(),
+    );
+  }
+
   String money(double v) => '¥${v.toStringAsFixed(2)}';
 }
