@@ -27,7 +27,8 @@ Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`。数据为�
 |------|------|
 | `./one_click_ipa.sh` | `gh` 拉最新成功 CI 的 Runner.app → `ipa-out/Runner.ipa` |
 | `./one_click_deb_install.sh` | 拉 CI → 打 deb → SSH `dpkg -i` |
-| `make ipa-one` / `make deb-install-one` | 同上 |
+| `./one_click_apk_install.sh` | 本机 `flutter build apk --release` → `adb install -r` |
+| `make ipa-one` / `make deb-install-one` / `make apk-install-one` | 同上 |
 
 均需：**`gh` 已登录**；deb 安装需 **`python3` + paramiko**，设备密码在 **`dev/machine.env`** 或通过环境变量传入。
 

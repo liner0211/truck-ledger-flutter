@@ -10,6 +10,13 @@
       "group": { "kind": "build", "isDefault": true }
     },
     {
+      "label": "一键：Android 打包并安装到设备（Release + adb）",
+      "type": "shell",
+      "command": "./scripts/with_project_env.sh ./one_click_apk_install.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
       "label": "一键：生成 IPA（CI 拉取 Runner.app）",
       "type": "shell",
       "command": "./scripts/with_project_env.sh ./one_click_ipa.sh",
@@ -24,14 +31,14 @@
       "problemMatcher": []
     },
     {
-      "label": "一键：deb 安装到越狱机（仅 dev/machine.env，不提示密码）",
+      "label": "一键：iOS deb（CI）打包并安装越狱机（machine.env）",
       "type": "shell",
       "command": "./scripts/with_project_env.sh ./one_click_deb_install.sh",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
     {
-      "label": "一键：deb 安装到越狱机（任务里输入密码，覆盖配置）",
+      "label": "一键：iOS deb（CI）打包并安装越狱机（任务里输入 SSH 密码）",
       "type": "shell",
       "command": "DEVICE_PASS=${input:devicePass} ./scripts/with_project_env.sh ./one_click_deb_install.sh",
       "options": { "cwd": "${workspaceFolder}" },

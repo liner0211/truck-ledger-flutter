@@ -3,7 +3,7 @@ THEOS_DEVICE_IP ?= 192.168.0.129
 
 FLUTTER ?= flutter
 
-.PHONY: clean ios-build package ipa ipa-one deb-install-one machine-env-example
+.PHONY: clean ios-build package ipa ipa-one deb-install-one apk-install-one machine-env-example
 
 clean:
 	$(FLUTTER) clean
@@ -26,6 +26,10 @@ ipa-one:
 # 一键：CI 拉取 → 打 deb → SSH 安装（本机需 gh、paramiko、.device.env 或 DEVICE_PASS）
 deb-install-one:
 	./one_click_deb_install.sh
+
+# 一键：本机 Release APK + adb 安装（需 adb、FLUTTER_BIN_PATH）
+apk-install-one:
+	./one_click_apk_install.sh
 
 # 首次克隆后：复制本机配置模板（若已存在则跳过）
 machine-env-example:

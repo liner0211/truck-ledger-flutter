@@ -9,7 +9,7 @@
 
 克隆后第一步建议：`cp dev/machine.env.example dev/machine.env`，按需填写 **`FLUTTER_BIN_PATH`**、**`DEVICE_PASS`**、**`GITHUB_REPO`** 等；可选 `./dev/apply_git_config.sh` 写入本仓库 Git 用户名与 `origin`。
 
-**VS Code**：`终端 → 运行任务` → 「一键：生成 APK / IPA / deb / 安装」等（见 `.vscode/tasks.json`）。
+**VS Code**：`终端 → 运行任务` → 例如「**一键：Android 打包并安装到设备**」「**一键：iOS deb（CI）打包并安装越狱机**」等（见 `.vscode/tasks.json`）。
 
 下面仅保留最短备忘。
 
@@ -33,14 +33,15 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 - **本机有 macOS + Xcode**：可直接 `flutter build ios --release --no-codesign`，再 `./package_deb.sh` / `./package_ipa.sh`。
 - **无 Xcode（如 Linux/WSL）**：用 **GitHub Actions** 构建 `Runner.app`，本机通过 **`gh`** 拉取产物后打包。
 
-一键（需 `gh auth login`，deb 安装还需 `.device.env` 与 `paramiko`）：
+一键（需 `gh auth login`，deb 安装还需 `dev/machine.env` 与 `paramiko`）：
 
 ```bash
 ./one_click_ipa.sh           # → ipa-out/Runner.ipa
-./one_click_deb_install.sh   # → 打 deb 并 SSH 安装到越狱设备
+./one_click_deb_install.sh   # CI Runner.app → deb → SSH 安装越狱机
+./one_click_apk_install.sh   # 本机 Release APK → adb 安装（需 adb、已连接设备）
 ```
 
-或：`make ipa-one`、`make deb-install-one`。
+或：`make ipa-one`、`make deb-install-one`、`make apk-install-one`。
 
 ### 本机配置（勿提交）
 

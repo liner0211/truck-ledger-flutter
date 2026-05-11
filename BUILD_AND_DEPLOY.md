@@ -70,9 +70,10 @@
 打开 **终端 → 运行任务**，常用项包括：
 
 - **一键：生成 APK（Release）**
+- **一键：Android 打包并安装到设备（Release + adb）**
 - **一键：生成 IPA（CI 拉取 Runner.app）**
 - **一键：拉取 CI 并打 deb（不安装）**
-- **一键：deb 安装到越狱机**（可仅用 `machine.env` 中的密码，或使用任务里的密码框覆盖）
+- **一键：iOS deb（CI）打包并安装越狱机**（`machine.env` 或任务里输入 SSH 密码）
 
 配置见 **`.vscode/tasks.json`**。
 
@@ -87,6 +88,12 @@ flutter build apk --release   # 或 --debug
 ```
 
 产物：`build/app/outputs/flutter-apk/app-release.apk`
+
+一键编译并安装（需 `adb`、已连接设备；多设备时在 `machine.env` 设置 `ANDROID_SERIAL`）：
+
+```bash
+./one_click_apk_install.sh
+```
 
 安装示例：
 
@@ -128,8 +135,9 @@ gh run list --repo OWNER/REPO --workflow "iOS Runner.app Build" --limit 5 \
 |------|------|
 | **`./one_click_ipa.sh`** | 拉取最新成功 CI 的 `Runner.app` → 生成 **`ipa-out/Runner.ipa`**（容器；侧载需自行签名/TrollStore 等） |
 | **`./one_click_deb_install.sh`** | 同上拉取 → **`package_deb.sh`** 打 deb → **`deploy.sh`** SSH 安装到越狱设备 |
+| **`./one_click_apk_install.sh`** | 本机 **`flutter build apk --release`** → **`adb install -r`**（不含 CI；即改即编） |
 
-依赖：**`gh` 已登录**；deb 安装还需 **`.device.env` 或 `DEVICE_PASS`** + **paramiko**。
+依赖：**`gh` 已登录**（ipa/deb 拉 CI）；deb 安装还需 **`DEVICE_PASS`**（`dev/machine.env` 或环境变量）+ **paramiko**。Android 一键还需 **`adb`** 与 **`FLUTTER_BIN_PATH`**（或 PATH 中已有 flutter）。
 
 可选指定仓库：
 
@@ -142,8 +150,9 @@ GITHUB_REPO=liner0211/truck-ledger-flutter ./one_click_ipa.sh
 Makefile 等价：
 
 ```bash
-make ipa-one          # 一键 IPA
-make deb-install-one  # 一键 deb + 安装
+make ipa-one           # 一键 IPA
+make deb-install-one   # 一键 deb + 安装越狱机
+make apk-install-one   # 一键 APK + adb 安装
 ```
 
 ---
@@ -223,7 +232,8 @@ deb 输出目录：**`packages/`**，文件名形如 `com.liner0211.truckledger_
 | `dev/apply_git_config.sh` | 将 `machine.env` 中 `GIT_*` 写入本仓库 `git config --local` |
 | `AGENTS.md` | 给 AI / 新成员的短索引 |
 | `.vscode/tasks.json` | 一键 APK / IPA / deb / 安装 |
-| `Makefile` | `package` / `ipa` / `ipa-one` / `deb-install-one` 等 |
+| `scripts/one_click_apk_install.sh` | Release APK + `adb install -r` |
+| `Makefile` | `package` / `ipa` / `ipa-one` / `deb-install-one` / `apk-install-one` 等 |
 
 ---
 

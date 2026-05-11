@@ -7,3 +7,5 @@
 | **`apply_git_config.sh`** | 是 | 将 `machine.env` 中的 `GIT_*` 写入本仓库 `git config --local` |
 
 完整编译、CI、deb/ipa、安装流程见仓库根目录 **[`BUILD_AND_DEPLOY.md`](../BUILD_AND_DEPLOY.md)**；给 AI 的短索引见 **[`AGENTS.md`](../AGENTS.md)**。
+
+Android 一键安装依赖 **`ANDROID_SERIAL`**（仅多设备时）：见 **`machine.env.example`**。
