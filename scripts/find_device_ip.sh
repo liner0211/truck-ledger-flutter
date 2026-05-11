@@ -51,6 +51,10 @@ password = sys.argv[4]
 verbose = sys.argv[5].strip() == "1"
 cache_file = ".last_device_ip"
 
+import logging
+logging.getLogger("paramiko").setLevel(logging.CRITICAL)
+logging.getLogger("paramiko.transport").setLevel(logging.CRITICAL)
+
 def vlog(msg: str):
     if verbose:
         print(msg, file=sys.stderr, flush=True)
@@ -178,7 +182,7 @@ try_ip_list(quick_candidates)
 network = get_local_network()
 candidates = [str(ip) for ip in network.hosts() if str(ip) not in set(quick_candidates)]
 vlog(f"[scan] local network {network} ({len(candidates)} hosts)")
-with ThreadPoolExecutor(max_workers=48) as pool:
+with ThreadPoolExecutor(max_workers=24) as pool:
     futures = {pool.submit(can_connect, ip): ip for ip in candidates}
     for fut in as_completed(futures):
         ip = futures[fut]
@@ -197,7 +201,7 @@ fallback_nets = [
 for net in fallback_nets:
     more = [str(ip) for ip in net.hosts() if str(ip) not in set(quick_candidates)]
     vlog(f"[scan] fallback network {net} ({len(more)} hosts)")
-    with ThreadPoolExecutor(max_workers=48) as pool:
+    with ThreadPoolExecutor(max_workers=24) as pool:
         futures = {pool.submit(can_connect, ip): ip for ip in more}
         for fut in as_completed(futures):
             ip = futures[fut]

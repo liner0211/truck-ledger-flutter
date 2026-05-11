@@ -57,6 +57,11 @@ user = sys.argv[3]
 password = sys.argv[4]
 cache_file = ".last_device_ip"
 
+# Quiet paramiko noise like "Error reading SSH protocol banner"
+import logging
+logging.getLogger("paramiko").setLevel(logging.CRITICAL)
+logging.getLogger("paramiko.transport").setLevel(logging.CRITICAL)
+
 def can_connect(ip: str) -> bool:
     cli = paramiko.SSHClient()
     cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -176,7 +181,7 @@ try_ip_list(quick_candidates)
 network = get_local_network()
 candidates = [str(ip) for ip in network.hosts() if str(ip) not in set(quick_candidates)]
 
-with ThreadPoolExecutor(max_workers=48) as pool:
+with ThreadPoolExecutor(max_workers=24) as pool:
     futures = {pool.submit(can_connect, ip): ip for ip in candidates}
     for fut in as_completed(futures):
         ip = futures[fut]
@@ -194,7 +199,7 @@ fallback_nets = [
 ]
 for net in fallback_nets:
     more = [str(ip) for ip in net.hosts() if str(ip) not in set(quick_candidates)]
-    with ThreadPoolExecutor(max_workers=48) as pool:
+    with ThreadPoolExecutor(max_workers=24) as pool:
         futures = {pool.submit(can_connect, ip): ip for ip in more}
         for fut in as_completed(futures):
             ip = futures[fut]

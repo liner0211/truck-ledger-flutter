@@ -397,7 +397,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
 
   String _summaryBody(ProfitSummary sum) {
     final etcLine = sum.etcTollReconcileFee > 0.000001
-        ? '高速ETC对账手续费(0.7%)：${widget.money(sum.etcTollReconcileFee)}（已计入费用总与分成）\n'
+        ? '高速ETC对账手续费(0.35%)：${widget.money(sum.etcTollReconcileFee)}（已计入费用总与分成）\n'
         : '';
     return '''
 运费(总): ${widget.money(sum.totalFreight)}    利润: ${widget.money(sum.netProfit)}

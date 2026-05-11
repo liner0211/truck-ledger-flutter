@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
@@ -20,6 +21,25 @@ class AboutScreen extends StatelessWidget {
                   Text(
                     '卡车记账',
                     style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 6),
+                  FutureBuilder<PackageInfo>(
+                    future: PackageInfo.fromPlatform(),
+                    builder: (context, snap) {
+                      final style = Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: cs.onSurfaceVariant);
+                      if (snap.connectionState != ConnectionState.done) {
+                        return Text('版本 …', style: style);
+                      }
+                      final p = snap.data;
+                      if (p == null) return const SizedBox.shrink();
+                      return Text(
+                        '版本 ${p.version}（构建 ${p.buildNumber}）',
+                        style: style,
+                      );
+                    },
                   ),
                   const SizedBox(height: 8),
                   Text(
