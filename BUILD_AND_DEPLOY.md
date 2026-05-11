@@ -192,8 +192,13 @@ deb 输出目录：**`packages/`**，文件名形如 `com.liner0211.truckledger_
 
 ## 9. 版本号与应用内展示
 
-- **`pubspec.yaml`**：`version: x.y.z+build`（前半为版本名，后半为构建号）。
-- **关于页**使用 **`package_info_plus`** 显示运行时版本；发布新包前记得递增 `version:`。
+- **`pubspec.yaml`**：`version: x.y.z+默认构建号`（`+` 前半为 **版本名**，关于页里的「版本」；`+` 后半仅在未走脚本时作为默认构建号）。
+- **关于页**使用 **`package_info_plus`**，展示的是安装包里的 **versionName** 与 **versionCode**（即 Flutter 的 `--build-name` / `--build-number`）。
+- **自动构建号**（每次打包都会变，无需手改 `pubspec` 里的 `+` 数字）  
+  - 脚本：`scripts/flutter_build_version_env.sh`（被 `scripts/build_apk.sh`、`scripts/flutter_build_ios_release.sh`、CI 使用）。  
+  - **GitHub Actions**：`GITHUB_RUN_NUMBER`（随 workflow 运行单调递增）。  
+  - **本机**：`git rev-list --count HEAD`（随提交递增；浅克隆可能偏小，可接受）。  
+  - 可选覆盖：环境变量 **`FLUTTER_BUILD_NUMBER_OVERRIDE`**，或 **`SKIP_AUTO_BUILD_NUMBER=1`** 恢复完全使用 `flutter build` 默认（仅用 pubspec）。
 
 ---
 
@@ -228,6 +233,8 @@ deb 输出目录：**`packages/`**，文件名形如 `com.liner0211.truckledger_
 | `scripts/fetch_runner_and_package_deb.sh` | `gh` 下载 artifact + 解压 +（可选）打 deb |
 | `scripts/github_repo.sh` | 解析 `owner/repo` |
 | `scripts/project_env.sh` | 加载 `dev/machine.env` + `.device.env` |
+| `scripts/flutter_build_version_env.sh` | 计算 `FLUTTER_BUILD_NAME` / `FLUTTER_BUILD_NUMBER`（关于页随包更新） |
+| `scripts/flutter_build_ios_release.sh` | 带自动构建号的 `flutter build ios --release --no-codesign` |
 | `scripts/with_project_env.sh` | 任务/终端包装，支持临时覆盖 `DEVICE_PASS` 等 |
 | `dev/apply_git_config.sh` | 将 `machine.env` 中 `GIT_*` 写入本仓库 `git config --local` |
 | `AGENTS.md` | 给 AI / 新成员的短索引 |

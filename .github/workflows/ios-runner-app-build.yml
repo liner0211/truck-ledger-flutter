@@ -34,7 +34,7 @@ jobs:
         run: flutter pub get
 
       - name: Build iOS Runner.app (no codesign)
-        run: flutter build ios --release --no-codesign
+        run: ./scripts/flutter_build_ios_release.sh
 
       - name: Prepare Artifact
         run: |

@@ -20,7 +20,7 @@ if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
     flutter clean
   fi
   echo "[package_deb] flutter build ios --release --no-codesign..."
-  flutter build ios --release --no-codesign
+  "$ROOT_DIR/scripts/flutter_build_ios_release.sh"
 fi
 
 if [[ ! -d "$APP_SRC" ]]; then

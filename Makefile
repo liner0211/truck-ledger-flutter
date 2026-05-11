@@ -9,7 +9,7 @@ clean:
 	$(FLUTTER) clean
 
 ios-build:
-	$(FLUTTER) build ios --release --no-codesign
+	./scripts/flutter_build_ios_release.sh
 
 # 打越狱 deb（脚本内会执行 flutter build；需 macOS + Xcode）
 package:

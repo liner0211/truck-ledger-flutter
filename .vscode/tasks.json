@@ -54,7 +54,7 @@
     {
       "label": "TruckLedger Flutter: ios-build (flutter)",
       "type": "shell",
-      "command": "./scripts/with_project_env.sh flutter build ios --release --no-codesign",
+      "command": "./scripts/with_project_env.sh ./scripts/flutter_build_ios_release.sh",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },

@@ -47,6 +47,11 @@ Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`。数据为�
 
 - ETC 对账手续费：**0.35%**（`lib/services/profit_calculator.dart` 中 `etcTollReconcileRate = 0.0035`）。
 
+## 关于页版本 / 构建号
+
+- 关于里「版本 / 构建」来自 **`package_info_plus`**，与 **`flutter build`** 写入的 `--build-name` / `--build-number` 一致。  
+- 打包脚本与 CI 会通过 **`scripts/flutter_build_version_env.sh`** 自动注入构建号（CI 用 `GITHUB_RUN_NUMBER`，本机用 `git rev-list --count HEAD`），无需每次手改 `pubspec.yaml` 的 `+` 后缀。
+
 ## 不要提交
 
 - `dev/machine.env`、`.device.env`、密钥、PAT、`packages/`、`ipa-out/` 等（见 `.gitignore`）。

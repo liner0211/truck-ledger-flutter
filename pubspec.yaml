@@ -16,6 +16,10 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
+#
+# 「+」后为默认构建号；实际 flutter build 时由 scripts/flutter_build_version_env.sh 注入：
+# GitHub Actions 使用 GITHUB_RUN_NUMBER，本机使用 git rev-list --count HEAD。
+# 关于页（package_info_plus）显示的是产物内的 versionName / versionCode。
 version: 1.0.0+1
 
 environment:
