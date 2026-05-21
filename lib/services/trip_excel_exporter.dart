@@ -11,6 +11,26 @@ import 'attachment_store.dart';
 import 'profit_calculator.dart';
 import 'zip_writer.dart';
 
+String _escapeXml(String s) {
+  final buf = StringBuffer();
+  for (final ch in s.runes) {
+    if (ch != 0x9 &&
+        ch != 0xA &&
+        ch != 0xD &&
+        (ch < 0x20 || (ch >= 0xD800 && ch <= 0xDFFF))) {
+      continue;
+    }
+    var t = String.fromCharCode(ch);
+    t = t
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;');
+    buf.write(t);
+  }
+  return buf.toString();
+}
+
 class TripExcelExportResult {
   TripExcelExportResult({required this.file, required this.filename});
   final File file;
@@ -55,6 +75,43 @@ class _ImagePart {
   final int columnIndex0Based;
 }
 
+/// iOS 预览对 inlineStr 支持较差，改用 sharedStrings。
+class _SharedStringTable {
+  final List<String> _unique = [];
+  final Map<String, int> _index = {};
+  var _totalRefs = 0;
+
+  int indexFor(String text) {
+    _totalRefs++;
+    final cached = _index[text];
+    if (cached != null) return cached;
+    final i = _unique.length;
+    _unique.add(text);
+    _index[text] = i;
+    return i;
+  }
+
+  String toXml() {
+    final buf = StringBuffer();
+    buf.write(
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+      'count="$_totalRefs" uniqueCount="${_unique.length}">',
+    );
+    for (final s in _unique) {
+      final t = _escapeXml(s);
+      if (s.runes.any((c) => c == 0x20 || c == 0x0A || c == 0x0D) &&
+          (s.startsWith(' ') || s.endsWith(' ') || s.contains('\n'))) {
+        buf.write('<si><t xml:space="preserve">$t</t></si>');
+      } else {
+        buf.write('<si><t>$t</t></si>');
+      }
+    }
+    buf.write('</sst>');
+    return buf.toString();
+  }
+}
+
 /// 与 Swift `TripExcelExporter` 一致：手写 OOXML + `ZipWriter` 生成 `.xlsx`。
 class TripExcelExporter {
   TripExcelExporter._();
@@ -77,20 +134,22 @@ class TripExcelExporter {
 
     final rows = _buildRows(trip);
     final images = await _collectImages(rows);
+    final sst = _SharedStringTable();
+    final sheetXml = _worksheetXml(rows: rows, images: images, sst: sst);
 
     final zip = ZipWriter(file);
     zip.addFile(
       '[Content_Types].xml',
-      _utf8(_contentTypesXml(hasImages: images.isNotEmpty)),
+      _utf8(_contentTypesXml(images: images)),
     );
     zip.addFile('_rels/.rels', _utf8(_relsXml));
+    zip.addFile('docProps/core.xml', _utf8(_docPropsCoreXml));
+    zip.addFile('docProps/app.xml', _utf8(_docPropsAppXml));
     zip.addFile('xl/workbook.xml', _utf8(_workbookXml));
     zip.addFile('xl/_rels/workbook.xml.rels', _utf8(_workbookRelsXml));
     zip.addFile('xl/styles.xml', _utf8(_stylesXml));
-    zip.addFile(
-      'xl/worksheets/sheet1.xml',
-      _utf8(_worksheetXml(rows: rows, images: images)),
-    );
+    zip.addFile('xl/sharedStrings.xml', _utf8(sst.toXml()));
+    zip.addFile('xl/worksheets/sheet1.xml', _utf8(sheetXml));
 
     if (images.isNotEmpty) {
       zip.addFile('xl/drawings/drawing1.xml', _utf8(_drawingXml(images)));
@@ -314,6 +373,24 @@ class TripExcelExporter {
     return bits.join(' ');
   }
 
+  /// 仅嵌入 JPEG/PNG；HEIC 等格式跳过，避免 iOS OfficeImport 912。
+  static String? _imageExtensionFor(Uint8List data) {
+    if (data.length >= 3 &&
+        data[0] == 0xFF &&
+        data[1] == 0xD8 &&
+        data[2] == 0xFF) {
+      return 'jpg';
+    }
+    if (data.length >= 8 &&
+        data[0] == 0x89 &&
+        data[1] == 0x50 &&
+        data[2] == 0x4E &&
+        data[3] == 0x47) {
+      return 'png';
+    }
+    return null;
+  }
+
   static Future<List<_ImagePart>> _collectImages(List<_ExportRow> rows) async {
     final parts = <_ImagePart>[];
     var nextId = 1;
@@ -325,11 +402,13 @@ class TripExcelExporter {
         final f = await AttachmentStore.fileFor(name);
         if (!f.existsSync()) continue;
         final data = await f.readAsBytes();
+        final ext = _imageExtensionFor(data);
+        if (ext == null) continue;
         parts.add(_ImagePart(
           id: nextId,
-          partName: 'image$nextId.jpg',
+          partName: 'image$nextId.$ext',
           relId: 'rId$nextId',
-          data: Uint8List.fromList(data),
+          data: data,
           rowIndex1BasedInSheet: sheetRow,
           columnIndex0Based: 6 + j,
         ));
@@ -342,6 +421,7 @@ class TripExcelExporter {
   static String _worksheetXml({
     required List<_ExportRow> rows,
     required List<_ImagePart> images,
+    required _SharedStringTable sst,
   }) {
     final buf = StringBuffer();
     buf.write('''
@@ -359,19 +439,21 @@ class TripExcelExporter {
   <col min="6" max="6" width="10" customWidth="1"/>
   <col min="7" max="20" width="18" customWidth="1"/>
 </cols>
-<sheetData>
 ''');
+    final lastRow = rows.length + 1;
+    buf.write('<dimension ref="A1:G$lastRow"/>');
+    buf.write('<sheetData>');
     buf.write(_rowXml(
       rowIndex: 1,
       height: 22,
       cells: [
-        _inlineCell('A1', '时间'),
-        _inlineCell('B1', '类型'),
-        _inlineCell('C1', '内容'),
-        _inlineCell('D1', '金额'),
-        _inlineCell('E1', '支付'),
-        _inlineCell('F1', '可报销'),
-        _inlineCell('G1', '图片(从G列开始)'),
+        _sharedCell('A1', '时间', sst),
+        _sharedCell('B1', '类型', sst),
+        _sharedCell('C1', '内容', sst),
+        _sharedCell('D1', '金额', sst),
+        _sharedCell('E1', '支付', sst),
+        _sharedCell('F1', '可报销', sst),
+        _sharedCell('G1', '图片(从G列开始)', sst),
       ],
     ));
 
@@ -380,15 +462,15 @@ class TripExcelExporter {
       final ridx = i + 2;
       final h = r.images.isNotEmpty ? 80.0 : 22.0;
       final cells = <String>[
-        _inlineCell('A$ridx', r.dateText),
-        _inlineCell('B$ridx', r.type),
-        _inlineCell('C$ridx', r.title),
+        _sharedCell('A$ridx', r.dateText, sst),
+        _sharedCell('B$ridx', r.type, sst),
+        _sharedCell('C$ridx', r.title, sst),
         if (r.amount != null)
           _numberCell('D$ridx', r.amount!)
         else
-          _inlineCell('D$ridx', ''),
-        _inlineCell('E$ridx', r.payment),
-        _inlineCell('F$ridx', r.reimbursableText),
+          _sharedCell('D$ridx', '', sst),
+        _sharedCell('E$ridx', r.payment, sst),
+        _sharedCell('F$ridx', r.reimbursableText, sst),
       ];
       buf.write(_rowXml(rowIndex: ridx, height: h, cells: cells));
     }
@@ -423,7 +505,7 @@ class TripExcelExporter {
       final toCol = fromCol + 1;
       final toRow = fromRow + 1;
       buf.write('''
-<xdr:twoCellAnchor>
+<xdr:twoCellAnchor editAs="twoCell">
   <xdr:from><xdr:col>$fromCol</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>$fromRow</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
   <xdr:to><xdr:col>$toCol</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>$toRow</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
   <xdr:pic>
@@ -470,22 +552,35 @@ class TripExcelExporter {
 </Relationships>
 ''';
 
-  static String _contentTypesXml({required bool hasImages}) {
+  static String _contentTypesXml({required List<_ImagePart> images}) {
     final buf = StringBuffer();
     buf.write('''
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
   <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
   <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
   <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  <Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>
 ''');
-    if (hasImages) {
-      buf.write('''
-  <Default Extension="jpg" ContentType="image/jpeg"/>
-  <Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>
-''');
+    if (images.isNotEmpty) {
+      final hasJpg = images.any((e) => e.partName.endsWith('.jpg'));
+      final hasPng = images.any((e) => e.partName.endsWith('.png'));
+      if (hasJpg) {
+        buf.write(
+          '  <Default Extension="jpg" ContentType="image/jpeg"/>\n'
+          '  <Default Extension="jpeg" ContentType="image/jpeg"/>\n',
+        );
+      }
+      if (hasPng) {
+        buf.write('  <Default Extension="png" ContentType="image/png"/>\n');
+      }
+      buf.write(
+        '  <Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>\n',
+      );
     }
     buf.write('</Types>');
     return buf.toString();
@@ -495,7 +590,24 @@ class TripExcelExporter {
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
 </Relationships>
+''';
+
+  static const _docPropsCoreXml = '''
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:creator>卡车记账</dc:creator>
+  <cp:lastModifiedBy>卡车记账</cp:lastModifiedBy>
+</cp:coreProperties>
+''';
+
+  static const _docPropsAppXml = '''
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">
+  <Application>卡车记账</Application>
+</Properties>
 ''';
 
   static const _workbookXml = '''
@@ -513,6 +625,7 @@ class TripExcelExporter {
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>
 </Relationships>
 ''';
 
@@ -524,6 +637,7 @@ class TripExcelExporter {
   <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
   <cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>
 ''';
 
@@ -536,9 +650,9 @@ ${cells.join()}
 ''';
   }
 
-  static String _inlineCell(String ref, String text) {
-    final t = _escapeXml(text);
-    return '<c r="$ref" t="inlineStr"><is><t>$t</t></is></c>';
+  static String _sharedCell(String ref, String text, _SharedStringTable sst) {
+    if (text.isEmpty) return '<c r="$ref"/>';
+    return '<c r="$ref" t="s"><v>${sst.indexFor(text)}</v></c>';
   }
 
   static String _numberCell(String ref, double value) {
@@ -548,26 +662,6 @@ ${cells.join()}
 
   /// OOXML 声明 UTF-8，须用 [utf8.encode]；勿用 [String.codeUnits]（会破坏中文）。
   static Uint8List _utf8(String s) => Uint8List.fromList(utf8.encode(s));
-
-  static String _escapeXml(String s) {
-    final buf = StringBuffer();
-    for (final ch in s.runes) {
-      if (ch != 0x9 &&
-          ch != 0xA &&
-          ch != 0xD &&
-          (ch < 0x20 || (ch >= 0xD800 && ch <= 0xDFFF))) {
-        continue;
-      }
-      var t = String.fromCharCode(ch);
-      t = t
-          .replaceAll('&', '&amp;')
-          .replaceAll('<', '&lt;')
-          .replaceAll('>', '&gt;')
-          .replaceAll('"', '&quot;');
-      buf.write(t);
-    }
-    return buf.toString();
-  }
 
   static String _sanitizeFilename(String s) {
     return s.replaceAll(RegExp(r'[/\\?%*|"<>:]'), '_');
