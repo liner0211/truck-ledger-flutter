@@ -83,10 +83,11 @@ class ZipWriter {
       u32(e.compressedSize);
       u32(e.uncompressedSize);
       u16(nameBytes.length);
-      u16(0);
-      u16(0);
-      u16(0);
-      u32(0);
+      u16(0); // extra field length
+      u16(0); // file comment length（此前漏写，导致 localHeaderOffset 错位为 0）
+      u16(0); // disk number start
+      u16(0); // internal file attributes
+      u32(0); // external file attributes
       u32(e.localHeaderOffset);
       central.add(c.buffer.asUint8List(0, 46));
       central.add(nameBytes);

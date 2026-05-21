@@ -135,11 +135,11 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   Future<void> _export() async {
     try {
       final result = await TripExcelExporter.exportTrip(_trip);
-      final bytes = await result.file.readAsBytes();
+      // 与 Swift 一致：分享磁盘上的 .xlsx 文件 URL，避免 fromData 临时文件类型异常
       await Share.shareXFiles(
         [
-          XFile.fromData(
-            bytes,
+          XFile(
+            result.file.path,
             name: result.filename,
             mimeType:
                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
