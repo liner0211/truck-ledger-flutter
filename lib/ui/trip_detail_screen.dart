@@ -135,7 +135,17 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   Future<void> _export() async {
     try {
       final result = await TripExcelExporter.exportTrip(_trip);
-      await Share.shareXFiles([XFile(result.file.path)], subject: result.filename);
+      await Share.shareXFiles(
+        [
+          XFile(
+            result.file.path,
+            name: result.filename,
+            mimeType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          ),
+        ],
+        subject: result.filename,
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导出失败：$e')));

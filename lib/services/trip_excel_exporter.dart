@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -80,30 +81,24 @@ class TripExcelExporter {
     final zip = ZipWriter(file);
     zip.addFile(
       '[Content_Types].xml',
-      Uint8List.fromList(_contentTypesXml(hasImages: images.isNotEmpty).codeUnits),
+      _utf8(_contentTypesXml(hasImages: images.isNotEmpty)),
     );
-    zip.addFile('_rels/.rels', Uint8List.fromList(_relsXml.codeUnits));
-    zip.addFile('xl/workbook.xml', Uint8List.fromList(_workbookXml.codeUnits));
-    zip.addFile('xl/_rels/workbook.xml.rels', Uint8List.fromList(_workbookRelsXml.codeUnits));
-    zip.addFile('xl/styles.xml', Uint8List.fromList(_stylesXml.codeUnits));
+    zip.addFile('_rels/.rels', _utf8(_relsXml));
+    zip.addFile('xl/workbook.xml', _utf8(_workbookXml));
+    zip.addFile('xl/_rels/workbook.xml.rels', _utf8(_workbookRelsXml));
+    zip.addFile('xl/styles.xml', _utf8(_stylesXml));
     zip.addFile(
       'xl/worksheets/sheet1.xml',
-      Uint8List.fromList(_worksheetXml(rows: rows, images: images).codeUnits),
+      _utf8(_worksheetXml(rows: rows, images: images)),
     );
 
     if (images.isNotEmpty) {
-      zip.addFile(
-        'xl/drawings/drawing1.xml',
-        Uint8List.fromList(_drawingXml(images).codeUnits),
-      );
+      zip.addFile('xl/drawings/drawing1.xml', _utf8(_drawingXml(images)));
       zip.addFile(
         'xl/drawings/_rels/drawing1.xml.rels',
-        Uint8List.fromList(_drawingRelsXml(images).codeUnits),
+        _utf8(_drawingRelsXml(images)),
       );
-      zip.addFile(
-        'xl/worksheets/_rels/sheet1.xml.rels',
-        Uint8List.fromList(_sheetRelsXml.codeUnits),
-      );
+      zip.addFile('xl/worksheets/_rels/sheet1.xml.rels', _utf8(_sheetRelsXml));
       for (final img in images) {
         zip.addFile('xl/media/${img.partName}', img.data);
       }
@@ -551,12 +546,27 @@ ${cells.join()}
     return '<c r="$ref"><v>$v</v></c>';
   }
 
+  /// OOXML 声明 UTF-8，须用 [utf8.encode]；勿用 [String.codeUnits]（会破坏中文）。
+  static Uint8List _utf8(String s) => Uint8List.fromList(utf8.encode(s));
+
   static String _escapeXml(String s) {
-    return s
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;');
+    final buf = StringBuffer();
+    for (final ch in s.runes) {
+      if (ch != 0x9 &&
+          ch != 0xA &&
+          ch != 0xD &&
+          (ch < 0x20 || (ch >= 0xD800 && ch <= 0xDFFF))) {
+        continue;
+      }
+      var t = String.fromCharCode(ch);
+      t = t
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;');
+      buf.write(t);
+    }
+    return buf.toString();
   }
 
   static String _sanitizeFilename(String s) {
