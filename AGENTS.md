@@ -52,10 +52,11 @@ Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`。数据为�
 - 关于里「版本 / 构建」来自 **`package_info_plus`**，与 **`flutter build`** 写入的 `--build-name` / `--build-number` 一致。  
 - 打包脚本与 CI 会通过 **`scripts/flutter_build_version_env.sh`** 自动注入构建号（CI 用 `GITHUB_RUN_NUMBER`，本机用 `git rev-list --count HEAD`），无需每次手改 `pubspec.yaml` 的 `+` 后缀。
 
-## 账本导入
+## 账本导入 / 导出备份
 
-- 圈次总览 **更多 → 导入账本…**：选择 `ledger_book.json` 或同结构的 JSON；支持 **合并**（id 冲突则整圈换新 id）或 **覆盖**（二次确认）。
-- 附件仅随 JSON 中的文件名引用；若沙盒内无对应文件则缩略图无法显示。
+- **导出备份…**：生成 ZIP（`ledger_book.json` + `attachments/` 内引用的图片），经系统分享保存。
+- **导入账本…**：支持本应用导出的 **`.zip`** 或 **`.json`**；ZIP 会一并恢复附件。支持 **合并** / **覆盖**（二次确认）。
+- 实现：`ledger_backup_exporter.dart`、`ledger_backup_importer.dart`。
 
 ## 不要提交
 

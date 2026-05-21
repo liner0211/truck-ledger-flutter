@@ -48,6 +48,7 @@ dependencies:
   path: ^1.9.1
   package_info_plus: ^9.0.1
   file_picker: ^11.0.2
+  archive: ^4.0.9
 
 dev_dependencies:
   flutter_test:
