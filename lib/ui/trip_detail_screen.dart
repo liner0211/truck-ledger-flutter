@@ -135,10 +135,11 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   Future<void> _export() async {
     try {
       final result = await TripExcelExporter.exportTrip(_trip);
+      final bytes = await result.file.readAsBytes();
       await Share.shareXFiles(
         [
-          XFile(
-            result.file.path,
+          XFile.fromData(
+            bytes,
             name: result.filename,
             mimeType:
                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

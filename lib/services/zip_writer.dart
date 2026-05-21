@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -12,7 +13,7 @@ class ZipWriter {
   final List<_ZipEntry> _entries = [];
 
   void addFile(String path, Uint8List data) {
-    final nameBytes = Uint8List.fromList(path.codeUnits);
+    final nameBytes = Uint8List.fromList(utf8.encode(path));
     final crc = _crc32(data);
     final offset = _raf.positionSync();
 
@@ -58,7 +59,7 @@ class ZipWriter {
     final central = BytesBuilder();
 
     for (final e in _entries) {
-      final nameBytes = Uint8List.fromList(e.path.codeUnits);
+      final nameBytes = Uint8List.fromList(utf8.encode(e.path));
       final c = ByteData(46);
       var o = 0;
       void u32(int v) {
@@ -132,12 +133,13 @@ class _ZipEntry {
   final int localHeaderOffset;
 }
 
+/// 与 Swift `CRC32.compute` 一致：全程按无符号 32 位运算。
 int _crc32(Uint8List data) {
   var crc = 0xffffffff;
   for (final b in data) {
-    crc = _crcTable[(crc ^ b) & 0xff] ^ (crc >> 8);
+    crc = (_crcTable[(crc ^ b) & 0xff] ^ (crc >>> 8)) & 0xffffffff;
   }
-  return crc ^ 0xffffffff;
+  return (crc ^ 0xffffffff) & 0xffffffff;
 }
 
 final List<int> _crcTable = _makeCrcTable();
@@ -149,7 +151,7 @@ List<int> _makeCrcTable() {
     for (var k = 0; k < 8; k++) {
       c = (c & 1) != 0 ? (0xedb88320 ^ (c >> 1)) : (c >> 1);
     }
-    out[i] = c;
+    out[i] = c & 0xffffffff;
   }
   return out;
 }
