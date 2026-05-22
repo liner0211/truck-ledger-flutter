@@ -88,8 +88,8 @@ class ProfitCalculator {
         ledger.expenses.fold<double>(0, (a, e) => a + expenseEtcPortion(e)) +
             etcTollReconcileFee;
 
-    final profitExpense =
-        (infoFee + extraExpense + etcTollReconcileFee) - reimbursableCashExpense;
+    // 正常会计：可报销计入利润/费用总；交账时在 cashNetSettlement 中加回 reimbursable。
+    final profitExpense = infoFee + extraExpense + etcTollReconcileFee;
     final cashExpense = routeCashInfoFee + cashExtraExpense;
     final companyExpense =
         routeCompanyInfoFee + companyExtraExpense + etcExtraExpense;

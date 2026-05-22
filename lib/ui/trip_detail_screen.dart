@@ -410,13 +410,17 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     final etcLine = sum.etcTollReconcileFee > 0.000001
         ? '高速ETC对账手续费(0.35%)：${widget.money(sum.etcTollReconcileFee)}（已计入费用总与分成）\n'
         : '';
+    final reimbLine = sum.reimbursableCashExpense > 0.000001
+        ? '其中可报销(现金)：${widget.money(sum.reimbursableCashExpense)}（已计入费用总；交账结算时加回）\n'
+        : '';
+    final travelLine = '出车费差额：${_reconcileText(sum.travelCashReconcile)}'
+        '（现金花费 ${widget.money(sum.cashTotalExpense)} − 已支取 ${widget.money(sum.cashAdvances)}）\n';
     return '''
 运费(总): ${widget.money(sum.totalFreight)}    利润: ${widget.money(sum.netProfit)}
 费用(总): ${widget.money(sum.totalExpense)}    分成: 司机 ${widget.money(sum.driverShare)} / 老板 ${widget.money(sum.ownerShare)}
 
 费用明细：油费 ${widget.money(sum.fuelExpense)}｜高速 ${widget.money(sum.tollExpense)}｜其他 ${widget.money(sum.otherExpense)}｜信息费 ${widget.money(sum.totalInfoFee)}
-$etcLine其中可报销(现金)：${widget.money(sum.reimbursableCashExpense)}（交账时老板应退还）
-现金对账：现金费用 ${widget.money(sum.cashTotalExpense)}｜已支取 ${widget.money(sum.cashAdvances)}｜${_reconcileText(sum.cashNetSettlement)}
+$etcLine$reimbLine$travelLine交账净额：${_reconcileText(sum.cashNetSettlement)}（出车费差额 + 可报销结算）
 ''';
   }
 

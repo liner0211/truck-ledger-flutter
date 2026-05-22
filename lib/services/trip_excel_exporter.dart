@@ -304,12 +304,13 @@ class TripExcelExporter {
     summaryLine('分成-老板应得', fmt(sum.ownerShare));
     summaryLine('现金费用(对账口径)', fmt(sum.cashTotalExpense));
     summaryLine('已支取现金', fmt(sum.cashAdvances));
+    summaryLine('出车费差额(现金花费-已支取)', fmt(sum.travelCashReconcile));
     final reconcileText = sum.cashNetSettlement > 0.000001
         ? '老板补你 ${fmt(sum.cashNetSettlement)}'
         : (sum.cashNetSettlement < -0.000001
             ? '你退老板 ${fmt(-sum.cashNetSettlement)}'
             : '无差额');
-    summaryLine('多退少补', reconcileText);
+    summaryLine('交账净额(出车费差额+可报销)', reconcileText);
 
     return rows;
   }
