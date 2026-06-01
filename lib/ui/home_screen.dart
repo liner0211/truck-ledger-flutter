@@ -31,11 +31,11 @@ class HomeScreen extends StatelessWidget {
     } else {
       final summaries = book.rounds.map(ProfitCalculator.calculate).toList();
       final totalWageDue =
-          summaries.fold<double>(0, (a, s) => a + s.driverShare);
+          summaries.fold<double>(0, (a, s) => a + s.driverWagePayable);
       var totalWagePaid = 0.0;
       for (var i = 0; i < book.rounds.length; i++) {
         if (book.rounds[i].isSalarySettled) {
-          totalWagePaid += summaries[i].driverShare;
+          totalWagePaid += summaries[i].driverWagePayable;
         }
       }
       final unpaid = totalWageDue - totalWagePaid;
@@ -200,8 +200,8 @@ class HomeScreen extends StatelessWidget {
                                       Expanded(
                                         child: _pill(
                                           context,
-                                          label: '司机分成',
-                                          value: ctrl.money(sum.driverShare),
+                                          label: '司机应发',
+                                          value: ctrl.money(sum.driverWagePayable),
                                           icon: Icons.account_circle_outlined,
                                         ),
                                       ),

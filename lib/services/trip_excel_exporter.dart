@@ -301,6 +301,7 @@ class TripExcelExporter {
     summaryLine('费用(总，利润口径)', fmt(sum.totalExpense));
     summaryLine('利润', fmt(sum.netProfit));
     summaryLine('分成-司机应得', fmt(sum.driverShare));
+    summaryLine('司机应发工资(分成+报销)', fmt(sum.driverWagePayable));
     summaryLine('分成-老板应得', fmt(sum.ownerShare));
     summaryLine('现金费用(对账口径)', fmt(sum.cashTotalExpense));
     summaryLine('已支取现金', fmt(sum.cashAdvances));
@@ -310,7 +311,7 @@ class TripExcelExporter {
         : (sum.cashNetSettlement < -0.000001
             ? '你退老板 ${fmt(-sum.cashNetSettlement)}'
             : '无差额');
-    summaryLine('交账净额(出车费差额+可报销)', reconcileText);
+    summaryLine('交账净额(出车费差额)', reconcileText);
 
     return rows;
   }

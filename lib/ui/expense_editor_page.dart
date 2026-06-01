@@ -223,7 +223,7 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
             const SizedBox(height: 16),
             SwitchListTile(
               title: const Text('老板报销承担（仅现金）'),
-              subtitle: const Text('开启后：计入本圈费用与分成；交账时老板全额退还给你'),
+              subtitle: const Text('开启后：计入本圈费用与分成；发工资时与分成一并结算退还'),
               value: _reimbursable,
               onChanged: _pay == PaymentSource.cash
                   ? (v) {

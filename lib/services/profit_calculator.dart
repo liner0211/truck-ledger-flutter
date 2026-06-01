@@ -16,6 +16,7 @@ class ProfitSummary {
     required this.expenseByCompany,
     required this.netProfit,
     required this.driverShare,
+    required this.driverWagePayable,
     required this.ownerShare,
     required this.cashAdvances,
     required this.travelCashReconcile,
@@ -36,6 +37,8 @@ class ProfitSummary {
   final double expenseByCompany;
   final double netProfit;
   final double driverShare;
+  /// 发工资应付：分成应得 + 可报销(现金)。
+  final double driverWagePayable;
   final double ownerShare;
   final double cashAdvances;
   final double travelCashReconcile;
@@ -88,7 +91,7 @@ class ProfitCalculator {
         ledger.expenses.fold<double>(0, (a, e) => a + expenseEtcPortion(e)) +
             etcTollReconcileFee;
 
-    // 正常会计：可报销计入利润/费用总；交账时在 cashNetSettlement 中加回 reimbursable。
+    // 可报销计入利润/费用总；交账仅结出车费差额，报销在发工资时与分成一并结算。
     final profitExpense = infoFee + extraExpense + etcTollReconcileFee;
     final cashExpense = routeCashInfoFee + cashExtraExpense;
     final companyExpense =
@@ -97,10 +100,11 @@ class ProfitCalculator {
         ledger.cashAdvances.fold<double>(0, (a, c) => a + c.amount);
     final net = freight - profitExpense;
     final driverShare = net * 0.5;
+    final driverWagePayable = driverShare + reimbursableCashExpense;
     final ownerShare = net * 0.5;
     final cashTotalExpense = cashExpense;
     final travelCashReconcile = cashTotalExpense - cashAdvancesTotal;
-    final cashNetSettlement = travelCashReconcile + reimbursableCashExpense;
+    final cashNetSettlement = travelCashReconcile;
 
     return ProfitSummary(
       totalFreight: freight,
@@ -117,6 +121,7 @@ class ProfitCalculator {
       expenseByCompany: companyExpense,
       netProfit: net,
       driverShare: driverShare,
+      driverWagePayable: driverWagePayable,
       ownerShare: ownerShare,
       cashAdvances: cashAdvancesTotal,
       travelCashReconcile: travelCashReconcile,
