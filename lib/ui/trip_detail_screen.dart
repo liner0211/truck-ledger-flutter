@@ -411,13 +411,15 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         ? '高速ETC对账手续费(0.35%)：${widget.money(sum.etcTollReconcileFee)}（已计入费用总与分成）\n'
         : '';
     final reimbLine = sum.reimbursableCashExpense > 0.000001
-        ? '其中可报销(现金)：${widget.money(sum.reimbursableCashExpense)}（已计入费用总；发工资时结算）\n'
+        ? '其中可报销(现金)：${widget.money(sum.reimbursableCashExpense)}'
+            '（已计入费用总；你承担一半 ${widget.money(sum.reimbursableCashExpense - sum.reimbursableOwnerShare)}，'
+            '老板承担一半 ${widget.money(sum.reimbursableOwnerShare)}）\n'
         : '';
     final travelLine = '出车费差额：${_reconcileText(sum.travelCashReconcile)}'
         '（现金花费 ${widget.money(sum.cashTotalExpense)} − 已支取 ${widget.money(sum.cashAdvances)}）\n';
     final wageLine = sum.reimbursableCashExpense > 0.000001
         ? '司机应发工资：${widget.money(sum.driverWagePayable)}'
-            '（分成 ${widget.money(sum.driverShare)} + 报销 ${widget.money(sum.reimbursableCashExpense)}）\n'
+            '（分成 ${widget.money(sum.driverShare)} + 老板还你 ${widget.money(sum.reimbursableOwnerShare)}）\n'
         : '';
     return '''
 运费(总): ${widget.money(sum.totalFreight)}    利润: ${widget.money(sum.netProfit)}

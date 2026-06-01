@@ -298,10 +298,11 @@ class TripExcelExporter {
     summaryLine('高速ETC对账手续费(0.35%)', fmt(sum.etcTollReconcileFee));
     summaryLine('其他费用', fmt(sum.otherExpense));
     summaryLine('其中可报销(现金)', fmt(sum.reimbursableCashExpense));
+    summaryLine('可报销-老板承担(发工资还)', fmt(sum.reimbursableOwnerShare));
     summaryLine('费用(总，利润口径)', fmt(sum.totalExpense));
     summaryLine('利润', fmt(sum.netProfit));
     summaryLine('分成-司机应得', fmt(sum.driverShare));
-    summaryLine('司机应发工资(分成+报销)', fmt(sum.driverWagePayable));
+    summaryLine('司机应发工资(分成+老板还)', fmt(sum.driverWagePayable));
     summaryLine('分成-老板应得', fmt(sum.ownerShare));
     summaryLine('现金费用(对账口径)', fmt(sum.cashTotalExpense));
     summaryLine('已支取现金', fmt(sum.cashAdvances));

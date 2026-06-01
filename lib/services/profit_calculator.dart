@@ -10,6 +10,7 @@ class ProfitSummary {
     required this.etcTollReconcileFee,
     required this.otherExpense,
     required this.reimbursableCashExpense,
+    required this.reimbursableOwnerShare,
     required this.cashTotalExpense,
     required this.totalExpense,
     required this.expenseByCash,
@@ -31,13 +32,15 @@ class ProfitSummary {
   final double etcTollReconcileFee;
   final double otherExpense;
   final double reimbursableCashExpense;
+  /// 可报销中由老板承担、发工资时应还给司机的部分（五五分成下为总额的一半）。
+  final double reimbursableOwnerShare;
   final double cashTotalExpense;
   final double totalExpense;
   final double expenseByCash;
   final double expenseByCompany;
   final double netProfit;
   final double driverShare;
-  /// 发工资应付：分成应得 + 可报销(现金)。
+  /// 发工资应付：分成应得 + 老板应承担的可报销份额（非全额垫付）。
   final double driverWagePayable;
   final double ownerShare;
   final double cashAdvances;
@@ -91,7 +94,8 @@ class ProfitCalculator {
         ledger.expenses.fold<double>(0, (a, e) => a + expenseEtcPortion(e)) +
             etcTollReconcileFee;
 
-    // 可报销计入利润/费用总；交账仅结出车费差额，报销在发工资时与分成一并结算。
+    // 可报销计入利润/费用总（五五分担）；交账仅结出车费差额；
+    // 发工资时只加回老板承担的一半，司机承担的一半已体现在较低的分成里。
     final profitExpense = infoFee + extraExpense + etcTollReconcileFee;
     final cashExpense = routeCashInfoFee + cashExtraExpense;
     final companyExpense =
@@ -100,7 +104,8 @@ class ProfitCalculator {
         ledger.cashAdvances.fold<double>(0, (a, c) => a + c.amount);
     final net = freight - profitExpense;
     final driverShare = net * 0.5;
-    final driverWagePayable = driverShare + reimbursableCashExpense;
+    final reimbursableOwnerShare = reimbursableCashExpense * 0.5;
+    final driverWagePayable = driverShare + reimbursableOwnerShare;
     final ownerShare = net * 0.5;
     final cashTotalExpense = cashExpense;
     final travelCashReconcile = cashTotalExpense - cashAdvancesTotal;
@@ -115,6 +120,7 @@ class ProfitCalculator {
       etcTollReconcileFee: etcTollReconcileFee,
       otherExpense: otherExpense,
       reimbursableCashExpense: reimbursableCashExpense,
+      reimbursableOwnerShare: reimbursableOwnerShare,
       cashTotalExpense: cashTotalExpense,
       totalExpense: profitExpense,
       expenseByCash: cashExpense,
