@@ -9,6 +9,7 @@ import '../services/ledger_backup_importer.dart';
 import '../services/profit_calculator.dart';
 import '../state/ledger_controller.dart';
 import 'about_screen.dart';
+import 'account_screen.dart';
 import 'trip_detail_screen.dart';
 import 'trip_meta_editor.dart';
 
@@ -64,6 +65,13 @@ class HomeScreen extends StatelessWidget {
                 await _pickAndImportLedger(context);
                 if (!context.mounted) return;
               }
+              if (v == 'account') {
+                if (!context.mounted) return;
+                await Navigator.push<void>(
+                  context,
+                  MaterialPageRoute<void>(builder: (_) => const AccountScreen()),
+                );
+              }
               if (v == 'about') {
                 if (!context.mounted) return;
                 Navigator.push<void>(
@@ -73,6 +81,7 @@ class HomeScreen extends StatelessWidget {
               }
             },
             itemBuilder: (context) => const [
+              PopupMenuItem(value: 'account', child: Text('账号与同步…')),
               PopupMenuItem(value: 'export', child: Text('导出备份…')),
               PopupMenuItem(value: 'import', child: Text('导入账本…')),
               PopupMenuItem(value: 'about', child: Text('关于')),

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 一键：本机 flutter build apk（Release）→ adb install -r 到已连接设备
-# 依赖: dev/machine.env 中 FLUTTER_BIN_PATH（或 PATH 已有 flutter）、adb、已开启 USB 调试或已 adb connect
-# 多设备时在 machine.env 设置 ANDROID_SERIAL=序列号
+# 依赖: dev/machine.env 中 FLUTTER_BIN_PATH（或 PATH 已有 flutter）、adb
+# 自动发现：USB 已连接设备，或扫描局域网无线 adb（默认端口 5555，见 discover_android_adb.py）
+# 多设备时在 machine.env 设置 ANDROID_SERIAL=序列号；固定 IP 可设 ANDROID_IP
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,21 +24,16 @@ if [[ ! -f "$APK" ]]; then
   exit 1
 fi
 
-mapfile -t _devs < <(adb devices | awk 'NR>1 && $2=="device" {print $1}')
-count="${#_devs[@]}"
-
-if [[ -n "${ANDROID_SERIAL:-}" ]]; then
-  echo "[一键 Android] 使用 ANDROID_SERIAL=$ANDROID_SERIAL"
-  adb -s "$ANDROID_SERIAL" install -r "$APK"
-elif [[ "$count" -eq 0 ]]; then
-  echo "ERROR: 没有已连接且授权的设备。请 USB 连接并允许调试，或执行: adb connect IP:5555" >&2
+echo "[一键 Android] 正在发现设备..."
+ANDROID_TARGET="$(
+  python3 "$ROOT_DIR/scripts/discover_android_adb.py"
+)" || {
+  echo "ERROR: 未发现可用 Android 设备。" >&2
+  echo "  USB：连接并允许调试；无线：开启无线调试（默认端口 5555）" >&2
+  echo "  或设置 ANDROID_IP=192.168.x.x；多台设备设置 ANDROID_SERIAL" >&2
   exit 1
-elif [[ "$count" -gt 1 ]]; then
-  echo "ERROR: 检测到多台设备: ${_devs[*]}" >&2
-  echo "请在 dev/machine.env 设置 ANDROID_SERIAL=其中一台的序列号，或只保留一台连接。" >&2
-  exit 1
-else
-  echo "[一键 Android] 正在安装到设备 ${_devs[0]} ..."
-  adb install -r "$APK"
-fi
+}
+echo "[一键 Android] Device found: $ANDROID_TARGET"
+echo "[一键 Android] 正在安装..."
+adb -s "$ANDROID_TARGET" install -r "$APK"
 echo "[一键 Android] 完成: $APK"

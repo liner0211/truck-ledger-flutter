@@ -30,7 +30,7 @@ class LedgerBackupExporter {
 
   static final _ts = DateFormat('yyyyMMdd_HHmmss');
 
-  static Set<String> _collectAttachmentNames(LedgerBook book) {
+  static Set<String> collectAttachmentNames(LedgerBook book) {
     final names = <String>{};
     for (final round in book.rounds) {
       for (final leg in round.routeLegs) {
@@ -71,7 +71,7 @@ class LedgerBackupExporter {
 
     final attDir = await AttachmentStore.attachmentsDirectory();
     var attached = 0;
-    for (final name in _collectAttachmentNames(book)) {
+    for (final name in collectAttachmentNames(book)) {
       final src = File(p.join(attDir.path, name));
       if (!src.existsSync()) continue;
       zip.addFile('attachments/$name', await src.readAsBytes());

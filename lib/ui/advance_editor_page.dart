@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/trip_models.dart';
 import '../services/attachment_store.dart';
+import '../services/photo_picker_helper.dart';
 import 'formatters.dart';
 import 'image_viewer_page.dart';
 
@@ -48,13 +48,9 @@ class _AdvanceEditorPageState extends State<AdvanceEditorPage> {
   }
 
   Future<void> _addPhotos() async {
-    final picker = ImagePicker();
-    final files = await picker.pickMultiImage(imageQuality: 85);
-    for (final x in files) {
-      final bytes = await x.readAsBytes();
-      final name = await AttachmentStore.saveJpeg(bytes);
-      if (name != null) setState(() => _attachments.add(name));
-    }
+    final names = await pickAndSaveAttachmentPhotos(context);
+    if (names.isEmpty) return;
+    setState(() => _attachments.addAll(names));
   }
 
   Future<void> _openImage(String name) async {

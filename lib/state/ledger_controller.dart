@@ -5,6 +5,8 @@ import 'package:uuid/uuid.dart';
 
 import '../models/trip_models.dart';
 import '../services/ledger_store.dart';
+import '../services/auth_api.dart';
+import '../state/auth_controller.dart';
 
 /// 与 `RootViewController` 行为对齐：总览列表、排序、持久化。
 class LedgerController extends ChangeNotifier {
@@ -16,6 +18,9 @@ class LedgerController extends ChangeNotifier {
   final _uuid = const Uuid();
   final _startFmt = DateFormat('yyyy-MM-dd HH:mm');
 
+  AuthController? _auth;
+  bool _cloudPushPending = false;
+
   LedgerBook _book = LedgerBook.empty();
   bool _sortAscending = true;
   bool _loaded = false;
@@ -23,6 +28,10 @@ class LedgerController extends ChangeNotifier {
   LedgerBook get book => _book;
   bool get sortAscending => _sortAscending;
   bool get isLoaded => _loaded;
+
+  void attachAuth(AuthController auth) {
+    _auth = auth;
+  }
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -35,6 +44,107 @@ class LedgerController extends ChangeNotifier {
 
   Future<void> _persist() async {
     await _store.save(_book);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _auth?.setLocalUpdatedAt(now);
+    notifyListeners();
+    _queueCloudPush();
+  }
+
+  void _queueCloudPush() {
+    if (_cloudPushPending) return;
+    final sync = _auth?.syncService;
+    if (sync == null) return;
+    _cloudPushPending = true;
+    Future<void>(() async {
+      try {
+        final updatedAt = await sync.pushFull(_book);
+        await _auth?.setRemoteUpdatedAt(updatedAt);
+      } on ApiException catch (e) {
+        if (e.statusCode == 401) {
+          await _auth?.logout();
+        }
+      } catch (_) {
+        // 后台同步失败时静默，用户可在账号页手动重试
+      } finally {
+        _cloudPushPending = false;
+      }
+    });
+  }
+
+  Future<String> pushToCloud() async {
+    final sync = _auth?.syncService;
+    if (sync == null) return '请先登录';
+    try {
+      final updatedAt = await sync.pushFull(_book);
+      await _auth?.setRemoteUpdatedAt(updatedAt);
+      await _auth?.setLocalUpdatedAt(updatedAt);
+      return '已上传到云端（${ _book.rounds.length } 个圈次）';
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) await _auth?.logout();
+      return e.message;
+    } catch (e) {
+      return '上传失败：$e';
+    }
+  }
+
+  Future<String> pullFromCloud() async {
+    final sync = _auth?.syncService;
+    if (sync == null) return '请先登录';
+    try {
+      final remote = await sync.pullFull();
+      await _applyRemoteBook(remote.book, remote.updatedAt);
+      return '已从云端拉取（${ remote.book.rounds.length } 个圈次）';
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) await _auth?.logout();
+      return e.message;
+    } catch (e) {
+      return '拉取失败：$e';
+    }
+  }
+
+  Future<String> syncWithCloud() async {
+    final auth = _auth;
+    final sync = auth?.syncService;
+    if (sync == null) return '请先登录';
+    try {
+      final remote = await sync.pull();
+      final localAt = await auth!.readLocalUpdatedAt();
+      final remoteAt = remote.updatedAt;
+
+      if (remoteAt > localAt && _book.rounds.isNotEmpty && localAt > 0) {
+        return '云端与本机均有数据且版本不同，请先手动选择「上传」或「拉取」';
+      }
+
+      if (remoteAt > localAt || (_book.rounds.isEmpty && remote.book.rounds.isNotEmpty)) {
+        await sync.downloadMissingAttachments(remote.book);
+        await _applyRemoteBook(remote.book, remoteAt);
+        return '已用云端较新版本覆盖本机（${ remote.book.rounds.length } 个圈次）';
+      }
+
+      if (localAt >= remoteAt) {
+        final updatedAt = await sync.pushFull(_book);
+        await auth.setRemoteUpdatedAt(updatedAt);
+        await auth.setLocalUpdatedAt(updatedAt);
+        return '本机已同步到云端（${ _book.rounds.length } 个圈次）';
+      }
+
+      return '已是最新';
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) await auth?.logout();
+      return e.message;
+    } catch (e) {
+      return '同步失败：$e';
+    }
+  }
+
+  Future<void> _applyRemoteBook(LedgerBook incoming, int remoteUpdatedAt) async {
+    _book = LedgerBook(
+      rounds: incoming.rounds.map((e) => e.copy()).toList(),
+    );
+    _sortRounds();
+    await _store.save(_book);
+    await _auth?.setRemoteUpdatedAt(remoteUpdatedAt);
+    await _auth?.setLocalUpdatedAt(remoteUpdatedAt);
     notifyListeners();
   }
 

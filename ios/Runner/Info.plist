@@ -28,6 +28,13 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>用于为路线、费用等记录添加凭证照片。</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>用于保存记账凭证照片。</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

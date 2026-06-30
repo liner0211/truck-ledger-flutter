@@ -27,7 +27,8 @@ Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`。数据为�
 |------|------|
 | `./one_click_ipa.sh` | `gh` 拉最新成功 CI 的 Runner.app → `ipa-out/Runner.ipa` |
 | `./one_click_deb_install.sh` | 拉 CI → 打 deb → SSH `dpkg -i` |
-| `./one_click_apk_install.sh` | 本机 `flutter build apk --release` → `adb install -r` |
+| `./one_click_apk_install.sh` | 本机 `flutter build apk --release` → 自动发现设备 → `adb install -r` |
+| `./one_click_find_android.sh` | 仅扫描/连接 Android（打印 serial） |
 | `make ipa-one` / `make deb-install-one` / `make apk-install-one` | 同上 |
 
 均需：**`gh` 已登录**；deb 安装需 **`python3` + paramiko**，设备密码在 **`dev/machine.env`** 或通过环境变量传入。
@@ -41,6 +42,7 @@ Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`。数据为�
 | `scripts/project_env.sh` | 加载 machine.env + .device.env |
 | `scripts/with_project_env.sh` | 供任务包装；支持任务里传入的 `DEVICE_PASS` 覆盖配置 |
 | `package_deb.sh` / `package_ipa.sh` / `deploy.sh` | deb / ipa / 安装 |
+| `scripts/discover_android_adb.py` | 局域网/USB 自动发现 Android adb |
 | `.github/workflows/ios-runner-app-build.yml` | macOS 上编 Runner.app |
 
 ## 业务常量备忘

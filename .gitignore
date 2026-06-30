@@ -37,8 +37,15 @@ migrate_working_dir/
 packages/
 ipa-out/
 .last_device_ip
+.last_android_adb
 .device.env
 /dev/machine.env
+
+# 云端后端本地数据
+/server/data/
+/server/.venv/
+/server-php/data/
+/server-php/config.php
 
 # Symbolication related
 app.*.symbols
