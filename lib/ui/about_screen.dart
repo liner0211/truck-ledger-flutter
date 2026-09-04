@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
@@ -70,8 +71,9 @@ class AboutScreen extends StatelessWidget {
                   children: [
                     Text('云端通道', style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 8),
-                    Text('服务器：${auth.serverUrl}',
-                        style: Theme.of(context).textTheme.bodySmall),
+                    if (!kReleaseMode)
+                      Text('服务器：${auth.serverUrl}',
+                          style: Theme.of(context).textTheme.bodySmall),
                     if (control != null) ...[
                       Text('云端最新版本：${control.latestVersion}'),
                       Text('最低版本：${control.minVersion}'),

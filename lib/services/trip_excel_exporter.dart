@@ -187,10 +187,17 @@ class TripExcelExporter {
       ));
     }
     for (final e in fuel) {
+      final detail = <String>[e.title];
+      if (e.fuelKilograms > 0.000001) {
+        detail.add('${e.fuelKilograms} kg');
+      }
+      if (e.fuelUnitPrice > 0.000001) {
+        detail.add('${e.fuelUnitPrice} 元/kg');
+      }
       rows.add(_ExportRow(
         dateText: _df.format(e.createdAt),
         type: '油费',
-        title: e.title,
+        title: detail.join(' · '),
         amount: e.amount,
         payment: e.paymentSource.label,
         reimbursableText: '',

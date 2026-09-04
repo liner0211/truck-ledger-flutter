@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -42,7 +43,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _loadPublicConfig() async {
-    final days = await _fetchTrialDays(_serverUrl.text);
+    final base = context.read<AuthController>().serverUrl;
+    final days = await _fetchTrialDays(base);
     if (!mounted) return;
     setState(() => _trialDays = days);
   }
@@ -126,7 +128,9 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      await auth.setServerUrl(_serverUrl.text);
+      if (!kReleaseMode) {
+        await auth.setServerUrl(_serverUrl.text);
+      }
       await auth.api.checkHealth();
       if (_registerMode) {
         await auth.register(
@@ -191,18 +195,20 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                   ),
                   const SizedBox(height: 28),
-                  TextField(
-                    controller: _serverUrl,
-                    decoration: const InputDecoration(
-                      labelText: '服务器地址',
-                      hintText: 'https://truck.liner0211.online',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.cloud_outlined),
+                  // 发行版不向最终用户展示 API 域名；仅 Debug/Profile 可改地址便于联调。
+                  if (!kReleaseMode) ...[
+                    TextField(
+                      controller: _serverUrl,
+                      decoration: const InputDecoration(
+                        labelText: '服务器地址（仅调试）',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.cloud_outlined),
+                      ),
+                      keyboardType: TextInputType.url,
+                      autocorrect: false,
                     ),
-                    keyboardType: TextInputType.url,
-                    autocorrect: false,
-                  ),
-                  const SizedBox(height: 12),
+                    const SizedBox(height: 12),
+                  ],
                   TextField(
                     controller: _username,
                     decoration: const InputDecoration(

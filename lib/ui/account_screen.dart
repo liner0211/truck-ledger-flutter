@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -170,29 +171,56 @@ class _AccountScreenState extends State<AccountScreen> {
               );
             },
           ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _serverUrl,
-            decoration: const InputDecoration(
-              labelText: '服务器地址',
-              border: OutlineInputBorder(),
+          if (!kReleaseMode) ...[
+            const SizedBox(height: 8),
+            TextField(
+              controller: _serverUrl,
+              decoration: const InputDecoration(
+                labelText: '服务器地址（仅调试）',
+                border: OutlineInputBorder(),
+              ),
+              enabled: !_busy,
             ),
-            enabled: !_busy,
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              OutlinedButton(
-                onPressed: _busy ? null : _saveServerUrl,
-                child: const Text('保存地址'),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton(
-                onPressed: _busy ? null : _testConnection,
-                child: const Text('测试连接'),
-              ),
-            ],
-          ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                OutlinedButton(
+                  onPressed: _busy ? null : _saveServerUrl,
+                  child: const Text('保存地址'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: _busy ? null : _testConnection,
+                  child: const Text('测试连接'),
+                ),
+              ],
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            OutlinedButton(
+              onPressed: _busy
+                  ? null
+                  : () async {
+                      setState(() {
+                        _busy = true;
+                        _status = null;
+                      });
+                      try {
+                        await auth.api.checkHealth();
+                        if (mounted) setState(() => _status = '云服务连接正常');
+                      } on ApiException catch (e) {
+                        if (mounted) setState(() => _status = e.message);
+                      } catch (e) {
+                        if (mounted) {
+                          setState(() => _status = '连接失败，请检查网络后重试');
+                        }
+                      } finally {
+                        if (mounted) setState(() => _busy = false);
+                      }
+                    },
+              child: const Text('测试云服务连接'),
+            ),
+          ],
           const SizedBox(height: 20),
           Text('数据同步', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),

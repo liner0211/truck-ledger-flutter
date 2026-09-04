@@ -108,13 +108,17 @@ location ~ \.php$ {
 
 ### 8. App 配置
 
-手机登录页服务器地址：
+**发行版 App（Release）不向用户展示服务器地址**，内置默认云端入口即可。
+
+开发调试（Debug / Profile）可在登录页改地址；默认值在 Flutter `AuthController.defaultServerUrl`。
+
+运维侧只需保证 HTTPS API 可用，例如：
 
 ```
-https://api.你的域名.com
+https://api.你的域名.com/api/health
 ```
 
-不要带末尾 `/`，不要带端口号（走 443）。
+不要依赖用户手填域名。
 
 ---
 

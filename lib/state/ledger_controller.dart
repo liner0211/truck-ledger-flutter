@@ -362,6 +362,8 @@ class LedgerController extends ChangeNotifier {
               createdAt: e.createdAt,
               tollCashAmount: e.tollCashAmount,
               tollEtcAmount: e.tollEtcAmount,
+              fuelKilograms: e.fuelKilograms,
+              fuelUnitPrice: e.fuelUnitPrice,
             ),
           )
           .toList(),

@@ -25,6 +25,7 @@ class AuthController extends ChangeNotifier {
   static const localRevisionKey = 'TruckLedger.localRevision';
   static const lastControlOkAtKey = 'TruckLedger.lastControlOkAt';
 
+  /// 发行版内置云端入口。Release UI 不展示该地址；仅 Debug/Profile 可改。
   static const defaultServerUrl = 'https://truck.liner0211.online';
 
   String _serverUrl = defaultServerUrl;

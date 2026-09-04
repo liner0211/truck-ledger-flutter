@@ -38,7 +38,7 @@ function readJsonBody(): array
 function render(string $template, array $vars = []): void
 {
     global $root;
-    extract($vars, EXTR_SKIP);
+    extract($vars, EXTR_OVERWRITE);
     require $root . '/templates/' . $template;
     exit;
 }
@@ -435,7 +435,7 @@ if (preg_match('#^/admin/users/(\d+)/devices/([^/]+)/revoke$#', $uri, $m) && $me
     AdminService::assertCsrf($_POST['csrf'] ?? null);
     $ok = AppControlService::setDeviceStatus($pdo, (int)$m[1], urldecode($m[2]), 'REVOKED', null);
     $msg = $ok ? '已吊销设备' : '设备不存在';
-    header('Location: /admin/users/' . (int)$m[1] . '/ledger?msg=' . urlencode($msg));
+    header('Location: /admin/users/' . (int)$m[1] . '/ops?msg=' . urlencode($msg));
     exit;
 }
 
@@ -456,8 +456,26 @@ if (preg_match('#^/admin/users/(\d+)/ledger$#', $uri, $m) && $method === 'GET') 
         echo '用户不存在';
         exit;
     }
+    $ledger = AdminService::getUserLedger($pdo, (int)$m[1]) ?? ['rounds' => [], 'updated_at' => 0, 'revision' => 0];
     render('admin_user_ledger.php', [
         'user' => $user,
+        'userId' => (int)$m[1],
+        'ledger' => $ledger,
+        'message' => (string)($_GET['msg'] ?? ''),
+    ]);
+}
+
+if (preg_match('#^/admin/users/(\d+)/ops$#', $uri, $m) && $method === 'GET') {
+    AdminService::requireLogin();
+    $user = AdminService::getUser($pdo, (int)$m[1]);
+    if ($user === null) {
+        http_response_code(404);
+        echo '用户不存在';
+        exit;
+    }
+    render('admin_user_ops.php', [
+        'user' => $user,
+        'userId' => (int)$m[1],
         'snapshots' => SnapshotService::list($pdo, (int)$m[1]),
         'devices' => AppControlService::listDevices($pdo, (int)$m[1]),
         'csrf' => AdminService::csrfToken(),
@@ -470,7 +488,7 @@ if (preg_match('#^/admin/users/(\d+)/snapshots/(\d+)/restore$#', $uri, $m) && $m
     AdminService::assertCsrf($_POST['csrf'] ?? null);
     $result = SnapshotService::restore($pdo, (int)$m[1], (int)$m[2]);
     $msg = $result === null ? '快照不存在' : '已恢复到 revision ' . ($result['revision'] ?? '');
-    header('Location: /admin/users/' . (int)$m[1] . '/ledger?msg=' . urlencode($msg));
+    header('Location: /admin/users/' . (int)$m[1] . '/ops?msg=' . urlencode($msg));
     exit;
 }
 

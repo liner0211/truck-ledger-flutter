@@ -36,6 +36,9 @@ rsync -avz --delete \
   --exclude 'data/' \
   --exclude '.git/' \
   --exclude '*.zip' \
+  --exclude '.user.ini' \
+  --exclude '.well-known/' \
+  --exclude 'public/.well-known/' \
   -e "$RSYNC_SSH" \
   "$SRC" "$DEST"
 

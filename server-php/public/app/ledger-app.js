@@ -7,7 +7,12 @@
   const FUEL_OTHER_PAY = ['现金', '公司账户'];
   const TOLL_PAY = ['现金', 'ETC'];
 
-  const cfg = window.LEDGER_APP_CONFIG || { mode: 'user' };
+  const cfg = Object.assign({ mode: 'user', userId: 0 }, window.LEDGER_APP_CONFIG || {});
+  // 管理端：优先配置，否则从 URL /admin/users/{id}/… 解析，避免 user_id/id 字段不一致导致串账
+  if (cfg.mode === 'admin') {
+    const fromUrl = Number(((location.pathname || '').match(/\/admin\/users\/(\d+)/) || [])[1] || 0);
+    cfg.userId = Number(cfg.userId || 0) || fromUrl;
+  }
   const isAdmin = cfg.mode === 'admin';
 
   function encodeSwiftDate(d) {
@@ -127,6 +132,14 @@
     return `${sum}（${parts.join('，')}）· ${item.paymentSource}`;
   }
 
+  function fuelSubtitle(item) {
+    const parts = [money(item.amount)];
+    if ((item.fuelKilograms || 0) > 0.000001) parts.push(`${item.fuelKilograms} kg`);
+    if ((item.fuelUnitPrice || 0) > 0.000001) parts.push(`${money(item.fuelUnitPrice)}/kg`);
+    parts.push(item.paymentSource);
+    return parts.join(' · ');
+  }
+
   function summaryBody(sum) {
     const etcLine = sum.etcTollReconcileFee > 0.000001
       ? `高速ETC对账手续费(0.35%)：${money(sum.etcTollReconcileFee)}（已计入费用总与分成）\n` : '';
@@ -209,7 +222,10 @@ ${wageLine}`;
 
     async request(path, opts = {}) {
       const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {}, this.authHeaders());
-      const res = await fetch(path, Object.assign({}, opts, { headers }));
+      const res = await fetch(path, Object.assign({}, opts, {
+        headers,
+        credentials: 'same-origin',
+      }));
       if (!res.ok) {
         let msg = `请求失败（${res.status}）`;
         try {
@@ -299,6 +315,7 @@ ${wageLine}`;
       const res = await fetch(this.attachmentPath(filename), {
         method: 'POST',
         headers: this.authHeaders(),
+        credentials: 'same-origin',
         body: fd,
       });
       if (!res.ok) {
@@ -313,7 +330,10 @@ ${wageLine}`;
     }
 
     async fetchAttachmentBlob(name) {
-      const res = await fetch(this.attachmentPath(name), { headers: this.authHeaders() });
+      const res = await fetch(this.attachmentPath(name), {
+        headers: this.authHeaders(),
+        credentials: 'same-origin',
+      });
       if (!res.ok) throw new Error('附件加载失败');
       return URL.createObjectURL(await res.blob());
     }
@@ -338,6 +358,16 @@ ${wageLine}`;
       this._registerMode = false;
       this._registrationEnabled = true;
       this._loginError = '';
+      this._bootError = '';
+    }
+
+    applyLedgerPayload(data) {
+      this.book = { rounds: (data && data.rounds) || [] };
+      this.updatedAt = (data && data.updated_at) || 0;
+      this.revision = (data && data.revision) || 0;
+      this.sortRounds();
+      this.dirty = false;
+      this.pendingUploads.clear();
     }
 
     async start() {
@@ -347,7 +377,24 @@ ${wageLine}`;
           this._registrationEnabled = !!cfg.registration_enabled;
         }
         if (isAdmin) {
-          await this.loadLedger();
+          if (!cfg.userId) {
+            throw new Error('缺少用户 ID，无法打开账本');
+          }
+          // 管理端不使用普通用户 localStorage 登录态，避免串到 /api/ledger
+          this.api.token = '';
+          this.api.username = cfg.username || '';
+          if (cfg.initialLedger && typeof cfg.initialLedger === 'object') {
+            this.applyLedgerPayload(cfg.initialLedger);
+          } else {
+            await this.loadLedger();
+          }
+          // 再拉一次云端，确保与该 userId 一致
+          try {
+            await this.loadLedger();
+          } catch (e) {
+            if (!this.book.rounds.length) throw e;
+            this.syncStatus = '已显示页面数据；刷新云端失败：' + (e.message || '');
+          }
           this.view = 'home';
         } else if (this.api.token) {
           try {
@@ -368,6 +415,7 @@ ${wageLine}`;
       } catch (e) {
         if (!isAdmin) this.api.clearAuth();
         this.view = isAdmin ? 'error' : 'login';
+        if (isAdmin) this._bootError = e.message || '加载账本失败';
         if (!isAdmin) this._loginError = e.message || '启动失败';
       }
       this.render();
@@ -375,12 +423,7 @@ ${wageLine}`;
 
     async loadLedger() {
       const data = await this.api.getLedger();
-      this.book = { rounds: data.rounds || [] };
-      this.updatedAt = data.updated_at || 0;
-      this.revision = data.revision || 0;
-      this.sortRounds();
-      this.dirty = false;
-      this.pendingUploads.clear();
+      this.applyLedgerPayload(data);
     }
 
     sortRounds() {
@@ -542,7 +585,11 @@ ${wageLine}`;
       }
       this.revokeBlobs();
       if (v === 'loading') { this.root.innerHTML = '<div class="center-msg">加载中…</div>'; return; }
-      if (v === 'error') { this.root.innerHTML = '<div class="center-msg">加载失败，请返回管理后台</div>'; return; }
+      if (v === 'error') {
+        const msg = esc(this._bootError || '加载失败');
+        this.root.innerHTML = `<div class="center-msg">${msg}<br><a href="/admin/dashboard">返回管理后台</a></div>`;
+        return;
+      }
       if (v === 'login') { this.renderLogin(); return; }
       if (v === 'home') { this.renderHome(); return; }
     }
@@ -625,7 +672,9 @@ ${wageLine}`;
     }
 
     renderHome() {
-      const title = isAdmin ? `管理 · ${esc(cfg.username || '用户')} 的账本` : `圈次总览`;
+      const title = isAdmin
+        ? `管理 · ${esc(cfg.username || '用户')} 的账本（${this.book.rounds.length} 圈 · rev ${this.revision}）`
+        : `圈次总览`;
       const rounds = this.book.rounds;
       const rows = rounds.length
         ? rounds.map((r) => {
@@ -919,7 +968,11 @@ ${wageLine}`;
         if (!indices.length) return `<p class="empty-sm">暂无${cat}</p>`;
         return indices.map((gi) => {
           const item = trip.expenses[gi];
-          const sub = cat === '高速费' ? tollSubtitle(item) : `${money(item.amount)} · ${item.paymentSource}${item.isReimbursable ? ' · 可报销' : ''}`;
+          const sub = cat === '高速费'
+            ? tollSubtitle(item)
+            : cat === '油费'
+              ? fuelSubtitle(item)
+              : `${money(item.amount)} · ${item.paymentSource}${item.isReimbursable ? ' · 可报销' : ''}`;
           return `<div class="list-tile" data-edit-exp="${gi}" data-cat="${cat}">
             <div class="tile-main">
               <div class="tile-title">${esc(item.title)}</div>
@@ -1186,6 +1239,7 @@ ${wageLine}`;
           attachments: [],
           createdAt: encodeSwiftDate(new Date()),
           tollCashAmount: 0, tollEtcAmount: 0,
+          fuelKilograms: 0, fuelUnitPrice: 0,
         };
       } else {
         e = JSON.parse(JSON.stringify(trip.expenses[globalIndex]));
@@ -1209,11 +1263,18 @@ ${wageLine}`;
         ? `<label class="check"><input type="checkbox" id="m-reimb" ${e.isReimbursable ? 'checked' : ''}> 老板报销承担（仅现金）</label>`
         : '';
 
+      const fuelFields = cat === '油费'
+        ? `<label>公斤数<input id="m-fuel-kg" type="number" step="0.001" inputmode="decimal" value="${e.fuelKilograms || ''}"></label>
+           <label>单价（元/kg）<input id="m-fuel-price" type="number" step="0.001" inputmode="decimal" value="${e.fuelUnitPrice || ''}"></label>
+           <p class="hint">任意填写金额、公斤数、单价中的两项，自动算出第三项。</p>`
+        : '';
+
       this.modal(`
         <h3>${isNew ? '添加' : '编辑'}${cat}</h3>
         <p id="modal-err" class="error"></p>
         <label>标题<input id="m-title" value="${esc(e.title)}"></label>
-        <label>金额<input id="m-amount" type="number" step="0.01" inputmode="decimal" value="${e.amount}"></label>
+        <label>金额<input id="m-amount" type="number" step="0.01" inputmode="decimal" value="${e.amount || ''}"></label>
+        ${fuelFields}
         <label>${cat}支付方式<div id="m-pay-wrap">${buildPay()}</div></label>
         ${reimbBlock}
         <div class="att-section"><div class="att-label">凭证图片</div><div id="att-box"></div></div>
@@ -1221,11 +1282,12 @@ ${wageLine}`;
         const title = document.getElementById('m-title').value.trim();
         if (!title) { showErr('标题不能为空'); return false; }
         const amount = parseAmount(document.getElementById('m-amount').value);
-        if (amount == null) { showErr('金额请输入数字'); return false; }
+        if (amount == null) { showErr('金额请输入数字（或填公斤数与单价自动算出）'); return false; }
 
         let payForItem = e.paymentSource;
         let tollCash = 0, tollEtc = 0;
         let reimb = document.getElementById('m-reimb')?.checked || false;
+        let fuelKg = 0, fuelPrice = 0;
 
         if (cat === '高速费') {
           const sel = overlay.querySelector('input[name="tollpay"]:checked');
@@ -1240,12 +1302,20 @@ ${wageLine}`;
           if (payForItem !== '现金') reimb = false;
         }
 
+        if (cat === '油费') {
+          fuelKg = parseAmount(document.getElementById('m-fuel-kg')?.value) || 0;
+          fuelPrice = parseAmount(document.getElementById('m-fuel-price')?.value) || 0;
+          if (fuelKg < 0 || fuelPrice < 0) { showErr('公斤数与单价不能为负数'); return false; }
+        }
+
         e.title = title;
         e.amount = amount;
         e.paymentSource = payForItem;
         e.isReimbursable = reimb;
         e.tollCashAmount = tollCash;
         e.tollEtcAmount = tollEtc;
+        e.fuelKilograms = cat === '油费' ? fuelKg : 0;
+        e.fuelUnitPrice = cat === '油费' ? fuelPrice : 0;
 
         if (!trip.expenses) trip.expenses = [];
         if (isNew) trip.expenses.push(e);
@@ -1268,6 +1338,50 @@ ${wageLine}`;
                 if (r.value !== '现金') reimb.checked = false;
               });
             });
+          }
+          if (cat === '油费') {
+            const amtEl = overlay.querySelector('#m-amount');
+            const kgEl = overlay.querySelector('#m-fuel-kg');
+            const priceEl = overlay.querySelector('#m-fuel-price');
+            let syncing = false;
+            const roundMoney = (v) => Math.round(v * 100) / 100;
+            const roundKg = (v) => Math.round(v * 1000) / 1000;
+            const setVal = (el, v) => {
+              if (!el) return;
+              const next = (v == null || Number.isNaN(v)) ? '' : String(v);
+              if (el.value !== next) el.value = next;
+            };
+            const syncFrom = (changed) => {
+              if (syncing) return;
+              const a = parseAmount(amtEl?.value);
+              const k = parseAmount(kgEl?.value);
+              const p = parseAmount(priceEl?.value);
+              const filled = [a != null, k != null, p != null].filter(Boolean).length;
+              if (filled < 2) return;
+              let nextA = a, nextK = k, nextP = p;
+              if (filled === 2) {
+                if (a == null && k != null && p != null) nextA = roundMoney(k * p);
+                else if (k == null && a != null && p != null && p !== 0) nextK = roundKg(a / p);
+                else if (p == null && a != null && k != null && k !== 0) nextP = roundMoney(a / k);
+              } else if (changed === 'amount') {
+                if (k != null && k !== 0) nextP = roundMoney(a / k);
+                else if (p != null && p !== 0) nextK = roundKg(a / p);
+              } else if (changed === 'kg') {
+                if (p != null) nextA = roundMoney(k * p);
+                else if (a != null && k !== 0) nextP = roundMoney(a / k);
+              } else if (changed === 'price') {
+                if (k != null) nextA = roundMoney(k * p);
+                else if (a != null && p !== 0) nextK = roundKg(a / p);
+              }
+              syncing = true;
+              setVal(amtEl, nextA);
+              setVal(kgEl, nextK);
+              setVal(priceEl, nextP);
+              syncing = false;
+            };
+            amtEl?.addEventListener('input', () => syncFrom('amount'));
+            kgEl?.addEventListener('input', () => syncFrom('kg'));
+            priceEl?.addEventListener('input', () => syncFrom('price'));
           }
         },
       });

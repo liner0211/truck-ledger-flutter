@@ -108,6 +108,8 @@ class ExpenseItem {
     required this.createdAt,
     this.tollCashAmount = 0,
     this.tollEtcAmount = 0,
+    this.fuelKilograms = 0,
+    this.fuelUnitPrice = 0,
   });
 
   final String id;
@@ -120,6 +122,10 @@ class ExpenseItem {
   DateTime createdAt;
   double tollCashAmount;
   double tollEtcAmount;
+  /// 油费公斤数（仅油费有意义）。
+  double fuelKilograms;
+  /// 油费单价（元/公斤，仅油费有意义）。
+  double fuelUnitPrice;
 
   ExpenseItem copy() => ExpenseItem(
         id: id,
@@ -132,6 +138,8 @@ class ExpenseItem {
         createdAt: createdAt,
         tollCashAmount: tollCashAmount,
         tollEtcAmount: tollEtcAmount,
+        fuelKilograms: fuelKilograms,
+        fuelUnitPrice: fuelUnitPrice,
       );
 
   Map<String, dynamic> toJson() => {
@@ -145,6 +153,8 @@ class ExpenseItem {
         'createdAt': encodeSwiftJsonDate(createdAt),
         'tollCashAmount': tollCashAmount,
         'tollEtcAmount': tollEtcAmount,
+        'fuelKilograms': fuelKilograms,
+        'fuelUnitPrice': fuelUnitPrice,
       };
 
   static ExpenseItem fromJson(Map<String, dynamic> j) {
@@ -157,6 +167,8 @@ class ExpenseItem {
     final createdAt = decodeJsonDate(j['createdAt']);
     var tollCashAmount = (j['tollCashAmount'] as num?)?.toDouble() ?? 0;
     var tollEtcAmount = (j['tollEtcAmount'] as num?)?.toDouble() ?? 0;
+    var fuelKilograms = (j['fuelKilograms'] as num?)?.toDouble() ?? 0;
+    var fuelUnitPrice = (j['fuelUnitPrice'] as num?)?.toDouble() ?? 0;
 
     if (j['category'] == null) {
       if (title.contains('油')) {
@@ -194,6 +206,11 @@ class ExpenseItem {
       }
     }
 
+    if (category != ExpenseCategory.fuel) {
+      fuelKilograms = 0;
+      fuelUnitPrice = 0;
+    }
+
     return ExpenseItem(
       id: j['id'] as String,
       category: category,
@@ -205,6 +222,8 @@ class ExpenseItem {
       createdAt: createdAt,
       tollCashAmount: tollCashAmount,
       tollEtcAmount: tollEtcAmount,
+      fuelKilograms: fuelKilograms,
+      fuelUnitPrice: fuelUnitPrice,
     );
   }
 }

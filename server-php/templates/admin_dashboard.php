@@ -265,6 +265,7 @@
             <td class="muted"><?= htmlspecialchars($u['updated_at'], ENT_QUOTES, 'UTF-8') ?></td>
             <td class="ops">
               <a class="btn-view" href="/admin/users/<?= (int)$u['id'] ?>/ledger" target="_blank">账本</a>
+              <a class="btn-view" href="/admin/users/<?= (int)$u['id'] ?>/ops" target="_blank">快照/设备</a>
               <form method="post" action="/admin/users/<?= (int)$u['id'] ?>/extend" style="display:inline">
                 <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
                 <input type="hidden" name="days" value="14">

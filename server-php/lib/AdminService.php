@@ -213,6 +213,7 @@ final class AdminService
         }
         $profile = EntitlementService::publicProfile($pdo, $row);
         return array_merge($profile, [
+            'id' => (int)$row['id'],
             'created_at' => self::fmtMs((int)$row['created_at']),
         ]);
     }

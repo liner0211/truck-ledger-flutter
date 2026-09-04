@@ -205,11 +205,11 @@ curl -s -o /dev/null -w "%{http_code}\n" https://truck.liner0211.online/api/atta
 
 ## 九、手机 App
 
-登录页 **服务器地址**（已写入 App 默认值）：
+## App
 
-```
-https://truck.liner0211.online
-```
+发行版 **不展示** API 域名；默认云端入口已写在 Flutter `AuthController.defaultServerUrl`（仅调试构建可改）。
+
+用户侧：安装 → 注册/登录 → 同步。运维侧用上表 health / admin 验证即可。
 
 1. 注册账号  
 2. 「更多 → 账号与同步 → 测试连接」应显示正常  

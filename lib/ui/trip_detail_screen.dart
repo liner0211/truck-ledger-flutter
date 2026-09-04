@@ -60,6 +60,22 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     return '$sum（${parts.join('，')}）· ${item.paymentSource.label}';
   }
 
+  String _fuelSubtitle(ExpenseItem item) {
+    final parts = <String>[widget.money(item.amount)];
+    if (item.fuelKilograms > 0.000001) {
+      final kg = item.fuelKilograms;
+      final kgText = kg == kg.roundToDouble()
+          ? '${kg.toInt()} kg'
+          : '${kg.toStringAsFixed(3).replaceFirst(RegExp(r'\.?0+$'), '')} kg';
+      parts.add(kgText);
+    }
+    if (item.fuelUnitPrice > 0.000001) {
+      parts.add('${widget.money(item.fuelUnitPrice)}/kg');
+    }
+    parts.add(item.paymentSource.label);
+    return parts.join(' · ');
+  }
+
   List<int> _expenseIndices(ExpenseCategory c) {
     final out = <int>[];
     for (var i = 0; i < _trip.expenses.length; i++) {
@@ -340,7 +356,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               final item = _trip.expenses[gi];
               return ListTile(
                 title: Text(item.title),
-                subtitle: Text('${widget.money(item.amount)} · ${item.paymentSource.label}'),
+                subtitle: Text(_fuelSubtitle(item)),
                 trailing: IconButton(
                   icon: const Icon(Icons.delete_outline),
                   onPressed: () => _deleteExpenseGlobal(gi),

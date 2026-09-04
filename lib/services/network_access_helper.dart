@@ -24,15 +24,15 @@ class NetworkAccessHelper {
     if (text.contains('ERR_NAME_NOT_RESOLVED') ||
         text.contains('Failed host lookup') ||
         text.contains('No address associated with hostname')) {
-      return '无法解析服务器域名（不是权限未授予）。\n'
-          '请确认服务器地址正确，或点击下方「应用联网设置」检查是否禁止本应用联网。';
+      return '无法连接云服务（网络或 DNS 异常）。\n'
+          '请确认 WLAN/移动数据正常，或点击下方「应用联网设置」检查是否禁止本应用联网。';
     }
     if (text.contains('Redirect loop') || text.contains('Redirect limit')) {
-      return '服务器返回了异常重定向，请检查域名与 HTTPS 配置。';
+      return '云服务返回异常，请稍后重试。';
     }
     if (text.contains('connection abort') ||
         text.contains('Software caused connection abort')) {
-      return '与服务器的连接被中断。\n'
+      return '与云服务的连接被中断。\n'
           '请确认 WLAN/移动数据正常，或稍后重试。';
     }
     if (text.contains('SocketException') ||
@@ -41,7 +41,7 @@ class NetworkAccessHelper {
       return '网络连接失败。\n'
           '请到 设置 → 应用 → 卡车记账，确认已允许 WLAN 与移动数据。';
     }
-    return '无法连接服务器：$error';
+    return '无法连接云服务，请稍后重试';
   }
 
   static Future<void> openAppNetworkSettings() => ph.openAppSettings();
