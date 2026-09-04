@@ -1232,7 +1232,7 @@ ${wageLine}`;
         const cat = defaultCat || '油费';
         e = {
           id: uuid(), category: cat,
-          title: cat === '油费' ? '油费' : cat === '高速费' ? '高速费' : '其他费用',
+          title: '',
           amount: 0,
           paymentSource: cat === '高速费' ? 'ETC' : '现金',
           isReimbursable: false,
@@ -1263,24 +1263,29 @@ ${wageLine}`;
         ? `<label class="check"><input type="checkbox" id="m-reimb" ${e.isReimbursable ? 'checked' : ''}> 老板报销承担（仅现金）</label>`
         : '';
 
+      const titleValue = isNew ? '' : esc(e.title || '');
+      const amountValue = (!isNew && e.amount) ? e.amount : '';
+      const kgValue = (!isNew && e.fuelKilograms) ? e.fuelKilograms : '';
+      const priceValue = (!isNew && e.fuelUnitPrice) ? e.fuelUnitPrice : '';
+
       const fuelFields = cat === '油费'
-        ? `<label>公斤数<input id="m-fuel-kg" type="number" step="0.001" inputmode="decimal" value="${e.fuelKilograms || ''}"></label>
-           <label>单价（元/kg）<input id="m-fuel-price" type="number" step="0.001" inputmode="decimal" value="${e.fuelUnitPrice || ''}"></label>
-           <p class="hint">任意填写金额、公斤数、单价中的两项，自动算出第三项。</p>`
+        ? `<label>公斤数<input id="m-fuel-kg" type="text" inputmode="decimal" placeholder="支持小数，如 12.5" value="${kgValue}"></label>
+           <label>单价（元/kg）<input id="m-fuel-price" type="text" inputmode="decimal" placeholder="可自动算出" value="${priceValue}"></label>
+           <p class="hint">手动填过的数字不会被覆盖；清空后可再自动生成。金额 = 公斤数 × 单价。</p>`
         : '';
 
       this.modal(`
         <h3>${isNew ? '添加' : '编辑'}${cat}</h3>
         <p id="modal-err" class="error"></p>
-        <label>标题<input id="m-title" value="${esc(e.title)}"></label>
-        <label>金额<input id="m-amount" type="number" step="0.01" inputmode="decimal" value="${e.amount || ''}"></label>
+        <label>标题<input id="m-title" placeholder="${esc(cat)}" value="${titleValue}"></label>
+        <label>金额<input id="m-amount" type="text" inputmode="decimal" placeholder="${cat === '油费' ? '可自动算出' : ''}" value="${amountValue}"></label>
         ${fuelFields}
         <label>${cat}支付方式<div id="m-pay-wrap">${buildPay()}</div></label>
         ${reimbBlock}
         <div class="att-section"><div class="att-label">凭证图片</div><div id="att-box"></div></div>
       `, async (overlay, showErr) => {
-        const title = document.getElementById('m-title').value.trim();
-        if (!title) { showErr('标题不能为空'); return false; }
+        let title = document.getElementById('m-title').value.trim();
+        if (!title) title = cat;
         const amount = parseAmount(document.getElementById('m-amount').value);
         if (amount == null) { showErr('金额请输入数字（或填公斤数与单价自动算出）'); return false; }
 
@@ -1344,39 +1349,50 @@ ${wageLine}`;
             const kgEl = overlay.querySelector('#m-fuel-kg');
             const priceEl = overlay.querySelector('#m-fuel-price');
             let syncing = false;
+            const manual = {
+              amount: !!(amtEl && amtEl.value.trim()),
+              kg: !!(kgEl && kgEl.value.trim()),
+              price: !!(priceEl && priceEl.value.trim()),
+            };
             const roundMoney = (v) => Math.round(v * 100) / 100;
-            const roundKg = (v) => Math.round(v * 1000) / 1000;
-            const setVal = (el, v) => {
-              if (!el) return;
+            const roundKg = (v) => Math.round(v * 10000) / 10000;
+            const setAuto = (el, key, v) => {
+              if (!el || manual[key]) return;
               const next = (v == null || Number.isNaN(v)) ? '' : String(v);
               if (el.value !== next) el.value = next;
             };
             const syncFrom = (changed) => {
               if (syncing) return;
+              const raw = changed === 'amount' ? amtEl?.value
+                : changed === 'kg' ? kgEl?.value : priceEl?.value;
+              if (!(raw || '').trim()) manual[changed] = false;
+              else manual[changed] = true;
+
               const a = parseAmount(amtEl?.value);
               const k = parseAmount(kgEl?.value);
               const p = parseAmount(priceEl?.value);
-              const filled = [a != null, k != null, p != null].filter(Boolean).length;
-              if (filled < 2) return;
-              let nextA = a, nextK = k, nextP = p;
-              if (filled === 2) {
-                if (a == null && k != null && p != null) nextA = roundMoney(k * p);
-                else if (k == null && a != null && p != null && p !== 0) nextK = roundKg(a / p);
-                else if (p == null && a != null && k != null && k !== 0) nextP = roundMoney(a / k);
-              } else if (changed === 'amount') {
-                if (k != null && k !== 0) nextP = roundMoney(a / k);
-                else if (p != null && p !== 0) nextK = roundKg(a / p);
-              } else if (changed === 'kg') {
-                if (p != null) nextA = roundMoney(k * p);
-                else if (a != null && k !== 0) nextP = roundMoney(a / k);
-              } else if (changed === 'price') {
-                if (k != null) nextA = roundMoney(k * p);
-                else if (a != null && p !== 0) nextK = roundKg(a / p);
+              let autoA = null, autoK = null, autoP = null;
+
+              if (k != null && p != null && a == null && !manual.amount) autoA = roundMoney(k * p);
+              else if (a != null && p != null && k == null && !manual.kg && p !== 0) autoK = roundKg(a / p);
+              else if (a != null && k != null && p == null && !manual.price && k !== 0) autoP = roundMoney(a / k);
+              else if (a != null && k != null && p != null) {
+                if (changed === 'amount') {
+                  if (!manual.price && k !== 0) autoP = roundMoney(a / k);
+                  else if (!manual.kg && p !== 0) autoK = roundKg(a / p);
+                } else if (changed === 'kg') {
+                  if (!manual.amount) autoA = roundMoney(k * p);
+                  else if (!manual.price && k !== 0) autoP = roundMoney(a / k);
+                } else if (changed === 'price') {
+                  if (!manual.amount) autoA = roundMoney(k * p);
+                  else if (!manual.kg && p !== 0) autoK = roundKg(a / p);
+                }
               }
+
               syncing = true;
-              setVal(amtEl, nextA);
-              setVal(kgEl, nextK);
-              setVal(priceEl, nextP);
+              if (autoA != null) setAuto(amtEl, 'amount', autoA);
+              if (autoK != null) setAuto(kgEl, 'kg', autoK);
+              if (autoP != null) setAuto(priceEl, 'price', autoP);
               syncing = false;
             };
             amtEl?.addEventListener('input', () => syncFrom('amount'));

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/trip_models.dart';
@@ -37,6 +38,11 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
   List<String> _attachments = [];
   bool _fuelSyncing = false;
 
+  /// 用户亲手改过的字段：自动推算时不得覆盖；清空后解除锁定。
+  final Set<_FuelField> _fuelManual = {};
+
+  static final _decimalFilter = FilteringTextInputFormatter.allow(RegExp(r'[0-9.]*'));
+
   List<int> _indicesForCategory() {
     final out = <int>[];
     for (var i = 0; i < _trip.expenses.length; i++) {
@@ -45,7 +51,7 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
     return out;
   }
 
-  String _fmtNum(double v, {int maxFrac = 3}) {
+  String _fmtNum(double v, {int maxFrac = 4}) {
     if (v == v.roundToDouble()) return v.toInt().toString();
     var s = v.toStringAsFixed(maxFrac);
     while (s.contains('.') && (s.endsWith('0') || s.endsWith('.'))) {
@@ -55,10 +61,10 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
   }
 
   double _roundMoney(double v) => (v * 100).roundToDouble() / 100;
-  double _roundKg(double v) => (v * 1000).roundToDouble() / 1000;
+  double _roundKg(double v) => (v * 10000).roundToDouble() / 10000;
 
-  void _setController(TextEditingController c, double? v, {int maxFrac = 3}) {
-    final next = v == null ? '' : _fmtNum(v, maxFrac: maxFrac);
+  void _setAutoController(TextEditingController c, double v, {int maxFrac = 4}) {
+    final next = _fmtNum(v, maxFrac: maxFrac);
     if (c.text == next) return;
     c.value = TextEditingValue(
       text: next,
@@ -66,57 +72,69 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
     );
   }
 
-  /// 任意填两项，自动算出未填项；三项都有时，按刚改的那一项推算关联值。
-  void _syncFuelFrom(_FuelField changed) {
+  /// 只给「非手动」且当前为空/可推算的字段填值；手动填过的数字一律不动。
+  void _syncFuelFrom(_FuelField changed, String raw) {
     if (_fuelSyncing || widget.category != ExpenseCategory.fuel) return;
+
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) {
+      _fuelManual.remove(changed);
+    } else {
+      _fuelManual.add(changed);
+    }
+
     final a = parseAmount(_amount.text);
     final k = parseAmount(_fuelKg.text);
     final p = parseAmount(_fuelPrice.text);
-    final filled = [a != null, k != null, p != null].where((x) => x).length;
-    if (filled < 2) return;
 
-    double? nextA = a;
-    double? nextK = k;
-    double? nextP = p;
+    double? autoA;
+    double? autoK;
+    double? autoP;
 
-    if (filled == 2) {
-      if (a == null && k != null && p != null) {
-        nextA = _roundMoney(k * p);
-      } else if (k == null && a != null && p != null && p != 0) {
-        nextK = _roundKg(a / p);
-      } else if (p == null && a != null && k != null && k != 0) {
-        nextP = _roundMoney(a / k);
-      }
-    } else {
+    // 恰好两项有值时，只填「非手动」的第三项
+    if (k != null && p != null && a == null && !_fuelManual.contains(_FuelField.amount)) {
+      autoA = _roundMoney(k * p);
+    } else if (a != null && p != null && k == null && !_fuelManual.contains(_FuelField.kg) && p != 0) {
+      autoK = _roundKg(a / p);
+    } else if (a != null && k != null && p == null && !_fuelManual.contains(_FuelField.price) && k != 0) {
+      autoP = _roundMoney(a / k);
+    } else if (a != null && k != null && p != null) {
+      // 三项都有值：改动某一项时，只更新仍非手动的关联项
       switch (changed) {
         case _FuelField.amount:
-          if (k != null && k != 0) {
-            nextP = _roundMoney(a! / k);
-          } else if (p != null && p != 0) {
-            nextK = _roundKg(a! / p);
+          if (!_fuelManual.contains(_FuelField.price) && k != 0) {
+            autoP = _roundMoney(a / k);
+          } else if (!_fuelManual.contains(_FuelField.kg) && p != 0) {
+            autoK = _roundKg(a / p);
           }
           break;
         case _FuelField.kg:
-          if (p != null) {
-            nextA = _roundMoney(k! * p);
-          } else if (a != null && k != null && k != 0) {
-            nextP = _roundMoney(a / k);
+          if (!_fuelManual.contains(_FuelField.amount)) {
+            autoA = _roundMoney(k * (p));
+          } else if (!_fuelManual.contains(_FuelField.price) && k != 0) {
+            autoP = _roundMoney(a / k);
           }
           break;
         case _FuelField.price:
-          if (k != null) {
-            nextA = _roundMoney(k * p!);
-          } else if (a != null && p != null && p != 0) {
-            nextK = _roundKg(a / p);
+          if (!_fuelManual.contains(_FuelField.amount)) {
+            autoA = _roundMoney(k * p);
+          } else if (!_fuelManual.contains(_FuelField.kg) && p != 0) {
+            autoK = _roundKg(a / p);
           }
           break;
       }
     }
 
     _fuelSyncing = true;
-    _setController(_amount, nextA, maxFrac: 2);
-    _setController(_fuelKg, nextK, maxFrac: 3);
-    _setController(_fuelPrice, nextP, maxFrac: 3);
+    if (autoA != null && !_fuelManual.contains(_FuelField.amount)) {
+      _setAutoController(_amount, autoA, maxFrac: 2);
+    }
+    if (autoK != null && !_fuelManual.contains(_FuelField.kg)) {
+      _setAutoController(_fuelKg, autoK, maxFrac: 4);
+    }
+    if (autoP != null && !_fuelManual.contains(_FuelField.price)) {
+      _setAutoController(_fuelPrice, autoP, maxFrac: 4);
+    }
     _fuelSyncing = false;
   }
 
@@ -128,14 +146,20 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
     final idxInCat = widget.indexInCategory;
     if (idxInCat != null && idxInCat < indices.length) {
       final e = _trip.expenses[indices[idxInCat]];
+      // 编辑已有记录：标题原样；油费已有数字视为用户确认过的手动值
       _title = TextEditingController(text: e.title);
-      _amount = TextEditingController(text: e.amount.toString());
+      _amount = TextEditingController(
+        text: e.amount != 0 ? _fmtNum(e.amount, maxFrac: 2) : '',
+      );
       _fuelKg = TextEditingController(
         text: e.fuelKilograms > 0 ? _fmtNum(e.fuelKilograms) : '',
       );
       _fuelPrice = TextEditingController(
         text: e.fuelUnitPrice > 0 ? _fmtNum(e.fuelUnitPrice) : '',
       );
+      if (_amount.text.isNotEmpty) _fuelManual.add(_FuelField.amount);
+      if (_fuelKg.text.isNotEmpty) _fuelManual.add(_FuelField.kg);
+      if (_fuelPrice.text.isNotEmpty) _fuelManual.add(_FuelField.price);
       if (widget.category == ExpenseCategory.toll) {
         _pay = e.paymentSource == PaymentSource.etc ? PaymentSource.etc : PaymentSource.cash;
       } else {
@@ -144,17 +168,16 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
       _reimbursable = e.isReimbursable;
       _attachments = List<String>.from(e.attachments);
     } else {
+      // 新建：标题留空，仅用 hint 提示类别名
+      _title = TextEditingController();
       switch (widget.category) {
         case ExpenseCategory.fuel:
-          _title = TextEditingController(text: '油费');
           _pay = PaymentSource.cash;
           break;
         case ExpenseCategory.toll:
-          _title = TextEditingController(text: '高速费');
           _pay = PaymentSource.etc;
           break;
         case ExpenseCategory.other:
-          _title = TextEditingController(text: '其他费用');
           _pay = PaymentSource.cash;
           break;
       }
@@ -198,18 +221,16 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
   }
 
   void _save() {
-    final title = _title.text.trim();
-    if (title.isEmpty) {
-      _err('标题不能为空');
-      return;
-    }
+    final cat = widget.category;
+    var title = _title.text.trim();
+    if (title.isEmpty) title = cat.label;
+
     final amount = parseAmount(_amount.text);
     if (amount == null) {
       _err('金额请输入数字（或填公斤数与单价自动算出）');
       return;
     }
 
-    final cat = widget.category;
     var reimb = _reimbursable;
     if (cat != ExpenseCategory.other) reimb = false;
     if (_pay != PaymentSource.cash) reimb = false;
@@ -278,16 +299,26 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          TextField(controller: _title, decoration: const InputDecoration(labelText: '标题')),
+          TextField(
+            controller: _title,
+            decoration: InputDecoration(
+              labelText: '标题',
+              hintText: cat.label,
+            ),
+          ),
           TextField(
             controller: _amount,
             decoration: InputDecoration(
               labelText: '金额',
-              helperText: cat == ExpenseCategory.fuel ? '可与公斤数、单价互相推算' : null,
+              hintText: cat == ExpenseCategory.fuel ? '可自动算出' : null,
+              helperText: cat == ExpenseCategory.fuel
+                  ? '手动填过的数字不会被覆盖；清空后可再自动生成'
+                  : null,
             ),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: cat == ExpenseCategory.fuel ? [_decimalFilter] : null,
             onChanged: cat == ExpenseCategory.fuel
-                ? (_) => _syncFuelFrom(_FuelField.amount)
+                ? (v) => _syncFuelFrom(_FuelField.amount, v)
                 : null,
           ),
           if (cat == ExpenseCategory.fuel) ...[
@@ -295,23 +326,27 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
               controller: _fuelKg,
               decoration: const InputDecoration(
                 labelText: '公斤数',
+                hintText: '支持小数，如 12.5',
                 suffixText: 'kg',
               ),
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              onChanged: (_) => _syncFuelFrom(_FuelField.kg),
+              inputFormatters: [_decimalFilter],
+              onChanged: (v) => _syncFuelFrom(_FuelField.kg, v),
             ),
             TextField(
               controller: _fuelPrice,
               decoration: const InputDecoration(
                 labelText: '单价',
+                hintText: '可自动算出',
                 suffixText: '元/kg',
               ),
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              onChanged: (_) => _syncFuelFrom(_FuelField.price),
+              inputFormatters: [_decimalFilter],
+              onChanged: (v) => _syncFuelFrom(_FuelField.price, v),
             ),
             const SizedBox(height: 4),
             Text(
-              '任意填写其中两项，自动算出第三项（金额 = 公斤数 × 单价）。',
+              '任意填写其中两项，仅自动填充未手动填写的那一项（金额 = 公斤数 × 单价）。',
               style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline),
             ),
           ],
