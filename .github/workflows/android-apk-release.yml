@@ -46,8 +46,8 @@ jobs:
           # shellcheck source=/dev/null
           source ./scripts/flutter_build_version_env.sh
           flutter build apk --release \
-            --build-name="$FLUTTER_BUILD_NAME" \
-            --build-number="$FLUTTER_BUILD_NUMBER"
+            --build-name="$APP_BUILD_NAME" \
+            --build-number="$APP_BUILD_NUMBER"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

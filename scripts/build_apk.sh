@@ -14,5 +14,5 @@ source "$ROOT/scripts/flutter_build_version_env.sh"
 if [[ "${SKIP_AUTO_BUILD_NUMBER:-0}" == "1" ]]; then
   flutter build apk "$@"
 else
-  flutter build apk "$@" --build-name="$FLUTTER_BUILD_NAME" --build-number="$FLUTTER_BUILD_NUMBER"
+  flutter build apk "$@" --build-name="$APP_BUILD_NAME" --build-number="$APP_BUILD_NUMBER"
 fi

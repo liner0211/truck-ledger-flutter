@@ -15,5 +15,5 @@ if [[ "${SKIP_AUTO_BUILD_NUMBER:-0}" == "1" ]]; then
   exec flutter build ios --release --no-codesign "$@"
 else
   exec flutter build ios --release --no-codesign \
-    --build-name="$FLUTTER_BUILD_NAME" --build-number="$FLUTTER_BUILD_NUMBER" "$@"
+    --build-name="$APP_BUILD_NAME" --build-number="$APP_BUILD_NUMBER" "$@"
 fi
