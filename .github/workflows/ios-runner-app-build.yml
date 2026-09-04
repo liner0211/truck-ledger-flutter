@@ -1,22 +1,13 @@
 name: iOS Runner.app Build
 
+# 单平台手动构建（push 请用 Release Packages：会直接产出 ipa/deb 并写入 Releases）。
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - master
-    paths:
-      - "lib/**"
-      - "ios/**"
-      - "pubspec.yaml"
-      - "pubspec.lock"
-      - ".github/workflows/ios-runner-app-build.yml"
 
 jobs:
   build-ios-runner-app:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 50
 
     steps:
       - name: Checkout
@@ -30,21 +21,39 @@ jobs:
       - name: Flutter Version
         run: flutter --version
 
+      - name: Install dpkg (for deb)
+        run: brew install dpkg
+
       - name: Pub Get
         run: flutter pub get
 
       - name: Build iOS Runner.app (no codesign)
         run: ./scripts/flutter_build_ios_release.sh
 
-      - name: Prepare Artifact
+      - name: Package IPA + DEB + Runner.zip
         run: |
+          set -euo pipefail
+          source ./scripts/flutter_build_version_env.sh
           test -d build/ios/iphoneos/Runner.app
-          cd build/ios/iphoneos
-          ditto -c -k --sequesterRsrc --keepParent Runner.app Runner.app.zip
+          SKIP_BUILD=1 ./package_ipa.sh
+          SKIP_BUILD=1 ./package_deb.sh
+          mkdir -p dist
+          (
+            cd build/ios/iphoneos
+            ditto -c -k --sequesterRsrc --keepParent Runner.app \
+              "$GITHUB_WORKSPACE/dist/Runner.app.zip"
+          )
+          cp -f ipa-out/Runner.ipa "dist/truckledger-${APP_BUILD_NAME}-${APP_BUILD_NUMBER}.ipa"
+          DEB_SRC="$(ls -1 packages/com.liner0211.truckledger_*.deb | head -1)"
+          cp -f "$DEB_SRC" \
+            "dist/com.liner0211.truckledger_${APP_BUILD_NAME}-${APP_BUILD_NUMBER}_iphoneos-arm64e.deb"
 
-      - name: Upload Runner.app Zip
+      - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
           name: runner-app-ios
-          path: build/ios/iphoneos/Runner.app.zip
+          path: |
+            dist/Runner.app.zip
+            dist/*.ipa
+            dist/*.deb
           retention-days: 14

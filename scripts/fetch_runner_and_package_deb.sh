@@ -27,11 +27,19 @@ fi
 RUN_ID="${RUN_ID:-}"
 
 if [[ -z "$RUN_ID" ]]; then
-  RUN_ID="$(gh run list --repo "$REPO" --workflow "iOS Runner.app Build" --limit 10 --json databaseId,status,conclusion --jq '[.[] | select(.status=="completed" and .conclusion=="success")][0].databaseId')"
+  # 优先统一 Release Packages；兼容旧「iOS Runner.app Build」
+  for wf in "Release Packages" "iOS Runner.app Build"; do
+    RUN_ID="$(gh run list --repo "$REPO" --workflow "$wf" --limit 15 --json databaseId,status,conclusion --jq '[.[] | select(.status=="completed" and .conclusion=="success")][0].databaseId' 2>/dev/null || true)"
+    if [[ -n "$RUN_ID" && "$RUN_ID" != "null" ]]; then
+      echo "Using workflow '$wf' run $RUN_ID"
+      break
+    fi
+    RUN_ID=""
+  done
 fi
 
 if [[ -z "$RUN_ID" || "$RUN_ID" == "null" ]]; then
-  echo "ERROR: no successful run found for workflow 'iOS Runner.app Build'" >&2
+  echo "ERROR: no successful run found for 'Release Packages' or 'iOS Runner.app Build'" >&2
   exit 1
 fi
 
@@ -46,7 +54,7 @@ if [[ "${SKIP_SHA_CHECK:-0}" != "1" ]]; then
     echo "  本地 HEAD: $local_sha" >&2
     echo "  CI 构建:   $ci_sha" >&2
     echo "  deb/ipa 内嵌的是 CI 上的代码，不包含你尚未推送或未由 CI 构建的修改。" >&2
-    echo "  正确做法：git push 后等待「iOS Runner.app Build」成功，再运行一键任务；" >&2
+    echo "  正确做法：git push 后等待「Release Packages」成功，再运行一键任务；" >&2
     echo "  或在 Mac+Xcode 本机执行 flutter build ios 后直接用 package_deb.sh / package_ipa.sh。" >&2
     echo "  忽略本警告继续：SKIP_SHA_CHECK=1 ..." >&2
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
@@ -61,11 +69,21 @@ cleanup() {
 trap cleanup EXIT
 
 echo "Downloading artifact from run: $RUN_ID"
-gh run download "$RUN_ID" --repo "$REPO" --name runner-app-ios --dir "$TMP_DIR"
+# Release Packages 用 ios-packages；旧工作流用 runner-app-ios
+if ! gh run download "$RUN_ID" --repo "$REPO" --name ios-packages --dir "$TMP_DIR" 2>/dev/null; then
+  gh run download "$RUN_ID" --repo "$REPO" --name runner-app-ios --dir "$TMP_DIR"
+fi
+
+ZIP="$(find "$TMP_DIR" -name 'Runner.app.zip' | head -1)"
+if [[ -z "$ZIP" || ! -f "$ZIP" ]]; then
+  echo "ERROR: Runner.app.zip not found in downloaded artifacts" >&2
+  find "$TMP_DIR" -type f >&2 || true
+  exit 1
+fi
 
 mkdir -p "$ROOT_DIR/build/ios/iphoneos"
 rm -rf "$ROOT_DIR/build/ios/iphoneos/Runner.app"
-unzip -q "$TMP_DIR/Runner.app.zip" -d "$ROOT_DIR/build/ios/iphoneos"
+unzip -q "$ZIP" -d "$ROOT_DIR/build/ios/iphoneos"
 
 if [[ "${SKIP_PACKAGE_DEB:-0}" == "1" ]]; then
   echo "SKIP_PACKAGE_DEB=1：已解压 Runner.app，跳过打 deb。"

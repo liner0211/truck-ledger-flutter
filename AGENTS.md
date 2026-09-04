@@ -31,12 +31,14 @@ Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`，当前版�
 
 | 脚本 | 作用 |
 |------|------|
-| `./one_click_ipa.sh` | `gh` 拉最新成功 CI 的 Runner.app → `ipa-out/Runner.ipa` |
+| `./one_click_ipa.sh` | `gh` 拉最新成功 CI 的 Runner.app → `ipa-out/Runner.ipa`（或直接从 Release 下 IPA） |
 | `./one_click_deb_install.sh` | 拉 CI → 打 deb → SSH `dpkg -i` |
 | `./one_click_apk_install.sh` | 本机 `flutter build apk --release` → 自动发现设备 → `adb install -r` |
 | `./one_click_find_android.sh` | 仅扫描/连接 Android（打印 serial） |
 | `./one_click_server_deploy.sh` | rsync 部署 `server-php/`（保留远端 config.php / data） |
 | `make ipa-one` / `make deb-install-one` / `make apk-install-one` / `make server-deploy` | 同上 |
+
+**CI「Release Packages」**（push `main` 且改动 lib/android/ios/pubspec 时自动跑）：产出 Android APK、iOS IPA、越狱 DEB、Runner.app.zip，并发布到 GitHub **Releases**（tag 形如 `v1.0.4-22`）。单平台手动任务仍可用 workflow_dispatch：`Android APK Release` / `iOS Runner.app Build`。
 
 均需：**`gh` 已登录**；deb 安装需 **`python3` + paramiko`**，设备密码在 **`dev/machine.env`** 或通过环境变量传入。
 

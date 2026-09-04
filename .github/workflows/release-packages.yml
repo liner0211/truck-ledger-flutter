@@ -1,0 +1,194 @@
+name: Release Packages
+
+# 统一构建 Android APK + iOS（Runner.app / ipa / deb），并写入 GitHub Releases。
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "lib/**"
+      - "android/**"
+      - "ios/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+      - "package_deb.sh"
+      - "package_ipa.sh"
+      - "control"
+      - ".github/workflows/release-packages.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      version_name: ${{ steps.ver.outputs.name }}
+      version_code: ${{ steps.ver.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve version
+        id: ver
+        run: |
+          set -euo pipefail
+          source ./scripts/flutter_build_version_env.sh
+          echo "name=$APP_BUILD_NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$APP_BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "Resolved $APP_BUILD_NAME+$APP_BUILD_NUMBER"
+
+      - name: Pub Get
+        run: flutter pub get
+
+      - name: Build Release APK
+        run: |
+          set -euo pipefail
+          source ./scripts/flutter_build_version_env.sh
+          flutter build apk --release \
+            --build-name="$APP_BUILD_NAME" \
+            --build-number="$APP_BUILD_NUMBER"
+          mkdir -p dist
+          cp -f build/app/outputs/flutter-apk/app-release.apk \
+            "dist/truckledger-${APP_BUILD_NAME}-${APP_BUILD_NUMBER}-release.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: dist/*.apk
+          retention-days: 30
+
+  build-ios:
+    runs-on: macos-15
+    timeout-minutes: 50
+    outputs:
+      version_name: ${{ steps.ver.outputs.name }}
+      version_code: ${{ steps.ver.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Resolve version
+        id: ver
+        run: |
+          set -euo pipefail
+          source ./scripts/flutter_build_version_env.sh
+          echo "name=$APP_BUILD_NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$APP_BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "Resolved $APP_BUILD_NAME+$APP_BUILD_NUMBER"
+
+      - name: Install dpkg (for deb)
+        run: brew install dpkg
+
+      - name: Pub Get
+        run: flutter pub get
+
+      - name: Build iOS Runner.app (no codesign)
+        run: ./scripts/flutter_build_ios_release.sh
+
+      - name: Package IPA + DEB + Runner.zip
+        run: |
+          set -euo pipefail
+          source ./scripts/flutter_build_version_env.sh
+          test -d build/ios/iphoneos/Runner.app
+
+          SKIP_BUILD=1 ./package_ipa.sh
+          SKIP_BUILD=1 ./package_deb.sh
+
+          mkdir -p dist
+          # Runner.app.zip（兼容旧一键脚本）
+          (
+            cd build/ios/iphoneos
+            ditto -c -k --sequesterRsrc --keepParent Runner.app \
+              "$GITHUB_WORKSPACE/dist/Runner.app.zip"
+          )
+          cp -f ipa-out/Runner.ipa \
+            "dist/truckledger-${APP_BUILD_NAME}-${APP_BUILD_NUMBER}.ipa"
+          DEB_SRC="$(ls -1 packages/com.liner0211.truckledger_*.deb | head -1)"
+          cp -f "$DEB_SRC" \
+            "dist/com.liner0211.truckledger_${APP_BUILD_NAME}-${APP_BUILD_NUMBER}_iphoneos-arm64e.deb"
+          ls -lh dist/
+
+      - name: Upload iOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-packages
+          path: |
+            dist/Runner.app.zip
+            dist/*.ipa
+            dist/*.deb
+          retention-days: 30
+
+  github-release:
+    needs: [build-android, build-ios]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: release-assets
+
+      - name: Download iOS packages
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-packages
+          path: release-assets
+
+      - name: Prepare release metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          source ./scripts/flutter_build_version_env.sh
+          TAG="v${APP_BUILD_NAME}-${APP_BUILD_NUMBER}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "name=卡车记账 ${APP_BUILD_NAME} (${APP_BUILD_NUMBER})" >> "$GITHUB_OUTPUT"
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          echo "## 卡车记账 ${APP_BUILD_NAME}+${APP_BUILD_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "" >> "$GITHUB_OUTPUT"
+          echo "- Commit: \`${GITHUB_SHA}\`" >> "$GITHUB_OUTPUT"
+          echo "- Android: Release APK" >> "$GITHUB_OUTPUT"
+          echo "- iOS: IPA（未签名容器）+ 越狱 DEB + Runner.app.zip" >> "$GITHUB_OUTPUT"
+          echo "" >> "$GITHUB_OUTPUT"
+          echo "IPA 需自行签名或配合 TrollStore 等工具；DEB 用于越狱设备 \`dpkg -i\`。" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          ls -lh release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          body: ${{ steps.meta.outputs.body }}
+          draft: false
+          prerelease: false
+          files: |
+            release-assets/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
