@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../state/auth_controller.dart';
+import 'control_gate.dart';
 import 'home_screen.dart';
 import 'login_screen.dart';
 
@@ -19,6 +20,6 @@ class AuthGate extends StatelessWidget {
     if (!auth.isLoggedIn) {
       return const LoginScreen();
     }
-    return const HomeScreen();
+    return const ControlGate(child: HomeScreen());
   }
 }

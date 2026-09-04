@@ -92,6 +92,13 @@
       "command": "./dev/apply_git_config.sh",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
+    },
+    {
+      "label": "一键：部署 PHP 后端（rsync server-php）",
+      "type": "shell",
+      "command": "./scripts/with_project_env.sh ./one_click_server_deploy.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
     }
   ],
   "inputs": [

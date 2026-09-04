@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/auth_api.dart';
+import '../services/sync_service.dart';
 import '../state/auth_controller.dart';
 import '../state/ledger_controller.dart';
+import 'devices_screen.dart';
+import 'change_password_screen.dart';
+import 'messages_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -71,10 +75,28 @@ class _AccountScreenState extends State<AccountScreen> {
     }
   }
 
+  String _syncLabel(SyncStatus s) {
+    switch (s) {
+      case SyncStatus.idle:
+        return '空闲';
+      case SyncStatus.synced:
+        return '已同步';
+      case SyncStatus.dirty:
+        return '待上传';
+      case SyncStatus.pending:
+        return '同步中';
+      case SyncStatus.conflict:
+        return '冲突';
+      case SyncStatus.error:
+        return '失败';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthController>();
-    final ledger = context.read<LedgerController>();
+    final ledger = context.watch<LedgerController>();
+    final profile = auth.profile;
 
     return Scaffold(
       appBar: AppBar(title: const Text('账号与同步')),
@@ -94,11 +116,61 @@ class _AccountScreenState extends State<AccountScreen> {
                     Text('车牌号：${auth.licensePlate}'),
                   if (auth.userId != null)
                     Text('用户 ID：${auth.userId}', style: Theme.of(context).textTheme.bodySmall),
+                  if (profile != null) ...[
+                    const SizedBox(height: 8),
+                    Text('状态：${profile.status} · 套餐：${profile.plan}'),
+                    if (profile.daysLeft != null) Text('剩余天数：${profile.daysLeft}'),
+                    Text(profile.writeAllowed ? '写入：允许' : '写入：只读'),
+                  ],
+                  const SizedBox(height: 4),
+                  Text('本机 revision：${auth.localRevision}',
+                      style: Theme.of(context).textTheme.bodySmall),
+                  Text('同步状态：${_syncLabel(ledger.syncStatus)}',
+                      style: Theme.of(context).textTheme.bodySmall),
+                  if (ledger.syncError != null)
+                    Text(ledger.syncError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 12),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.mail_outline),
+            title: const Text('消息中心'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push<void>(
+                context,
+                MaterialPageRoute<void>(builder: (_) => const MessagesScreen()),
+              );
+            },
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.devices),
+            title: const Text('登录设备'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push<void>(
+                context,
+                MaterialPageRoute<void>(builder: (_) => const DevicesScreen()),
+              );
+            },
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.lock_outline),
+            title: const Text('修改密码'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push<void>(
+                context,
+                MaterialPageRoute<void>(builder: (_) => const ChangePasswordScreen()),
+              );
+            },
+          ),
+          const SizedBox(height: 8),
           TextField(
             controller: _serverUrl,
             decoration: const InputDecoration(
@@ -125,9 +197,38 @@ class _AccountScreenState extends State<AccountScreen> {
           Text('数据同步', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           Text(
-            '修改账本后会自动上传到云端。也可手动操作：',
+            '修改账本后会自动上传（带版本锁）。冲突时请手动选择保留本机或云端。',
             style: Theme.of(context).textTheme.bodySmall,
           ),
+          if (ledger.syncStatus == SyncStatus.conflict) ...[
+            const SizedBox(height: 12),
+            Card(
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text('检测到版本冲突', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 8),
+                    FilledButton(
+                      onPressed: _busy
+                          ? null
+                          : () => _run(ledger.resolveConflictKeepLocal),
+                      child: const Text('保留本机并强制上传'),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      onPressed: _busy
+                          ? null
+                          : () => _run(ledger.resolveConflictTakeRemote),
+                      child: const Text('采用云端覆盖本机'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           FilledButton.icon(
             onPressed: _busy ? null : () => _run(ledger.syncWithCloud),

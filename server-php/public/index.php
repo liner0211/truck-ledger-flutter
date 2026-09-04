@@ -6,10 +6,17 @@ require $root . '/lib/Config.php';
 require $root . '/lib/JsonResponse.php';
 require $root . '/lib/Jwt.php';
 require $root . '/lib/Database.php';
+require $root . '/lib/SettingsService.php';
+require $root . '/lib/AttachmentService.php';
+require $root . '/lib/EntitlementService.php';
 require $root . '/lib/AuthService.php';
 require $root . '/lib/LedgerService.php';
-require $root . '/lib/AttachmentService.php';
+require $root . '/lib/SnapshotService.php';
+require $root . '/lib/AppControlService.php';
+require $root . '/lib/MessageService.php';
+require $root . '/lib/PushService.php';
 require $root . '/lib/AdminService.php';
+require $root . '/lib/RateLimitService.php';
 
 $cfg = Config::load($root);
 $pdo = Database::conn($cfg);
@@ -36,15 +43,30 @@ function render(string $template, array $vars = []): void
     exit;
 }
 
+function requestHeader(string $name): string
+{
+    $key = 'HTTP_' . strtoupper(str_replace('-', '_', $name));
+    return (string)($_SERVER[$key] ?? '');
+}
+
 // ---------- API（带 CORS）----------
 if (strpos($uri, '/api/') === 0) {
-    JsonResponse::cors();
+    JsonResponse::cors($cfg);
 
     if ($uri === '/api/health' && $method === 'GET') {
+        $deep = isset($_GET['deep']);
+        if ($deep) {
+            JsonResponse::send(AdminService::health($pdo, $cfg));
+        }
         JsonResponse::send(['status' => 'ok']);
     }
 
+    if ($uri === '/api/auth/config' && $method === 'GET') {
+        JsonResponse::send(AuthService::publicConfig($pdo));
+    }
+
     if ($uri === '/api/auth/register' && $method === 'POST') {
+        RateLimitService::assert($cfg, 'register', 10, 3600);
         $body = readJsonBody();
         $result = AuthService::register(
             $pdo,
@@ -57,6 +79,7 @@ if (strpos($uri, '/api/') === 0) {
     }
 
     if ($uri === '/api/auth/login' && $method === 'POST') {
+        RateLimitService::assert($cfg, 'login', 30, 600);
         $body = readJsonBody();
         $result = AuthService::login(
             $pdo,
@@ -67,13 +90,30 @@ if (strpos($uri, '/api/') === 0) {
         JsonResponse::send($result);
     }
 
+    if ($uri === '/api/auth/change-password' && $method === 'POST') {
+        RateLimitService::assert($cfg, 'change_password', 10, 600);
+        $user = AuthService::requireUser($pdo, $cfg);
+        $body = readJsonBody();
+        AuthService::changePassword(
+            $pdo,
+            $user,
+            (string)($body['old_password'] ?? ''),
+            (string)($body['new_password'] ?? '')
+        );
+        JsonResponse::send(['ok' => true, 'detail' => '密码已修改，请重新登录']);
+    }
+
     if ($uri === '/api/auth/me' && $method === 'GET') {
         $user = AuthService::requireUser($pdo, $cfg);
-        JsonResponse::send([
-            'user_id' => (int)$user['id'],
-            'username' => $user['username'],
-            'license_plate' => (string)($user['license_plate'] ?? ''),
-        ]);
+        JsonResponse::send(EntitlementService::publicProfile($pdo, $user));
+    }
+
+    if ($uri === '/api/app/check' && ($method === 'GET' || $method === 'POST')) {
+        $user = AuthService::requireUser($pdo, $cfg);
+        $body = $method === 'POST' ? readJsonBody() : [];
+        $version = (string)($body['app_version'] ?? $_GET['app_version'] ?? requestHeader('X-App-Version') ?: '0.0.0');
+        $deviceId = (string)($body['device_id'] ?? $_GET['device_id'] ?? requestHeader('X-Device-Id') ?: '');
+        JsonResponse::send(AppControlService::check($pdo, $user, $version, $deviceId !== '' ? $deviceId : null));
     }
 
     if ($uri === '/api/ledger' && $method === 'GET') {
@@ -81,9 +121,24 @@ if (strpos($uri, '/api/') === 0) {
         JsonResponse::send(LedgerService::get($pdo, (int)$user['id']));
     }
 
+    if ($uri === '/api/ledger/revision' && $method === 'GET') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        JsonResponse::send(LedgerService::revision($pdo, (int)$user['id']));
+    }
+
     if ($uri === '/api/ledger' && ($method === 'PUT' || $method === 'POST')) {
         $user = AuthService::requireUser($pdo, $cfg);
-        JsonResponse::send(LedgerService::put($pdo, (int)$user['id'], readJsonBody()));
+        EntitlementService::assertWriteAllowed($pdo, $user);
+        $body = readJsonBody();
+        $rounds = $body['rounds'] ?? [];
+        EntitlementService::assertQuotaForRounds($pdo, $user, is_array($rounds) ? count($rounds) : 0);
+        $ifMatch = requestHeader('If-Match');
+        if ($ifMatch !== '' && !array_key_exists('base_revision', $body)) {
+            $body['base_revision'] = (int)$ifMatch;
+        }
+        // 兼容旧客户端：未传 base_revision 时强制写入（仍递增 revision）
+        $force = !array_key_exists('base_revision', $body);
+        JsonResponse::send(LedgerService::put($pdo, (int)$user['id'], $body, null, $force, true));
     }
 
     if ($uri === '/api/attachments' && $method === 'GET') {
@@ -98,8 +153,66 @@ if (strpos($uri, '/api/') === 0) {
             AttachmentService::download($cfg, (int)$user['id'], $filename);
         }
         if ($method === 'POST') {
+            EntitlementService::assertWriteAllowed($pdo, $user);
+            EntitlementService::assertQuotaForAttachments($pdo, $cfg, $user);
             JsonResponse::send(AttachmentService::upload($cfg, (int)$user['id'], $filename));
         }
+    }
+
+    if ($uri === '/api/devices/push-token' && $method === 'POST') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        $body = readJsonBody();
+        PushService::upsertToken(
+            $pdo,
+            (int)$user['id'],
+            (string)($body['device_id'] ?? ''),
+            (string)($body['token'] ?? ''),
+            (string)($body['platform'] ?? requestHeader('X-App-Platform') ?: 'unknown')
+        );
+        JsonResponse::send(['ok' => true]);
+    }
+
+    if ($uri === '/api/devices/push-token' && $method === 'DELETE') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        $body = readJsonBody();
+        PushService::removeToken($pdo, (int)$user['id'], (string)($body['device_id'] ?? ''));
+        JsonResponse::send(['ok' => true]);
+    }
+
+    if ($uri === '/api/devices' && $method === 'GET') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        JsonResponse::send(['devices' => AppControlService::listDevices($pdo, (int)$user['id'])]);
+    }
+
+    if (preg_match('#^/api/devices/([^/]+)$#', $uri, $m) && $method === 'DELETE') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        $deviceId = urldecode($m[1]);
+        $ok = AppControlService::setDeviceStatus($pdo, (int)$user['id'], $deviceId, 'REVOKED', null);
+        PushService::removeToken($pdo, (int)$user['id'], $deviceId);
+        if (!$ok) {
+            JsonResponse::error('设备不存在', 404);
+        }
+        JsonResponse::send(['ok' => true]);
+    }
+
+    if ($uri === '/api/messages' && $method === 'GET') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        JsonResponse::send([
+            'messages' => MessageService::listForUser($pdo, (int)$user['id']),
+            'unread' => MessageService::unreadCount($pdo, (int)$user['id']),
+        ]);
+    }
+
+    if ($uri === '/api/messages/read-all' && $method === 'POST') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        MessageService::markAllRead($pdo, (int)$user['id']);
+        JsonResponse::send(['ok' => true]);
+    }
+
+    if (preg_match('#^/api/messages/(\d+)/read$#', $uri, $m) && $method === 'POST') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        MessageService::markRead($pdo, (int)$user['id'], (int)$m[1]);
+        JsonResponse::send(['ok' => true]);
     }
 
     JsonResponse::error('Not Found', 404);
@@ -146,10 +259,26 @@ if (strpos($uri, '/admin/api/') === 0) {
         }
     }
 
+    if (preg_match('#^/admin/api/users/(\d+)/snapshots$#', $uri, $m) && $method === 'GET') {
+        JsonResponse::send(['snapshots' => SnapshotService::list($pdo, (int)$m[1])]);
+    }
+
+    if (preg_match('#^/admin/api/users/(\d+)/snapshots/(\d+)/restore$#', $uri, $m) && $method === 'POST') {
+        $result = SnapshotService::restore($pdo, (int)$m[1], (int)$m[2]);
+        if ($result === null) {
+            JsonResponse::error('快照不存在', 404);
+        }
+        JsonResponse::send($result);
+    }
+
+    if (preg_match('#^/admin/api/users/(\d+)/devices$#', $uri, $m) && $method === 'GET') {
+        JsonResponse::send(['devices' => AppControlService::listDevices($pdo, (int)$m[1])]);
+    }
+
     JsonResponse::error('Not Found', 404);
 }
 
-// ---------- 管理后台 ----------
+// ---------- 管理后台页面 ----------
 if ($uri === '/' || $uri === '/admin') {
     if (AdminService::isLoggedIn()) {
         header('Location: /admin/dashboard');
@@ -183,15 +312,136 @@ if ($uri === '/admin/logout') {
 
 if ($uri === '/admin/dashboard' && $method === 'GET') {
     AdminService::requireLogin();
+    $settings = AppControlService::settings($pdo);
     render('admin_dashboard.php', [
         'stats' => AdminService::stats($pdo, $cfg),
         'users' => AdminService::listUsers($pdo, $cfg),
+        'registration_enabled' => SettingsService::isRegistrationEnabled($pdo),
+        'settings' => $settings,
+        'audits' => AppControlService::recentAudits($pdo, 30),
+        'health' => AdminService::health($pdo, $cfg),
+        'csrf' => AdminService::csrfToken(),
         'message' => (string)($_GET['msg'] ?? ''),
     ]);
 }
 
+if ($uri === '/admin/settings' && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $key = (string)($_POST['key'] ?? '');
+    $value = (string)($_POST['value'] ?? '');
+    try {
+        AppControlService::setSetting($pdo, $key, $value, null);
+        $msg = '已更新设置 ' . $key;
+    } catch (Throwable $e) {
+        $msg = '设置失败';
+    }
+    header('Location: /admin/dashboard?msg=' . urlencode($msg));
+    exit;
+}
+
+if ($uri === '/admin/settings/registration' && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $enabled = isset($_POST['enabled']) && (string)$_POST['enabled'] === '1';
+    SettingsService::setRegistrationEnabled($pdo, $enabled);
+    AppControlService::audit($pdo, null, 'REGISTRATION_TOGGLE', 'app_settings', 'registration_enabled', [
+        'enabled' => $enabled,
+    ]);
+    $msg = $enabled ? '已开放用户注册' : '已关闭用户注册';
+    header('Location: /admin/dashboard?msg=' . urlencode($msg));
+    exit;
+}
+
+if ($uri === '/admin/push' && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $title = trim((string)($_POST['title'] ?? ''));
+    $body = trim((string)($_POST['body'] ?? ''));
+    $userId = (int)($_POST['user_id'] ?? 0);
+    if ($title === '' || $body === '') {
+        header('Location: /admin/dashboard?msg=' . urlencode('标题与内容不能为空'));
+        exit;
+    }
+    if ($userId > 0) {
+        $r = PushService::notifyUser($pdo, $cfg, $userId, $title, $body);
+        $msg = "已通知用户 #{$userId}（推送成功 {$r['sent']}）";
+    } else {
+        $r = PushService::broadcast($pdo, $cfg, $title, $body);
+        $msg = "已广播（推送成功 {$r['sent']}，站内信已写入）";
+    }
+    header('Location: /admin/dashboard?msg=' . urlencode($msg));
+    exit;
+}
+
+if (preg_match('#^/admin/users/(\d+)/reset-password$#', $uri, $m) && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $newPass = trim((string)($_POST['new_password'] ?? ''));
+    if (strlen($newPass) < 6) {
+        header('Location: /admin/dashboard?msg=' . urlencode('新密码至少 6 位'));
+        exit;
+    }
+    $name = AuthService::adminResetPassword($pdo, (int)$m[1], $newPass);
+    $msg = $name ? "已重置 {$name} 的密码（需重新登录）" : '用户不存在';
+    header('Location: /admin/dashboard?msg=' . urlencode($msg));
+    exit;
+}
+
+if (preg_match('#^/admin/users/(\d+)/enable$#', $uri, $m) && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $msg = AdminService::setUserEnabled($pdo, (int)$m[1], true) ?? '用户不存在';
+    header('Location: /admin/dashboard?msg=' . urlencode($msg));
+    exit;
+}
+
+if (preg_match('#^/admin/users/(\d+)/disable$#', $uri, $m) && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $msg = AdminService::setUserEnabled($pdo, (int)$m[1], false) ?? '用户不存在';
+    header('Location: /admin/dashboard?msg=' . urlencode($msg));
+    exit;
+}
+
+if (preg_match('#^/admin/users/(\d+)/extend$#', $uri, $m) && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $days = max(1, (int)($_POST['days'] ?? 14));
+    $msg = AdminService::extendTrial($pdo, (int)$m[1], $days) ?? '用户不存在';
+    header('Location: /admin/dashboard?msg=' . urlencode($msg));
+    exit;
+}
+
+if (preg_match('#^/admin/users/(\d+)/convert$#', $uri, $m) && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $msg = AdminService::convertPaid($pdo, (int)$m[1]) ?? '用户不存在';
+    header('Location: /admin/dashboard?msg=' . urlencode($msg));
+    exit;
+}
+
+if (preg_match('#^/admin/users/(\d+)/kick$#', $uri, $m) && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $pdo->prepare('UPDATE users SET token_version=token_version+1 WHERE id=?')->execute([(int)$m[1]]);
+    AppControlService::audit($pdo, null, 'USER_KICK', 'user', $m[1], []);
+    header('Location: /admin/dashboard?msg=' . urlencode('已踢下线（令牌失效）'));
+    exit;
+}
+
+if (preg_match('#^/admin/users/(\d+)/devices/([^/]+)/revoke$#', $uri, $m) && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $ok = AppControlService::setDeviceStatus($pdo, (int)$m[1], urldecode($m[2]), 'REVOKED', null);
+    $msg = $ok ? '已吊销设备' : '设备不存在';
+    header('Location: /admin/users/' . (int)$m[1] . '/ledger?msg=' . urlencode($msg));
+    exit;
+}
+
 if (preg_match('#^/admin/users/(\d+)/delete$#', $uri, $m) && $method === 'POST') {
     AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
     $name = AdminService::deleteUser($pdo, $cfg, (int)$m[1]);
     $msg = $name ? '已删除用户 ' . $name : '用户不存在';
     header('Location: /admin/dashboard?msg=' . urlencode($msg));
@@ -206,7 +456,41 @@ if (preg_match('#^/admin/users/(\d+)/ledger$#', $uri, $m) && $method === 'GET') 
         echo '用户不存在';
         exit;
     }
-    render('admin_user_ledger.php', ['user' => $user]);
+    render('admin_user_ledger.php', [
+        'user' => $user,
+        'snapshots' => SnapshotService::list($pdo, (int)$m[1]),
+        'devices' => AppControlService::listDevices($pdo, (int)$m[1]),
+        'csrf' => AdminService::csrfToken(),
+        'message' => (string)($_GET['msg'] ?? ''),
+    ]);
+}
+
+if (preg_match('#^/admin/users/(\d+)/snapshots/(\d+)/restore$#', $uri, $m) && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $result = SnapshotService::restore($pdo, (int)$m[1], (int)$m[2]);
+    $msg = $result === null ? '快照不存在' : '已恢复到 revision ' . ($result['revision'] ?? '');
+    header('Location: /admin/users/' . (int)$m[1] . '/ledger?msg=' . urlencode($msg));
+    exit;
+}
+
+if ($uri === '/admin/settings/feature-flags' && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $flags = [
+        'excel_export' => isset($_POST['excel_export']),
+        'backup_import' => isset($_POST['backup_import']),
+        'messages' => isset($_POST['messages']),
+        'web_ledger' => isset($_POST['web_ledger']),
+    ];
+    AppControlService::setSetting(
+        $pdo,
+        'feature_flags',
+        json_encode($flags, JSON_UNESCAPED_UNICODE) ?: '{}',
+        null
+    );
+    header('Location: /admin/dashboard?msg=' . urlencode('功能开关已更新'));
+    exit;
 }
 
 http_response_code(404);

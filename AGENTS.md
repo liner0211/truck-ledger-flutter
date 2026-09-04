@@ -29,7 +29,8 @@ Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`。数据为�
 | `./one_click_deb_install.sh` | 拉 CI → 打 deb → SSH `dpkg -i` |
 | `./one_click_apk_install.sh` | 本机 `flutter build apk --release` → 自动发现设备 → `adb install -r` |
 | `./one_click_find_android.sh` | 仅扫描/连接 Android（打印 serial） |
-| `make ipa-one` / `make deb-install-one` / `make apk-install-one` | 同上 |
+| `./one_click_server_deploy.sh` | rsync 部署 `server-php/`（保留远端 config.php / data） |
+| `make ipa-one` / `make deb-install-one` / `make apk-install-one` / `make server-deploy` | 同上 |
 
 均需：**`gh` 已登录**；deb 安装需 **`python3` + paramiko**，设备密码在 **`dev/machine.env`** 或通过环境变量传入。
 
@@ -48,6 +49,16 @@ Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`。数据为�
 ## 业务常量备忘
 
 - ETC 对账手续费：**0.35%**（`lib/services/profit_calculator.dart` 中 `etcTollReconcileRate = 0.0035`）。
+
+## 发行版云端能力（server-php）
+
+- **控制面** `/api/app/check`：停服 / 强更 / 设备吊销 / 离线宽限；管理后台可改。
+- **同步**：账本 `revision` 乐观锁；冲突 409；客户端 SyncEngine + 冲突 UI。
+- **用户运营**：注册默认试用、到期只读/禁登、延期/转正/踢下线。
+- **触达**：站内信 `/api/messages`；可选 FCM（`fcm_server_key`）。
+- **功能开关**：`feature_flags`（导出/导入/消息/Web）。
+- **运维**：审计、自动快照恢复、设备管理、`/api/health?deep=1`。
+- **部署**：`./one_click_server_deploy.sh`；CI：iOS Runner.app + Android APK Release。
 
 ## 关于页版本 / 构建号
 

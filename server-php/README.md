@@ -122,14 +122,29 @@ https://api.你的域名.com
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/health` | 健康检查 |
-| POST | `/api/auth/register` | 注册 |
+| GET | `/api/health` | 健康检查（`?deep=1` 深检） |
+| GET | `/api/auth/config` | 公开配置（注册开关、试用天数等） |
+| POST | `/api/auth/register` | 注册（默认试用） |
 | POST | `/api/auth/login` | 登录 |
-| GET | `/api/ledger` | 拉取账本（Bearer Token） |
-| PUT | `/api/ledger` | 上传账本 |
-| GET | `/api/attachments` | 附件列表 |
-| POST | `/api/attachments/{name}` | 上传附件 |
-| GET | `/api/attachments/{name}` | 下载附件 |
+| POST | `/api/auth/change-password` | 修改密码（需登录，成功后 token 失效） |
+| GET | `/api/auth/me` | 当前用户权益档案 |
+| POST | `/api/app/check` | 应用控制面（停服/强更/设备） |
+| GET | `/api/ledger` | 拉取账本（含 `revision`） |
+| GET | `/api/ledger/revision` | 轻量版本号 |
+| PUT | `/api/ledger` | 上传账本（`base_revision` 乐观锁） |
+| GET/POST | `/api/attachments…` | 附件列表/上下传 |
+| POST | `/api/devices/push-token` | 登记推送 Token |
+| GET | `/api/messages` | 站内信 |
+
+### 发行版能力摘要
+
+- **控制面**：停服 / 最低版本 / 强制升级 / 离线宽限 / 全局公告
+- **用户运营**：试用天数、到期只读或禁止登录、延期、转正、踢下线、设备吊销
+- **同步**：`revision` 乐观锁，冲突返回 409
+- **触达**：站内信必达；可选 `fcm_server_key` 推送
+- **运维**：审计日志、账本自动快照、健康深检、Admin CSRF
+
+管理后台：`/admin`（用户列表、控制面设置、广播通知、审计）。
 
 ---
 

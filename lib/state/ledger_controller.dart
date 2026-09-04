@@ -4,8 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/trip_models.dart';
-import '../services/ledger_store.dart';
 import '../services/auth_api.dart';
+import '../services/ledger_store.dart';
+import '../services/sync_service.dart';
 import '../state/auth_controller.dart';
 
 /// 与 `RootViewController` 行为对齐：总览列表、排序、持久化。
@@ -20,6 +21,9 @@ class LedgerController extends ChangeNotifier {
 
   AuthController? _auth;
   bool _cloudPushPending = false;
+  SyncStatus _syncStatus = SyncStatus.idle;
+  String? _syncError;
+  RemoteLedger? _conflictServer;
 
   LedgerBook _book = LedgerBook.empty();
   bool _sortAscending = true;
@@ -28,6 +32,10 @@ class LedgerController extends ChangeNotifier {
   LedgerBook get book => _book;
   bool get sortAscending => _sortAscending;
   bool get isLoaded => _loaded;
+  SyncStatus get syncStatus => _syncStatus;
+  String? get syncError => _syncError;
+  RemoteLedger? get conflictServer => _conflictServer;
+  bool get writeAllowed => _auth?.writeAllowed ?? true;
 
   void attachAuth(AuthController auth) {
     _auth = auth;
@@ -43,9 +51,17 @@ class LedgerController extends ChangeNotifier {
   }
 
   Future<void> _persist() async {
+    if (!writeAllowed) {
+      _syncStatus = SyncStatus.error;
+      _syncError = '账号只读，无法保存到云端';
+      notifyListeners();
+      return;
+    }
     await _store.save(_book);
     final now = DateTime.now().millisecondsSinceEpoch;
     await _auth?.setLocalUpdatedAt(now);
+    _syncStatus = SyncStatus.dirty;
+    _syncError = null;
     notifyListeners();
     _queueCloudPush();
   }
@@ -54,35 +70,73 @@ class LedgerController extends ChangeNotifier {
     if (_cloudPushPending) return;
     final sync = _auth?.syncService;
     if (sync == null) return;
+    if (!writeAllowed) return;
     _cloudPushPending = true;
+    _syncStatus = SyncStatus.pending;
+    notifyListeners();
     Future<void>(() async {
       try {
-        final updatedAt = await sync.pushFull(_book);
-        await _auth?.setRemoteUpdatedAt(updatedAt);
+        final base = _auth?.localRevision ?? 0;
+        final result = await sync.pushFull(_book, baseRevision: base);
+        await _auth?.setRemoteUpdatedAt(result.updatedAt);
+        await _auth?.setLocalUpdatedAt(result.updatedAt);
+        await _auth?.setLocalRevision(result.revision);
+        _syncStatus = SyncStatus.synced;
+        _syncError = null;
+        _conflictServer = null;
+      } on SyncConflictException catch (e) {
+        _syncStatus = SyncStatus.conflict;
+        _conflictServer = e.server;
+        _syncError = '云端有更新的版本，请处理冲突';
       } on ApiException catch (e) {
         if (e.statusCode == 401) {
           await _auth?.logout();
         }
-      } catch (_) {
-        // 后台同步失败时静默，用户可在账号页手动重试
+        _syncStatus = SyncStatus.error;
+        _syncError = e.message;
+      } catch (e) {
+        _syncStatus = SyncStatus.error;
+        _syncError = '同步失败：$e';
       } finally {
         _cloudPushPending = false;
+        notifyListeners();
       }
     });
   }
 
-  Future<String> pushToCloud() async {
+  Future<String> pushToCloud({bool force = false}) async {
     final sync = _auth?.syncService;
     if (sync == null) return '请先登录';
+    if (!writeAllowed && !force) return '账号只读，无法上传';
     try {
-      final updatedAt = await sync.pushFull(_book);
-      await _auth?.setRemoteUpdatedAt(updatedAt);
-      await _auth?.setLocalUpdatedAt(updatedAt);
-      return '已上传到云端（${ _book.rounds.length } 个圈次）';
+      _syncStatus = SyncStatus.pending;
+      notifyListeners();
+      final base = _auth?.localRevision ?? 0;
+      final result = await sync.pushFull(_book, baseRevision: base, force: force);
+      await _auth?.setRemoteUpdatedAt(result.updatedAt);
+      await _auth?.setLocalUpdatedAt(result.updatedAt);
+      await _auth?.setLocalRevision(result.revision);
+      _syncStatus = SyncStatus.synced;
+      _conflictServer = null;
+      _syncError = null;
+      notifyListeners();
+      return '已上传到云端（${_book.rounds.length} 个圈次，rev ${result.revision}）';
+    } on SyncConflictException catch (e) {
+      _syncStatus = SyncStatus.conflict;
+      _conflictServer = e.server;
+      _syncError = '版本冲突';
+      notifyListeners();
+      return '云端与本机冲突，请选择保留本机或采用云端';
     } on ApiException catch (e) {
       if (e.statusCode == 401) await _auth?.logout();
+      _syncStatus = SyncStatus.error;
+      _syncError = e.message;
+      notifyListeners();
       return e.message;
     } catch (e) {
+      _syncStatus = SyncStatus.error;
+      _syncError = '$e';
+      notifyListeners();
       return '上传失败：$e';
     }
   }
@@ -92,14 +146,33 @@ class LedgerController extends ChangeNotifier {
     if (sync == null) return '请先登录';
     try {
       final remote = await sync.pullFull();
-      await _applyRemoteBook(remote.book, remote.updatedAt);
-      return '已从云端拉取（${ remote.book.rounds.length } 个圈次）';
+      await _applyRemoteBook(remote);
+      _syncStatus = SyncStatus.synced;
+      _conflictServer = null;
+      notifyListeners();
+      return '已从云端拉取（${remote.book.rounds.length} 个圈次，rev ${remote.revision}）';
     } on ApiException catch (e) {
       if (e.statusCode == 401) await _auth?.logout();
       return e.message;
     } catch (e) {
       return '拉取失败：$e';
     }
+  }
+
+  Future<String> resolveConflictKeepLocal() => pushToCloud(force: true);
+
+  Future<String> resolveConflictTakeRemote() async {
+    final remote = _conflictServer;
+    if (remote == null) return '无冲突数据';
+    final sync = _auth?.syncService;
+    if (sync != null) {
+      await sync.downloadMissingAttachments(remote.book);
+    }
+    await _applyRemoteBook(remote);
+    _syncStatus = SyncStatus.synced;
+    _conflictServer = null;
+    notifyListeners();
+    return '已采用云端版本（rev ${remote.revision}）';
   }
 
   Future<String> syncWithCloud() async {
@@ -110,24 +183,33 @@ class LedgerController extends ChangeNotifier {
       final remote = await sync.pull();
       final localAt = await auth!.readLocalUpdatedAt();
       final remoteAt = remote.updatedAt;
+      final localRev = auth.localRevision;
 
-      if (remoteAt > localAt && _book.rounds.isNotEmpty && localAt > 0) {
-        return '云端与本机均有数据且版本不同，请先手动选择「上传」或「拉取」';
+      if (remote.revision != localRev && _book.rounds.isNotEmpty && localAt > 0) {
+        // 本地可能有未推送修改
+        if (_syncStatus == SyncStatus.dirty || _syncStatus == SyncStatus.error) {
+          _syncStatus = SyncStatus.conflict;
+          _conflictServer = remote;
+          notifyListeners();
+          return '云端与本机版本不同，请选择「上传」或「拉取」';
+        }
       }
 
-      if (remoteAt > localAt || (_book.rounds.isEmpty && remote.book.rounds.isNotEmpty)) {
+      if (remote.revision > localRev ||
+          (remoteAt > localAt && (_book.rounds.isEmpty || localAt == 0))) {
         await sync.downloadMissingAttachments(remote.book);
-        await _applyRemoteBook(remote.book, remoteAt);
-        return '已用云端较新版本覆盖本机（${ remote.book.rounds.length } 个圈次）';
+        await _applyRemoteBook(remote);
+        _syncStatus = SyncStatus.synced;
+        notifyListeners();
+        return '已用云端较新版本覆盖本机（${remote.book.rounds.length} 个圈次）';
       }
 
-      if (localAt >= remoteAt) {
-        final updatedAt = await sync.pushFull(_book);
-        await auth.setRemoteUpdatedAt(updatedAt);
-        await auth.setLocalUpdatedAt(updatedAt);
-        return '本机已同步到云端（${ _book.rounds.length } 个圈次）';
+      if (localRev >= remote.revision) {
+        return await pushToCloud();
       }
 
+      _syncStatus = SyncStatus.synced;
+      notifyListeners();
       return '已是最新';
     } on ApiException catch (e) {
       if (e.statusCode == 401) await auth?.logout();
@@ -137,14 +219,15 @@ class LedgerController extends ChangeNotifier {
     }
   }
 
-  Future<void> _applyRemoteBook(LedgerBook incoming, int remoteUpdatedAt) async {
+  Future<void> _applyRemoteBook(RemoteLedger incoming) async {
     _book = LedgerBook(
-      rounds: incoming.rounds.map((e) => e.copy()).toList(),
+      rounds: incoming.book.rounds.map((e) => e.copy()).toList(),
     );
     _sortRounds();
     await _store.save(_book);
-    await _auth?.setRemoteUpdatedAt(remoteUpdatedAt);
-    await _auth?.setLocalUpdatedAt(remoteUpdatedAt);
+    await _auth?.setRemoteUpdatedAt(incoming.updatedAt);
+    await _auth?.setLocalUpdatedAt(incoming.updatedAt);
+    await _auth?.setLocalRevision(incoming.revision);
     notifyListeners();
   }
 
@@ -178,7 +261,14 @@ class LedgerController extends ChangeNotifier {
     });
   }
 
+  Future<String?> _guardWrite() async {
+    if (!writeAllowed) return '账号已到期或被限制，当前为只读';
+    return null;
+  }
+
   Future<void> addRound(String startPlace, String endPlace) async {
+    final err = await _guardWrite();
+    if (err != null) return;
     var round = TripLedger.empty(_uuid.v4());
     round.startPlace = startPlace;
     round.endPlace = endPlace;
@@ -189,6 +279,8 @@ class LedgerController extends ChangeNotifier {
   }
 
   Future<void> replaceTrip(TripLedger updated) async {
+    final err = await _guardWrite();
+    if (err != null) return;
     final idx = _book.rounds.indexWhere((r) => r.id == updated.id);
     if (idx < 0) return;
     _book.rounds[idx] = updated;
@@ -197,13 +289,16 @@ class LedgerController extends ChangeNotifier {
   }
 
   Future<void> deleteTripAt(int index) async {
+    final err = await _guardWrite();
+    if (err != null) return;
     if (index < 0 || index >= _book.rounds.length) return;
     _book.rounds.removeAt(index);
     await _persist();
   }
 
-  /// 用导入文件**完全替换**当前账本（需由 UI 二次确认）。
   Future<void> importReplace(LedgerBook incoming) async {
+    final err = await _guardWrite();
+    if (err != null) return;
     _book = LedgerBook(
       rounds: incoming.rounds.map((e) => e.copy()).toList(),
     );
@@ -211,8 +306,9 @@ class LedgerController extends ChangeNotifier {
     await _persist();
   }
 
-  /// 将导入的圈次**追加**到当前账本；圈次 `id` 与本地冲突时整圈复制并换新 id（含子项 id）。
   Future<void> importMerge(LedgerBook incoming) async {
+    final err = await _guardWrite();
+    if (err != null) return;
     final existingIds = _book.rounds.map((r) => r.id).toSet();
     for (final trip in incoming.rounds) {
       final TripLedger toAdd;

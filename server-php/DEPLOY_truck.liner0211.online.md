@@ -20,6 +20,35 @@
 
 可用宝塔 **文件** 上传 zip 后解压，或用 SFTP / Git。
 
+### 本机一键同步（推荐）
+
+在开发机配置 `dev/machine.env`：
+
+```bash
+SERVER_HOST=truck.liner0211.online
+SERVER_USER=root
+SERVER_PATH=/www/wwwroot/truck.liner0211.online
+SERVER_HEALTH_URL=https://truck.liner0211.online/api/health?deep=1
+```
+
+然后：
+
+```bash
+./one_click_server_deploy.sh
+# 或 make server-deploy
+# 或 VS Code 任务：「一键：部署 PHP 后端」
+```
+
+脚本用 rsync 同步代码，**不会覆盖**远端 `config.php` 与 `data/`。
+
+### 试用到期提醒（宝塔计划任务）
+
+每日执行：
+
+```bash
+cd /www/wwwroot/truck.liner0211.online && php bin/notify_trial_expiring.php --days=3
+```
+
 ---
 
 ## 二、创建 config.php

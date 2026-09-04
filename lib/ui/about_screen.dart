@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:provider/provider.dart';
+
+import '../state/auth_controller.dart';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
@@ -7,6 +10,10 @@ class AboutScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final auth = context.watch<AuthController>();
+    final control = auth.lastControl;
+    final profile = auth.profile;
+
     return Scaffold(
       appBar: AppBar(title: const Text('关于')),
       body: ListView(
@@ -53,6 +60,37 @@ class AboutScreen extends StatelessWidget {
               ),
             ),
           ),
+          if (control != null || profile != null) ...[
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('云端通道', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    Text('服务器：${auth.serverUrl}',
+                        style: Theme.of(context).textTheme.bodySmall),
+                    if (control != null) ...[
+                      Text('云端最新版本：${control.latestVersion}'),
+                      Text('最低版本：${control.minVersion}'),
+                      Text('应用状态：${control.appStatus}'),
+                      Text('控制版本：${control.controlVersion}'),
+                    ],
+                    if (profile != null) ...[
+                      const SizedBox(height: 6),
+                      Text('账号：${profile.status} / ${profile.plan}'),
+                      if (profile.daysLeft != null) Text('剩余天数：${profile.daysLeft}'),
+                      Text(profile.writeAllowed ? '写入：允许' : '写入：只读'),
+                    ],
+                    Text('本机 revision：${auth.localRevision}',
+                        style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           Card(
             child: Column(
@@ -93,4 +131,3 @@ class AboutScreen extends StatelessWidget {
     );
   }
 }
-

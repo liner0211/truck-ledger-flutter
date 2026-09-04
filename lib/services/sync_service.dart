@@ -9,11 +9,27 @@ import 'auth_api.dart';
 import 'ledger_backup_exporter.dart';
 
 class RemoteLedger {
-  RemoteLedger({required this.book, required this.updatedAt});
+  RemoteLedger({
+    required this.book,
+    required this.updatedAt,
+    required this.revision,
+  });
 
   final LedgerBook book;
   final int updatedAt;
+  final int revision;
 }
+
+class SyncConflictException implements Exception {
+  SyncConflictException(this.server);
+
+  final RemoteLedger server;
+
+  @override
+  String toString() => '账本版本冲突';
+}
+
+enum SyncStatus { idle, synced, dirty, pending, conflict, error }
 
 class SyncService {
   SyncService({required this.baseUrl, required this.token});
@@ -30,6 +46,13 @@ class SyncService {
         'Authorization': 'Bearer $token',
       };
 
+  RemoteLedger _parseLedger(Map<String, dynamic> m) {
+    final updatedAt = (m['updated_at'] as num?)?.toInt() ?? 0;
+    final revision = (m['revision'] as num?)?.toInt() ?? 0;
+    final book = LedgerBook.fromJson(m);
+    return RemoteLedger(book: book, updatedAt: updatedAt, revision: revision);
+  }
+
   Future<RemoteLedger> pull() async {
     final res = await apiHttpClient
         .get(
@@ -43,31 +66,56 @@ class SyncService {
     if (res.statusCode != 200) {
       throw ApiException('拉取失败（${res.statusCode}）', statusCode: res.statusCode);
     }
-    final m = jsonDecode(res.body) as Map<String, dynamic>;
-    final updatedAt = (m['updated_at'] as num?)?.toInt() ?? 0;
-    final book = LedgerBook.fromJson(m);
-    return RemoteLedger(book: book, updatedAt: updatedAt);
+    return _parseLedger(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
-  Future<int> push(LedgerBook book) async {
+  Future<({int updatedAt, int revision})> push(
+    LedgerBook book, {
+    required int baseRevision,
+    bool force = false,
+  }) async {
     final res = await apiHttpClient
         .put(
           Uri.parse(_url('/api/ledger')),
           headers: {
             ..._authHeaders(),
             'Content-Type': 'application/json',
+            if (!force) 'If-Match': '$baseRevision',
           },
-          body: jsonEncode({'rounds': book.toJson()['rounds']}),
+          body: jsonEncode({
+            'rounds': book.toJson()['rounds'],
+            'base_revision': baseRevision,
+            if (force) 'force': true,
+          }),
         )
         .timeout(const Duration(seconds: 60));
     if (res.statusCode == 401) {
       throw ApiException('登录已失效，请重新登录', statusCode: 401);
     }
+    if (res.statusCode == 409) {
+      final m = jsonDecode(res.body) as Map<String, dynamic>;
+      final serverMap = (m['server'] as Map?)?.cast<String, dynamic>() ?? m;
+      throw SyncConflictException(_parseLedger(serverMap));
+    }
+    if (res.statusCode == 403) {
+      throw ApiException(_detail(res) ?? '无权写入（可能已到期只读）', statusCode: 403);
+    }
     if (res.statusCode != 200) {
-      throw ApiException('上传失败（${res.statusCode}）', statusCode: res.statusCode);
+      throw ApiException(_detail(res) ?? '上传失败（${res.statusCode}）', statusCode: res.statusCode);
     }
     final m = jsonDecode(res.body) as Map<String, dynamic>;
-    return (m['updated_at'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+    return (
+      updatedAt: (m['updated_at'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
+      revision: (m['revision'] as num?)?.toInt() ?? baseRevision + 1,
+    );
+  }
+
+  String? _detail(http.Response res) {
+    try {
+      final m = jsonDecode(res.body);
+      if (m is Map && m['detail'] != null) return m['detail'].toString();
+    } catch (_) {}
+    return null;
   }
 
   Future<Set<String>> listRemoteAttachments() async {
@@ -149,10 +197,13 @@ class SyncService {
     return downloaded;
   }
 
-  Future<int> pushFull(LedgerBook book) async {
-    final updatedAt = await push(book);
+  Future<({int updatedAt, int revision})> pushFull(
+    LedgerBook book, {
+    required int baseRevision,
+    bool force = false,
+  }) async {
     await uploadMissingAttachments(book);
-    return updatedAt;
+    return push(book, baseRevision: baseRevision, force: force);
   }
 
   Future<RemoteLedger> pullFull() async {

@@ -8,8 +8,11 @@ import '../services/ledger_backup_exporter.dart';
 import '../services/ledger_backup_importer.dart';
 import '../services/profit_calculator.dart';
 import '../state/ledger_controller.dart';
+import '../services/sync_service.dart';
+import '../state/auth_controller.dart';
 import 'about_screen.dart';
 import 'account_screen.dart';
+import 'messages_screen.dart';
 import 'trip_detail_screen.dart';
 import 'trip_meta_editor.dart';
 
@@ -19,6 +22,9 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ctrl = context.watch<LedgerController>();
+    final auth = context.watch<AuthController>();
+    final unread = auth.unreadMessages;
+    final flags = auth.featureFlags;
     if (!ctrl.isLoaded) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -72,6 +78,13 @@ class HomeScreen extends StatelessWidget {
                   MaterialPageRoute<void>(builder: (_) => const AccountScreen()),
                 );
               }
+              if (v == 'messages') {
+                if (!context.mounted) return;
+                await Navigator.push<void>(
+                  context,
+                  MaterialPageRoute<void>(builder: (_) => const MessagesScreen()),
+                );
+              }
               if (v == 'about') {
                 if (!context.mounted) return;
                 Navigator.push<void>(
@@ -80,22 +93,58 @@ class HomeScreen extends StatelessWidget {
                 );
               }
             },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'account', child: Text('账号与同步…')),
-              PopupMenuItem(value: 'export', child: Text('导出备份…')),
-              PopupMenuItem(value: 'import', child: Text('导入账本…')),
-              PopupMenuItem(value: 'about', child: Text('关于')),
-            ],
+            itemBuilder: (context) {
+              final items = <PopupMenuEntry<String>>[
+                const PopupMenuItem(value: 'account', child: Text('账号与同步…')),
+              ];
+              if (flags.messages) {
+                items.add(PopupMenuItem(
+                  value: 'messages',
+                  child: Text(unread > 0 ? '消息中心（$unread）…' : '消息中心…'),
+                ));
+              }
+              if (flags.backupImport) {
+                items.add(const PopupMenuItem(value: 'export', child: Text('导出备份…')));
+                items.add(const PopupMenuItem(value: 'import', child: Text('导入账本…')));
+              }
+              items.add(const PopupMenuItem(value: 'about', child: Text('关于')));
+              return items;
+            },
           ),
+          if (flags.messages && unread > 0)
+            IconButton(
+              tooltip: '未读消息',
+              onPressed: () {
+                Navigator.push<void>(
+                  context,
+                  MaterialPageRoute<void>(builder: (_) => const MessagesScreen()),
+                ).then((_) {
+                  if (context.mounted) {
+                    context.read<AuthController>().refreshInbox();
+                  }
+                });
+              },
+              icon: Badge(
+                label: Text('$unread'),
+                child: const Icon(Icons.mail_outline),
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.add),
-            onPressed: () => _addRound(context),
+            onPressed: ctrl.writeAllowed
+                ? () => _addRound(context)
+                : () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('当前账号只读，无法新建圈次')),
+                    );
+                  },
           ),
         ],
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          _SyncStatusBar(ctrl: ctrl),
           Padding(
             padding: const EdgeInsets.all(12),
             child: Card(
@@ -496,4 +545,79 @@ Widget _statusChip(
       ],
     ),
   );
+}
+
+class _SyncStatusBar extends StatelessWidget {
+  const _SyncStatusBar({required this.ctrl});
+
+  final LedgerController ctrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = ctrl.syncStatus;
+    if (status == SyncStatus.idle || status == SyncStatus.synced) {
+      if (ctrl.syncError == null && status != SyncStatus.synced) {
+        return const SizedBox.shrink();
+      }
+    }
+    Color bg;
+    String text;
+    switch (status) {
+      case SyncStatus.dirty:
+        bg = Colors.orange.shade100;
+        text = '有未上传修改';
+        break;
+      case SyncStatus.pending:
+        bg = Colors.blue.shade100;
+        text = '正在同步…';
+        break;
+      case SyncStatus.conflict:
+        bg = Colors.red.shade100;
+        text = '同步冲突 — 请到「账号与同步」处理';
+        break;
+      case SyncStatus.error:
+        bg = Colors.red.shade50;
+        text = ctrl.syncError ?? '同步失败';
+        break;
+      case SyncStatus.synced:
+        bg = Colors.green.shade50;
+        text = '已同步';
+        break;
+      case SyncStatus.idle:
+        return const SizedBox.shrink();
+    }
+    return Material(
+      color: bg,
+      child: InkWell(
+        onTap: () {
+          Navigator.push<void>(
+            context,
+            MaterialPageRoute<void>(builder: (_) => const AccountScreen()),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            children: [
+              if (status == SyncStatus.pending)
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(
+                  status == SyncStatus.conflict || status == SyncStatus.error
+                      ? Icons.warning_amber
+                      : Icons.cloud_done_outlined,
+                  size: 16,
+                ),
+              const SizedBox(width: 8),
+              Expanded(child: Text(text, style: const TextStyle(fontSize: 13))),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

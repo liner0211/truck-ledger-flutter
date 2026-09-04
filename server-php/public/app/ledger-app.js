@@ -215,6 +215,7 @@ ${wageLine}`;
         try {
           const j = await res.json();
           if (j.detail) msg = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail);
+          if (res.status === 409) msg = (j.detail || '版本冲突') + '（409）';
         } catch (_) {}
         throw new Error(msg);
       }
@@ -248,6 +249,15 @@ ${wageLine}`;
       return this.request('/api/auth/me');
     }
 
+    async fetchAuthConfig() {
+      try {
+        const r = await this.request('/api/auth/config');
+        return { registration_enabled: !!r.registration_enabled };
+      } catch (_) {
+        return { registration_enabled: true };
+      }
+    }
+
     ledgerPath() {
       return isAdmin ? `/admin/api/users/${cfg.userId}/ledger` : '/api/ledger';
     }
@@ -263,10 +273,13 @@ ${wageLine}`;
       return this.request(this.ledgerPath());
     }
 
-    async putLedger(rounds) {
+    async putLedger(rounds, baseRevision, force) {
+      const body = { rounds };
+      if (baseRevision != null && baseRevision !== undefined) body.base_revision = baseRevision;
+      if (force) body.force = true;
       return this.request(this.ledgerPath(), {
         method: 'PUT',
-        body: JSON.stringify({ rounds }),
+        body: JSON.stringify(body),
       });
     }
 
@@ -312,6 +325,7 @@ ${wageLine}`;
       this.api = new Api();
       this.book = { rounds: [] };
       this.updatedAt = 0;
+      this.revision = 0;
       this.view = 'loading';
       this.selectedId = null;
       this.sortAsc = true;
@@ -322,26 +336,39 @@ ${wageLine}`;
       this.saving = false;
       this.syncStatus = '';
       this._registerMode = false;
+      this._registrationEnabled = true;
+      this._loginError = '';
     }
 
     async start() {
       try {
+        if (!isAdmin) {
+          const cfg = await this.api.fetchAuthConfig();
+          this._registrationEnabled = !!cfg.registration_enabled;
+        }
         if (isAdmin) {
           await this.loadLedger();
           this.view = 'home';
         } else if (this.api.token) {
-          const me = await this.api.me();
-          if (me && me.license_plate) {
-            this.api.setAuth(this.api.token, this.api.username, me.license_plate);
+          try {
+            const me = await this.api.me();
+            if (me && me.license_plate) {
+              this.api.setAuth(this.api.token, this.api.username, me.license_plate);
+            }
+            await this.loadLedger();
+            this.view = 'home';
+          } catch (e) {
+            this.api.clearAuth();
+            this._loginError = e.message || '登录已失效或账号已被禁止';
+            this.view = 'login';
           }
-          await this.loadLedger();
-          this.view = 'home';
         } else {
           this.view = 'login';
         }
-      } catch (_) {
+      } catch (e) {
         if (!isAdmin) this.api.clearAuth();
         this.view = isAdmin ? 'error' : 'login';
+        if (!isAdmin) this._loginError = e.message || '启动失败';
       }
       this.render();
     }
@@ -350,6 +377,7 @@ ${wageLine}`;
       const data = await this.api.getLedger();
       this.book = { rounds: data.rounds || [] };
       this.updatedAt = data.updated_at || 0;
+      this.revision = data.revision || 0;
       this.sortRounds();
       this.dirty = false;
       this.pendingUploads.clear();
@@ -388,16 +416,28 @@ ${wageLine}`;
         for (const [name, blob] of this.pendingUploads) {
           await this.api.uploadAttachment(name, blob);
         }
-        const data = await this.api.putLedger(this.book.rounds);
+        const force = !!opts.force;
+        const data = await this.api.putLedger(this.book.rounds, this.revision || 0, force);
         this.updatedAt = data.updated_at || Date.now();
+        this.revision = data.revision != null ? data.revision : (this.revision || 0) + 1;
         this.pendingUploads.clear();
         this.dirty = false;
-        this.syncStatus = `已同步 ${fmtDate(new Date(this.updatedAt))}`;
+        this.syncStatus = `已同步 rev ${this.revision} · ${fmtDate(new Date(this.updatedAt))}`;
         if (!opts.quiet) this.toast('已保存到云端');
         this.render();
       } catch (e) {
-        this.toast(e.message || '保存失败');
-        if (btn) { btn.disabled = false; btn.textContent = '保存'; }
+        const msg = e.message || '保存失败';
+        if (String(msg).includes('冲突') || String(msg).includes('409')) {
+          this.toast('版本冲突：请刷新后重试，或强制覆盖');
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = '强制保存';
+            btn.onclick = () => this.save({ force: true });
+          }
+        } else {
+          this.toast(msg);
+          if (btn) { btn.disabled = false; btn.textContent = '保存'; }
+        }
       } finally {
         this.saving = false;
       }
@@ -507,9 +547,16 @@ ${wageLine}`;
       if (v === 'home') { this.renderHome(); return; }
     }
 
-    renderLogin() {
+    async renderLogin() {
+      if (this._registrationEnabled === undefined) {
+        const cfg = await this.api.fetchAuthConfig();
+        this._registrationEnabled = !!cfg.registration_enabled;
+      }
+      if (!this._registrationEnabled) this._registerMode = false;
       const saved = this.api.readLoginCredentials();
-      const registerMode = !!this._registerMode;
+      const registerMode = !!this._registerMode && this._registrationEnabled;
+      const errText = this._loginError || '';
+      this._loginError = '';
       this.root.innerHTML = `
         <div class="auth-card">
           <h1>🚛 卡车记账</h1>
@@ -520,9 +567,12 @@ ${wageLine}`;
             ${registerMode ? '<label>车牌号<input name="license_plate" required placeholder="如 京A12345" autocomplete="off"></label>' : ''}
             <div class="form-actions">
               <button type="submit" class="btn primary">${registerMode ? '注册并登录' : '登录'}</button>
-              <button type="button" class="btn" id="btn-toggle-mode">${registerMode ? '已有账号？去登录' : '注册'}</button>
+              ${this._registrationEnabled
+                ? `<button type="button" class="btn" id="btn-toggle-mode">${registerMode ? '已有账号？去登录' : '注册'}</button>`
+                : ''}
             </div>
-            <p id="login-error" class="error"></p>
+            ${!this._registrationEnabled ? '<p class="muted">当前未开放注册，请使用已有账号登录</p>' : ''}
+            <p id="login-error" class="error">${esc(errText)}</p>
           </form>
         </div>`;
       const form = document.getElementById('login-form');
@@ -546,12 +596,20 @@ ${wageLine}`;
           this.render();
         } catch (err) {
           errEl.textContent = err.message;
+          if (String(err.message || '').includes('注册')) {
+            this._registrationEnabled = false;
+            this._registerMode = false;
+            this.renderLogin();
+          }
         }
       });
-      document.getElementById('btn-toggle-mode').addEventListener('click', () => {
-        this._registerMode = !registerMode;
-        this.renderLogin();
-      });
+      const toggle = document.getElementById('btn-toggle-mode');
+      if (toggle) {
+        toggle.addEventListener('click', () => {
+          this._registerMode = !registerMode;
+          this.renderLogin();
+        });
+      }
     }
 
     wageSummary() {

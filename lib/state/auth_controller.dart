@@ -1,7 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/app_control_api.dart';
 import '../services/auth_api.dart';
+import '../services/device_id_service.dart';
+import '../services/devices_api.dart';
+import '../services/feature_flags.dart';
+import '../services/inbox_service.dart';
+import '../services/messages_api.dart';
 import '../services/sync_service.dart';
 
 class AuthController extends ChangeNotifier {
@@ -14,6 +22,8 @@ class AuthController extends ChangeNotifier {
   static const savedLoginPasswordKey = 'TruckLedger.savedLoginPassword';
   static const localUpdatedAtKey = 'TruckLedger.localUpdatedAt';
   static const remoteUpdatedAtKey = 'TruckLedger.remoteUpdatedAt';
+  static const localRevisionKey = 'TruckLedger.localRevision';
+  static const lastControlOkAtKey = 'TruckLedger.lastControlOkAt';
 
   static const defaultServerUrl = 'https://truck.liner0211.online';
 
@@ -22,15 +32,28 @@ class AuthController extends ChangeNotifier {
   String? _username;
   int? _userId;
   String? _licensePlate;
+  UserProfile? _profile;
+  AppControlResult? _lastControl;
   bool _initialized = false;
+  int _localRevision = 0;
+  int _unreadMessages = 0;
+  FeatureFlags _featureFlags = FeatureFlags();
 
   String get serverUrl => _serverUrl;
   String? get token => _token;
   String? get username => _username;
   int? get userId => _userId;
   String? get licensePlate => _licensePlate;
+  UserProfile? get profile => _profile;
+  AppControlResult? get lastControl => _lastControl;
   bool get isLoggedIn => _token != null && _token!.isNotEmpty;
   bool get isInitialized => _initialized;
+  int get localRevision => _localRevision;
+  int get unreadMessages => _unreadMessages;
+  FeatureFlags get featureFlags => _featureFlags;
+  bool get writeAllowed => _profile?.writeAllowed ?? true;
+
+  final InboxService inbox = InboxService();
 
   AuthApi get api => AuthApi(baseUrl: _serverUrl);
 
@@ -40,6 +63,31 @@ class AuthController extends ChangeNotifier {
     return SyncService(baseUrl: _serverUrl, token: t);
   }
 
+  AppControlApi? get controlApi {
+    final t = _token;
+    if (t == null || t.isEmpty) return null;
+    return AppControlApi(baseUrl: _serverUrl, token: t);
+  }
+
+  MessagesApi? get messagesApi {
+    final t = _token;
+    if (t == null || t.isEmpty) return null;
+    return MessagesApi(baseUrl: _serverUrl, token: t);
+  }
+
+  DevicesApi? get devicesApi {
+    final t = _token;
+    if (t == null || t.isEmpty) return null;
+    return DevicesApi(baseUrl: _serverUrl, token: t);
+  }
+
+  String get platformName {
+    if (kIsWeb) return 'web';
+    if (Platform.isAndroid) return 'android';
+    if (Platform.isIOS) return 'ios';
+    return 'other';
+  }
+
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     _serverUrl = prefs.getString(serverUrlKey) ?? defaultServerUrl;
@@ -47,6 +95,11 @@ class AuthController extends ChangeNotifier {
     _username = prefs.getString(usernameKey);
     _userId = prefs.getInt(userIdKey);
     _licensePlate = prefs.getString(licensePlateKey);
+    _localRevision = prefs.getInt(localRevisionKey) ?? 0;
+    // 清除历史明文密码
+    if (prefs.containsKey(savedLoginPasswordKey)) {
+      await prefs.remove(savedLoginPasswordKey);
+    }
     _initialized = true;
     notifyListeners();
   }
@@ -64,6 +117,7 @@ class AuthController extends ChangeNotifier {
     _token = result.token;
     _username = result.username;
     _userId = result.userId;
+    _profile = result.profile;
     if (result.licensePlate != null && result.licensePlate!.isNotEmpty) {
       _licensePlate = result.licensePlate;
     }
@@ -77,21 +131,27 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> saveLoginUsername(String username) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(savedLoginUsernameKey, username);
+  }
+
+  Future<String?> readSavedLoginUsername() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(savedLoginUsernameKey);
+  }
+
+  @Deprecated('明文密码已禁用')
   Future<void> saveLoginCredentials({
     required String username,
     required String password,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(savedLoginUsernameKey, username);
-    await prefs.setString(savedLoginPasswordKey, password);
+    await saveLoginUsername(username);
   }
 
+  @Deprecated('明文密码已禁用')
   Future<({String? username, String? password})> readSavedLoginCredentials() async {
-    final prefs = await SharedPreferences.getInstance();
-    return (
-      username: prefs.getString(savedLoginUsernameKey),
-      password: prefs.getString(savedLoginPasswordKey),
-    );
+    return (username: await readSavedLoginUsername(), password: null);
   }
 
   Future<void> register({
@@ -105,7 +165,7 @@ class AuthController extends ChangeNotifier {
       licensePlate: licensePlate,
     );
     await _saveSession(result);
-    await saveLoginCredentials(username: username, password: password);
+    await saveLoginUsername(username);
   }
 
   Future<void> login({
@@ -114,7 +174,60 @@ class AuthController extends ChangeNotifier {
   }) async {
     final result = await api.login(username: username, password: password);
     await _saveSession(result);
-    await saveLoginCredentials(username: username, password: password);
+    await saveLoginUsername(username);
+  }
+
+  Future<void> refreshProfile() async {
+    final t = _token;
+    if (t == null) return;
+    try {
+      _profile = await api.me(t);
+      notifyListeners();
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) await logout();
+      rethrow;
+    }
+  }
+
+  Future<AppControlResult?> runControlCheck(String appVersion) async {
+    final api = controlApi;
+    if (api == null) return null;
+    final deviceId = await DeviceIdService.getOrCreate();
+    try {
+      final result = await api.check(
+        appVersion: appVersion,
+        deviceId: deviceId,
+        platform: platformName,
+      );
+      _lastControl = result;
+      _featureFlags = result.featureFlags;
+      if (result.account != null) {
+        _profile = result.account;
+      }
+      if (result.allowed) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt(
+          lastControlOkAtKey,
+          DateTime.now().millisecondsSinceEpoch,
+        );
+      }
+      notifyListeners();
+      return result;
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) {
+        await logout();
+      }
+      rethrow;
+    }
+  }
+
+  Future<bool> isWithinOfflineGrace() async {
+    final grace = _lastControl?.offlineGraceSec ?? 259200;
+    final prefs = await SharedPreferences.getInstance();
+    final last = prefs.getInt(lastControlOkAtKey) ?? 0;
+    if (last <= 0) return false;
+    final elapsed = (DateTime.now().millisecondsSinceEpoch - last) ~/ 1000;
+    return elapsed <= grace;
   }
 
   Future<void> logout() async {
@@ -122,6 +235,9 @@ class AuthController extends ChangeNotifier {
     _username = null;
     _userId = null;
     _licensePlate = null;
+    _profile = null;
+    _lastControl = null;
+    _unreadMessages = 0;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(tokenKey);
     await prefs.remove(usernameKey);
@@ -148,5 +264,28 @@ class AuthController extends ChangeNotifier {
   Future<void> setRemoteUpdatedAt(int ms) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(remoteUpdatedAtKey, ms);
+  }
+
+  Future<void> refreshInbox() async {
+    final api = messagesApi;
+    if (api == null) return;
+    try {
+      _unreadMessages = await inbox.refresh(api);
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> bootstrapPushAndInbox() async {
+    final api = messagesApi;
+    if (api == null) return;
+    await inbox.registerPushChannel(api: api, platform: platformName);
+    await refreshInbox();
+  }
+
+  Future<void> setLocalRevision(int rev) async {
+    _localRevision = rev;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(localRevisionKey, rev);
+    notifyListeners();
   }
 }

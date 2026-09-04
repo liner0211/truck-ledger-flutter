@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../services/api_http_client.dart';
 import '../services/auth_api.dart';
 import '../services/network_access_helper.dart';
 import '../state/auth_controller.dart';
@@ -23,6 +26,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscure = true;
   bool _credentialsLoaded = false;
   String? _error;
+  int? _trialDays;
 
   @override
   void didChangeDependencies() {
@@ -33,17 +37,35 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!_credentialsLoaded) {
       _credentialsLoaded = true;
       _loadSavedCredentials();
+      _loadPublicConfig();
+    }
+  }
+
+  Future<void> _loadPublicConfig() async {
+    final days = await _fetchTrialDays(_serverUrl.text);
+    if (!mounted) return;
+    setState(() => _trialDays = days);
+  }
+
+  Future<int?> _fetchTrialDays(String baseUrl) async {
+    try {
+      final root = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+      final res = await apiHttpClient
+          .get(Uri.parse('$root/api/auth/config'))
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode != 200) return null;
+      final m = jsonDecode(res.body) as Map<String, dynamic>;
+      return (m['trial_days'] as num?)?.toInt();
+    } catch (_) {
+      return null;
     }
   }
 
   Future<void> _loadSavedCredentials() async {
-    final creds = await context.read<AuthController>().readSavedLoginCredentials();
+    final username = await context.read<AuthController>().readSavedLoginUsername();
     if (!mounted) return;
-    if (creds.username != null && creds.username!.isNotEmpty) {
-      _username.text = creds.username!;
-    }
-    if (creds.password != null && creds.password!.isNotEmpty) {
-      _password.text = creds.password!;
+    if (username != null && username.isNotEmpty) {
+      _username.text = username;
     }
   }
 
@@ -158,7 +180,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    _registerMode ? '注册新账号并同步账本' : '登录以同步云端账本',
+                    _registerMode
+                        ? (_trialDays != null && _trialDays! > 0
+                            ? '注册后赠送 $_trialDays 天试用，可同步云端账本'
+                            : '注册新账号并同步账本')
+                        : '登录以同步云端账本',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: cs.onSurfaceVariant,

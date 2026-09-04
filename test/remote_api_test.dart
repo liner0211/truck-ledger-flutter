@@ -64,12 +64,14 @@ void main() {
       ],
     );
 
-    final updatedAt = await sync.push(book);
-    expect(updatedAt, greaterThan(0));
+    final pushResult = await sync.push(book, baseRevision: 0);
+    expect(pushResult.updatedAt, greaterThan(0));
+    expect(pushResult.revision, greaterThan(0));
 
     final remote = await sync.pull();
     expect(remote.book.rounds.length, 1);
     expect(remote.book.rounds.first.title, 'Flutter本地测试圈次');
-    expect(remote.updatedAt, updatedAt);
+    expect(remote.updatedAt, pushResult.updatedAt);
+    expect(remote.revision, pushResult.revision);
   }, timeout: const Timeout(Duration(seconds: 60)));
 }
