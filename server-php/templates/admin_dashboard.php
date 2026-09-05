@@ -56,6 +56,12 @@
   <header>
     <h1>卡车记账 · 管理后台</h1>
     <nav>
+      <?php if (!empty($admin)): ?>
+        <span style="color:#c8e6c9;font-size:.85rem;margin-right:8px">
+          <?= htmlspecialchars($admin['username'], ENT_QUOTES, 'UTF-8') ?>
+          · <?= htmlspecialchars($admin['role'] === 'super' ? '超级管理员' : '运营', ENT_QUOTES, 'UTF-8') ?>
+        </span>
+      <?php endif; ?>
       <a href="/app/" target="_blank">用户 Web 账本</a>
       <a href="/api/health?deep=1" target="_blank">健康检查</a>
       <a href="/admin/logout">退出</a>
@@ -125,7 +131,10 @@
             'app_status' => ['应用状态', 'select', ['ACTIVE'=>'运行','MAINTENANCE'=>'维护','DISABLED'=>'停用']],
             'min_version' => ['最低版本', 'text', null],
             'latest_version' => ['最新版本', 'text', null],
-            'force_update' => ['强制升级', 'select', ['0'=>'否','1'=>'是']],
+            'force_update' => ['强制升级(仅低于最新版时拦截)', 'select', ['0'=>'否','1'=>'是']],
+            'apk_download_url' => ['Android APK 下载地址', 'text', null],
+            'ios_download_url' => ['iOS 安装包/页面地址', 'text', null],
+            'update_release_notes' => ['更新说明', 'text', null],
             'maintenance_message' => ['维护文案', 'text', null],
             'announcement' => ['全局公告', 'text', null],
             'offline_grace_sec' => ['离线宽限秒数', 'number', null],
@@ -134,6 +143,7 @@
             'trial_max_attachments' => ['试用附件上限(0不限)', 'number', null],
             'expiry_policy' => ['到期策略', 'select', ['readonly'=>'只读','block'=>'禁止登录']],
           ];
+          $canControl = !empty($admin) && in_array('control.write', $admin['permissions'] ?? [], true);
           foreach ($ctrlFields as $key => $meta):
             $label = $meta[0]; $type = $meta[1]; $opts = $meta[2];
             $val = (string)($settings[$key] ?? '');
@@ -144,6 +154,7 @@
             <div class="muted"><code><?= htmlspecialchars($key, ENT_QUOTES, 'UTF-8') ?></code>
               当前：<?= htmlspecialchars($val !== '' ? $val : '—', ENT_QUOTES, 'UTF-8') ?></div>
           </div>
+          <?php if ($canControl): ?>
           <form method="post" action="/admin/settings" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
             <input type="hidden" name="key" value="<?= htmlspecialchars($key, ENT_QUOTES, 'UTF-8') ?>">
@@ -156,12 +167,16 @@
                 <?php endforeach; ?>
               </select>
             <?php else: ?>
-              <input type="<?= $type === 'number' ? 'number' : 'text' ?>" name="value" value="<?= htmlspecialchars($val, ENT_QUOTES, 'UTF-8') ?>">
+              <input type="<?= $type === 'number' ? 'number' : 'text' ?>" name="value" value="<?= htmlspecialchars($val, ENT_QUOTES, 'UTF-8') ?>" style="min-width:220px">
             <?php endif; ?>
             <button type="submit" class="btn-primary">保存</button>
           </form>
+          <?php else: ?>
+            <span class="muted">只读（需超级管理员）</span>
+          <?php endif; ?>
         </div>
         <?php endforeach; ?>
+        <p class="muted" style="margin-top:12px">说明：开启「强制升级」后，仅当客户端版本 &lt; 最新版本时才会拦截；已达最新版可正常使用。</p>
       </div>
     </div>
 
@@ -334,6 +349,62 @@
         <?php endif; ?>
       </div>
     </div>
+
+    <?php if (!empty($admin) && in_array('admins.manage', $admin['permissions'] ?? [], true)): ?>
+    <div class="panel">
+      <h2>运营账号</h2>
+      <div class="panel-body">
+        <form method="post" action="/admin/operators/create" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:end">
+          <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
+          <div>
+            <label class="muted">用户名</label><br>
+            <input type="text" name="username" required pattern="[A-Za-z0-9_]{3,32}">
+          </div>
+          <div>
+            <label class="muted">初始密码</label><br>
+            <input type="password" name="password" required minlength="6">
+          </div>
+          <button type="submit" class="btn-primary">创建运营账号</button>
+        </form>
+        <table>
+          <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody>
+          <?php foreach (($admins ?? []) as $op): ?>
+            <tr>
+              <td><?= (int)$op['id'] ?></td>
+              <td><?= htmlspecialchars($op['username'], ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars($op['role'], ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= !empty($op['is_enabled']) ? '启用' : '禁用' ?></td>
+              <td>
+                <?php if ($op['role'] !== 'super'): ?>
+                  <?php if (!empty($op['is_enabled'])): ?>
+                  <form method="post" action="/admin/operators/<?= (int)$op['id'] ?>/disable" style="display:inline">
+                    <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
+                    <button type="submit" class="btn-toggle btn-disable">禁用</button>
+                  </form>
+                  <?php else: ?>
+                  <form method="post" action="/admin/operators/<?= (int)$op['id'] ?>/enable" style="display:inline">
+                    <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
+                    <button type="submit" class="btn-toggle btn-enable">启用</button>
+                  </form>
+                  <?php endif; ?>
+                  <form method="post" action="/admin/operators/<?= (int)$op['id'] ?>/reset-password" style="display:inline"
+                        onsubmit="var p=prompt('新密码(至少6位)'); if(!p||p.length<6) return false; this.new_password.value=p; return true;">
+                    <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
+                    <input type="hidden" name="new_password" value="">
+                    <button type="submit" class="btn-toggle">重置密码</button>
+                  </form>
+                <?php else: ?>
+                  <span class="muted">—</span>
+                <?php endif; ?>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <?php endif; ?>
   </main>
 </body>
 </html>

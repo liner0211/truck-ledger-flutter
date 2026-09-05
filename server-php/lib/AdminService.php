@@ -13,7 +13,7 @@ final class AdminService
     public static function isLoggedIn(): bool
     {
         self::startSession();
-        return !empty($_SESSION['truck_ledger_admin']);
+        return !empty($_SESSION['truck_ledger_admin']) && !empty($_SESSION['truck_ledger_admin_id']);
     }
 
     public static function verifyPassword(string $password, array $cfg): bool
@@ -32,13 +32,49 @@ final class AdminService
         return hash_equals($plain, $password);
     }
 
+    /** @deprecated 使用 loginWithCredentials */
     public static function login(string $password, array $cfg): bool
     {
+        return self::loginWithCredentials(
+            (string)($cfg['admin_username'] ?? 'liner0211'),
+            $password,
+            $cfg,
+            null
+        );
+    }
+
+    public static function loginWithCredentials(
+        string $username,
+        string $password,
+        array $cfg,
+        ?PDO $pdo
+    ): bool {
         self::startSession();
+        if ($pdo !== null) {
+            $admin = AdminAuthService::verifyLogin($pdo, $username, $password);
+            if ($admin !== null) {
+                AdminAuthService::loginSession($admin);
+                return true;
+            }
+            // 兼容：库中尚无账号时，用 config 密码登录并再尝试种子
+            if (AdminAuthService::findByUsername($pdo, $username) === null
+                && self::verifyPassword($password, $cfg)
+            ) {
+                Database::conn($cfg); // 触发 seed
+                $admin = AdminAuthService::verifyLogin($pdo, $username, $password);
+                if ($admin !== null) {
+                    AdminAuthService::loginSession($admin);
+                    return true;
+                }
+            }
+            return false;
+        }
         if (!self::verifyPassword($password, $cfg)) {
             return false;
         }
         $_SESSION['truck_ledger_admin'] = true;
+        $_SESSION['truck_ledger_admin_id'] = 0;
+        $_SESSION['truck_ledger_admin_role'] = 'super';
         $_SESSION['truck_ledger_admin_csrf'] = bin2hex(random_bytes(16));
         return true;
     }
@@ -66,7 +102,12 @@ final class AdminService
     public static function logout(): void
     {
         self::startSession();
-        unset($_SESSION['truck_ledger_admin'], $_SESSION['truck_ledger_admin_csrf']);
+        unset(
+            $_SESSION['truck_ledger_admin'],
+            $_SESSION['truck_ledger_admin_id'],
+            $_SESSION['truck_ledger_admin_role'],
+            $_SESSION['truck_ledger_admin_csrf']
+        );
     }
 
     public static function requireLogin(): void
@@ -231,7 +272,8 @@ final class AdminService
         $pdo->prepare(
             'UPDATE users SET is_enabled=?, status=?, token_version=token_version+1 WHERE id=?'
         )->execute([$enabled ? 1 : 0, $status, $userId]);
-        AppControlService::audit($pdo, null, 'USER_ENABLE_TOGGLE', 'user', (string)$userId, [
+        $actor = AdminAuthService::currentSessionAdmin($pdo);
+        AppControlService::audit($pdo, $actor ? (int)$actor['id'] : null, 'USER_ENABLE_TOGGLE', 'user', (string)$userId, [
             'enabled' => $enabled,
             'before' => $row['status'],
         ]);
@@ -250,7 +292,16 @@ final class AdminService
         $now = (int)(microtime(true) * 1000);
         $base = max($now, (int)($u['expires_at'] ?? 0));
         $expires = $base + ($days * 86400000);
-        AppControlService::setUserEntitlement($pdo, $userId, 'ACTIVE', 'trial', $expires, false, null);
+        $actor = AdminAuthService::currentSessionAdmin($pdo);
+        AppControlService::setUserEntitlement(
+            $pdo,
+            $userId,
+            'ACTIVE',
+            'trial',
+            $expires,
+            false,
+            $actor ? (int)$actor['id'] : null
+        );
         return "已为 {$u['username']} 延期试用 {$days} 天";
     }
 
@@ -262,7 +313,16 @@ final class AdminService
         if (!$u) {
             return null;
         }
-        AppControlService::setUserEntitlement($pdo, $userId, 'ACTIVE', 'paid', null, false, null);
+        $actor = AdminAuthService::currentSessionAdmin($pdo);
+        AppControlService::setUserEntitlement(
+            $pdo,
+            $userId,
+            'ACTIVE',
+            'paid',
+            null,
+            false,
+            $actor ? (int)$actor['id'] : null
+        );
         return "已将 {$u['username']} 转为正式用户";
     }
 
@@ -302,7 +362,8 @@ final class AdminService
         if (is_dir($dir)) {
             self::rmTree($dir);
         }
-        AppControlService::audit($pdo, null, 'USER_DELETE', 'user', (string)$userId, ['username' => $username]);
+        $actor = AdminAuthService::currentSessionAdmin($pdo);
+        AppControlService::audit($pdo, $actor ? (int)$actor['id'] : null, 'USER_DELETE', 'user', (string)$userId, ['username' => $username]);
         return $username;
     }
 

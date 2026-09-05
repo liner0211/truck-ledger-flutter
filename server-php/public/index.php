@@ -16,6 +16,7 @@ require $root . '/lib/AppControlService.php';
 require $root . '/lib/MessageService.php';
 require $root . '/lib/PushService.php';
 require $root . '/lib/AdminService.php';
+require $root . '/lib/AdminAuthService.php';
 require $root . '/lib/RateLimitService.php';
 
 $cfg = Config::load($root);
@@ -215,6 +216,221 @@ if (strpos($uri, '/api/') === 0) {
         JsonResponse::send(['ok' => true]);
     }
 
+    // ---------- Admin Flutter / PC JSON API（JWT typ=admin）----------
+    if ($uri === '/api/admin/login' && $method === 'POST') {
+        RateLimitService::assert($cfg, 'admin_login', 20, 600);
+        $body = readJsonBody();
+        $username = (string)($body['username'] ?? '');
+        $password = (string)($body['password'] ?? '');
+        $admin = AdminAuthService::verifyLogin($pdo, $username, $password);
+        if ($admin === null) {
+            JsonResponse::error('用户名或密码错误', 401);
+        }
+        JsonResponse::send([
+            'access_token' => AdminAuthService::createToken($admin, $cfg),
+            'admin' => AdminAuthService::publicAdmin($admin),
+        ]);
+    }
+
+    if (strpos($uri, '/api/admin/') === 0 && $uri !== '/api/admin/login') {
+        $admin = AdminAuthService::requireAdminJwt($pdo, $cfg);
+        $adminId = (int)$admin['id'];
+
+        if ($uri === '/api/admin/me' && $method === 'GET') {
+            JsonResponse::send(AdminAuthService::publicAdmin($admin));
+        }
+
+        if ($uri === '/api/admin/dashboard' && $method === 'GET') {
+            AdminAuthService::requirePermission($admin, 'dashboard.read');
+            $settings = AppControlService::settings($pdo);
+            JsonResponse::send([
+                'stats' => AdminService::stats($pdo, $cfg),
+                'health' => AdminService::health($pdo, $cfg),
+                'settings' => [
+                    'app_status' => $settings['app_status'] ?? 'ACTIVE',
+                    'min_version' => $settings['min_version'] ?? '',
+                    'latest_version' => $settings['latest_version'] ?? '',
+                    'force_update' => $settings['force_update'] ?? '0',
+                    'apk_download_url' => $settings['apk_download_url'] ?? '',
+                    'ios_download_url' => $settings['ios_download_url'] ?? '',
+                    'update_release_notes' => $settings['update_release_notes'] ?? '',
+                    'announcement' => $settings['announcement'] ?? '',
+                    'maintenance_message' => $settings['maintenance_message'] ?? '',
+                    'registration_enabled' => $settings['registration_enabled'] ?? '1',
+                ],
+                'admin' => AdminAuthService::publicAdmin($admin),
+            ]);
+        }
+
+        if ($uri === '/api/admin/settings' && $method === 'GET') {
+            AdminAuthService::requirePermission($admin, 'dashboard.read');
+            JsonResponse::send(['settings' => AppControlService::settings($pdo)]);
+        }
+
+        if ($uri === '/api/admin/settings' && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'control.write');
+            $body = readJsonBody();
+            $key = (string)($body['key'] ?? '');
+            $value = (string)($body['value'] ?? '');
+            AppControlService::setSetting($pdo, $key, $value, $adminId);
+            JsonResponse::send(['ok' => true, 'key' => $key, 'value' => $value]);
+        }
+
+        if ($uri === '/api/admin/users' && $method === 'GET') {
+            AdminAuthService::requirePermission($admin, 'users.read');
+            JsonResponse::send(['users' => AdminService::listUsers($pdo, $cfg)]);
+        }
+
+        if (preg_match('#^/api/admin/users/(\d+)/extend$#', $uri, $m) && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'users.write');
+            $body = readJsonBody();
+            $days = max(1, (int)($body['days'] ?? 7));
+            $msg = AdminService::extendTrial($pdo, (int)$m[1], $days);
+            if ($msg === null) {
+                JsonResponse::error('用户不存在', 404);
+            }
+            JsonResponse::send(['ok' => true, 'detail' => $msg]);
+        }
+
+        if (preg_match('#^/api/admin/users/(\d+)/convert$#', $uri, $m) && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'users.write');
+            $msg = AdminService::convertPaid($pdo, (int)$m[1]);
+            if ($msg === null) {
+                JsonResponse::error('用户不存在', 404);
+            }
+            JsonResponse::send(['ok' => true, 'detail' => $msg]);
+        }
+
+        if (preg_match('#^/api/admin/users/(\d+)/kick$#', $uri, $m) && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'users.write');
+            $stmt = $pdo->prepare('UPDATE users SET token_version=token_version+1 WHERE id=?');
+            $stmt->execute([(int)$m[1]]);
+            if ($stmt->rowCount() < 1) {
+                JsonResponse::error('用户不存在', 404);
+            }
+            AppControlService::audit($pdo, $adminId, 'USER_KICK', 'user', $m[1], []);
+            JsonResponse::send(['ok' => true, 'detail' => '已踢下线']);
+        }
+
+        if (preg_match('#^/api/admin/users/(\d+)/reset-password$#', $uri, $m) && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'users.write');
+            $body = readJsonBody();
+            $newPass = (string)($body['password'] ?? '');
+            if (strlen($newPass) < 6) {
+                JsonResponse::error('新密码至少 6 位', 400);
+            }
+            $name = AuthService::adminResetPassword($pdo, (int)$m[1], $newPass);
+            if ($name === null) {
+                JsonResponse::error('用户不存在', 404);
+            }
+            AppControlService::audit($pdo, $adminId, 'USER_PASSWORD_RESET', 'user', $m[1], []);
+            JsonResponse::send(['ok' => true, 'detail' => "已重置 {$name} 的密码"]);
+        }
+
+        if (preg_match('#^/api/admin/users/(\d+)/enable$#', $uri, $m) && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'users.write');
+            $msg = AdminService::setUserEnabled($pdo, (int)$m[1], true);
+            if ($msg === null) {
+                JsonResponse::error('用户不存在', 404);
+            }
+            JsonResponse::send(['ok' => true, 'detail' => $msg]);
+        }
+
+        if (preg_match('#^/api/admin/users/(\d+)/disable$#', $uri, $m) && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'users.write');
+            $msg = AdminService::setUserEnabled($pdo, (int)$m[1], false);
+            if ($msg === null) {
+                JsonResponse::error('用户不存在', 404);
+            }
+            JsonResponse::send(['ok' => true, 'detail' => $msg]);
+        }
+
+        if (preg_match('#^/api/admin/users/(\d+)$#', $uri, $m) && $method === 'DELETE') {
+            AdminAuthService::requirePermission($admin, 'users.delete');
+            $name = AdminService::deleteUser($pdo, $cfg, (int)$m[1]);
+            if ($name === null) {
+                JsonResponse::error('用户不存在', 404);
+            }
+            JsonResponse::send(['ok' => true, 'detail' => "已删除 {$name}"]);
+        }
+
+        if ($uri === '/api/admin/push' && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'messages.send');
+            $body = readJsonBody();
+            $title = trim((string)($body['title'] ?? ''));
+            $text = trim((string)($body['body'] ?? ''));
+            $userId = (int)($body['user_id'] ?? 0);
+            if ($title === '' || $text === '') {
+                JsonResponse::error('标题与内容不能为空', 400);
+            }
+            if ($userId > 0) {
+                $r = PushService::notifyUser($pdo, $cfg, $userId, $title, $text);
+            } else {
+                $r = PushService::broadcast($pdo, $cfg, $title, $text);
+            }
+            AppControlService::audit($pdo, $adminId, 'ADMIN_PUSH', 'message', (string)$userId, [
+                'title' => $title,
+            ]);
+            JsonResponse::send(['ok' => true, 'sent' => $r['sent'] ?? 0]);
+        }
+
+        if ($uri === '/api/admin/operators' && $method === 'GET') {
+            AdminAuthService::requirePermission($admin, 'admins.manage');
+            JsonResponse::send(['admins' => AdminAuthService::listAdmins($pdo)]);
+        }
+
+        if ($uri === '/api/admin/operators' && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'admins.manage');
+            $body = readJsonBody();
+            try {
+                $created = AdminAuthService::createOperator(
+                    $pdo,
+                    (string)($body['username'] ?? ''),
+                    (string)($body['password'] ?? ''),
+                    $adminId
+                );
+            } catch (InvalidArgumentException $e) {
+                JsonResponse::error($e->getMessage(), 400);
+            }
+            JsonResponse::send(['admin' => $created]);
+        }
+
+        if (preg_match('#^/api/admin/operators/(\d+)/enable$#', $uri, $m) && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'admins.manage');
+            if (!AdminAuthService::setEnabled($pdo, (int)$m[1], true, $adminId)) {
+                JsonResponse::error('管理员不存在', 404);
+            }
+            JsonResponse::send(['ok' => true]);
+        }
+
+        if (preg_match('#^/api/admin/operators/(\d+)/disable$#', $uri, $m) && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'admins.manage');
+            try {
+                if (!AdminAuthService::setEnabled($pdo, (int)$m[1], false, $adminId)) {
+                    JsonResponse::error('管理员不存在', 404);
+                }
+            } catch (InvalidArgumentException $e) {
+                JsonResponse::error($e->getMessage(), 400);
+            }
+            JsonResponse::send(['ok' => true]);
+        }
+
+        if (preg_match('#^/api/admin/operators/(\d+)/reset-password$#', $uri, $m) && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'admins.manage');
+            $body = readJsonBody();
+            try {
+                if (!AdminAuthService::resetPassword($pdo, (int)$m[1], (string)($body['password'] ?? ''), $adminId)) {
+                    JsonResponse::error('管理员不存在', 404);
+                }
+            } catch (InvalidArgumentException $e) {
+                JsonResponse::error($e->getMessage(), 400);
+            }
+            JsonResponse::send(['ok' => true]);
+        }
+
+        JsonResponse::error('Not Found', 404);
+    }
+
     JsonResponse::error('Not Found', 404);
 }
 
@@ -290,13 +506,18 @@ if ($uri === '/' || $uri === '/admin') {
 
 if ($uri === '/admin/login' && $method === 'GET') {
     render('admin_login.php', [
-        'error' => isset($_GET['error']) ? '密码错误' : '',
+        'error' => isset($_GET['error']) ? '用户名或密码错误' : '',
+        'default_username' => (string)($cfg['admin_username'] ?? 'liner0211'),
     ]);
 }
 
 if ($uri === '/admin/login' && $method === 'POST') {
+    $username = trim((string)($_POST['username'] ?? ''));
     $password = (string)($_POST['password'] ?? '');
-    if (!AdminService::login($password, $cfg)) {
+    if ($username === '') {
+        $username = (string)($cfg['admin_username'] ?? 'liner0211');
+    }
+    if (!AdminService::loginWithCredentials($username, $password, $cfg, $pdo)) {
         header('Location: /admin/login?error=1');
         exit;
     }
@@ -312,6 +533,7 @@ if ($uri === '/admin/logout') {
 
 if ($uri === '/admin/dashboard' && $method === 'GET') {
     AdminService::requireLogin();
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
     $settings = AppControlService::settings($pdo);
     render('admin_dashboard.php', [
         'stats' => AdminService::stats($pdo, $cfg),
@@ -322,16 +544,25 @@ if ($uri === '/admin/dashboard' && $method === 'GET') {
         'health' => AdminService::health($pdo, $cfg),
         'csrf' => AdminService::csrfToken(),
         'message' => (string)($_GET['msg'] ?? ''),
+        'admin' => $sessionAdmin ? AdminAuthService::publicAdmin($sessionAdmin) : null,
+        'admins' => ($sessionAdmin && AdminAuthService::can($sessionAdmin, 'admins.manage'))
+            ? AdminAuthService::listAdmins($pdo)
+            : [],
     ]);
 }
 
 if ($uri === '/admin/settings' && $method === 'POST') {
     AdminService::requireLogin();
     AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
+    if (!AdminAuthService::can($sessionAdmin, 'control.write')) {
+        header('Location: /admin/dashboard?msg=' . urlencode('权限不足：无法修改控制面'));
+        exit;
+    }
     $key = (string)($_POST['key'] ?? '');
     $value = (string)($_POST['value'] ?? '');
     try {
-        AppControlService::setSetting($pdo, $key, $value, null);
+        AppControlService::setSetting($pdo, $key, $value, $sessionAdmin ? (int)$sessionAdmin['id'] : null);
         $msg = '已更新设置 ' . $key;
     } catch (Throwable $e) {
         $msg = '设置失败';
@@ -343,9 +574,14 @@ if ($uri === '/admin/settings' && $method === 'POST') {
 if ($uri === '/admin/settings/registration' && $method === 'POST') {
     AdminService::requireLogin();
     AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
+    if (!AdminAuthService::can($sessionAdmin, 'control.write')) {
+        header('Location: /admin/dashboard?msg=' . urlencode('权限不足'));
+        exit;
+    }
     $enabled = isset($_POST['enabled']) && (string)$_POST['enabled'] === '1';
     SettingsService::setRegistrationEnabled($pdo, $enabled);
-    AppControlService::audit($pdo, null, 'REGISTRATION_TOGGLE', 'app_settings', 'registration_enabled', [
+    AppControlService::audit($pdo, $sessionAdmin ? (int)$sessionAdmin['id'] : null, 'REGISTRATION_TOGGLE', 'app_settings', 'registration_enabled', [
         'enabled' => $enabled,
     ]);
     $msg = $enabled ? '已开放用户注册' : '已关闭用户注册';
@@ -356,6 +592,11 @@ if ($uri === '/admin/settings/registration' && $method === 'POST') {
 if ($uri === '/admin/push' && $method === 'POST') {
     AdminService::requireLogin();
     AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
+    if (!AdminAuthService::can($sessionAdmin, 'messages.send')) {
+        header('Location: /admin/dashboard?msg=' . urlencode('权限不足'));
+        exit;
+    }
     $title = trim((string)($_POST['title'] ?? ''));
     $body = trim((string)($_POST['body'] ?? ''));
     $userId = (int)($_POST['user_id'] ?? 0);
@@ -442,8 +683,92 @@ if (preg_match('#^/admin/users/(\d+)/devices/([^/]+)/revoke$#', $uri, $m) && $me
 if (preg_match('#^/admin/users/(\d+)/delete$#', $uri, $m) && $method === 'POST') {
     AdminService::requireLogin();
     AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
+    if (!AdminAuthService::can($sessionAdmin, 'users.delete')) {
+        header('Location: /admin/dashboard?msg=' . urlencode('权限不足：无法删除用户'));
+        exit;
+    }
     $name = AdminService::deleteUser($pdo, $cfg, (int)$m[1]);
     $msg = $name ? '已删除用户 ' . $name : '用户不存在';
+    header('Location: /admin/dashboard?msg=' . urlencode($msg));
+    exit;
+}
+
+if ($uri === '/admin/operators/create' && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
+    if (!AdminAuthService::can($sessionAdmin, 'admins.manage')) {
+        header('Location: /admin/dashboard?msg=' . urlencode('权限不足'));
+        exit;
+    }
+    try {
+        AdminAuthService::createOperator(
+            $pdo,
+            (string)($_POST['username'] ?? ''),
+            (string)($_POST['password'] ?? ''),
+            $sessionAdmin ? (int)$sessionAdmin['id'] : null
+        );
+        $msg = '已创建运营账号';
+    } catch (InvalidArgumentException $e) {
+        $msg = $e->getMessage();
+    } catch (Throwable $e) {
+        $msg = '创建失败';
+    }
+    header('Location: /admin/dashboard?msg=' . urlencode($msg));
+    exit;
+}
+
+if (preg_match('#^/admin/operators/(\d+)/enable$#', $uri, $m) && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
+    if (!AdminAuthService::can($sessionAdmin, 'admins.manage')) {
+        header('Location: /admin/dashboard?msg=' . urlencode('权限不足'));
+        exit;
+    }
+    AdminAuthService::setEnabled($pdo, (int)$m[1], true, $sessionAdmin ? (int)$sessionAdmin['id'] : null);
+    header('Location: /admin/dashboard?msg=' . urlencode('已启用'));
+    exit;
+}
+
+if (preg_match('#^/admin/operators/(\d+)/disable$#', $uri, $m) && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
+    if (!AdminAuthService::can($sessionAdmin, 'admins.manage')) {
+        header('Location: /admin/dashboard?msg=' . urlencode('权限不足'));
+        exit;
+    }
+    try {
+        AdminAuthService::setEnabled($pdo, (int)$m[1], false, $sessionAdmin ? (int)$sessionAdmin['id'] : null);
+        $msg = '已禁用';
+    } catch (Throwable $e) {
+        $msg = '操作失败';
+    }
+    header('Location: /admin/dashboard?msg=' . urlencode($msg));
+    exit;
+}
+
+if (preg_match('#^/admin/operators/(\d+)/reset-password$#', $uri, $m) && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
+    if (!AdminAuthService::can($sessionAdmin, 'admins.manage')) {
+        header('Location: /admin/dashboard?msg=' . urlencode('权限不足'));
+        exit;
+    }
+    try {
+        AdminAuthService::resetPassword(
+            $pdo,
+            (int)$m[1],
+            (string)($_POST['new_password'] ?? ''),
+            $sessionAdmin ? (int)$sessionAdmin['id'] : null
+        );
+        $msg = '已重置运营密码';
+    } catch (Throwable $e) {
+        $msg = '重置失败';
+    }
     header('Location: /admin/dashboard?msg=' . urlencode($msg));
     exit;
 }
@@ -495,6 +820,11 @@ if (preg_match('#^/admin/users/(\d+)/snapshots/(\d+)/restore$#', $uri, $m) && $m
 if ($uri === '/admin/settings/feature-flags' && $method === 'POST') {
     AdminService::requireLogin();
     AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
+    if (!AdminAuthService::can($sessionAdmin, 'control.write')) {
+        header('Location: /admin/dashboard?msg=' . urlencode('权限不足'));
+        exit;
+    }
     $flags = [
         'excel_export' => isset($_POST['excel_export']),
         'backup_import' => isset($_POST['backup_import']),
@@ -505,7 +835,7 @@ if ($uri === '/admin/settings/feature-flags' && $method === 'POST') {
         $pdo,
         'feature_flags',
         json_encode($flags, JSON_UNESCAPED_UNICODE) ?: '{}',
-        null
+        $sessionAdmin ? (int)$sessionAdmin['id'] : null
     );
     header('Location: /admin/dashboard?msg=' . urlencode('功能开关已更新'));
     exit;

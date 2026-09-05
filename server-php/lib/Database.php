@@ -22,11 +22,11 @@ final class Database
         self::$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         self::$pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
         self::$pdo->exec('PRAGMA foreign_keys = ON');
-        self::migrate(self::$pdo);
+        self::migrate(self::$pdo, $cfg);
         return self::$pdo;
     }
 
-    private static function migrate(PDO $pdo): void
+    private static function migrate(PDO $pdo, array $cfg): void
     {
         $pdo->exec(
             'CREATE TABLE IF NOT EXISTS users (
@@ -64,19 +64,36 @@ final class Database
             'expiry_policy' => 'readonly', // readonly | block
             'app_status' => 'ACTIVE',
             'min_version' => '1.0.0',
-            'latest_version' => '1.0.3',
+            'latest_version' => '1.2.0',
             'force_update' => '0',
             'maintenance_message' => '',
             'offline_grace_sec' => '259200',
             'control_version' => '1',
             'announcement' => '',
             'feature_flags' => '{"excel_export":true,"backup_import":true,"messages":true,"web_ledger":true}',
+            'apk_download_url' => '',
+            'ios_download_url' => '',
+            'update_release_notes' => '',
         ];
         $now = (int)(microtime(true) * 1000);
         $ins = $pdo->prepare('INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES (?,?,?)');
         foreach ($defaults as $k => $v) {
             $ins->execute([$k, $v, $now]);
         }
+
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS admins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT \'operator\',
+                is_enabled INTEGER NOT NULL DEFAULT 1,
+                token_version INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                last_login_at INTEGER
+            )'
+        );
+        self::seedSuperAdmin($pdo, $cfg);
 
         $pdo->exec(
             'CREATE TABLE IF NOT EXISTS ledgers (
@@ -165,6 +182,36 @@ final class Database
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_snapshots_user ON ledger_snapshots(user_id, created_at DESC)');
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id, created_at DESC)');
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_devices_user ON devices(user_id)');
+    }
+
+    private static function seedSuperAdmin(PDO $pdo, array $cfg): void
+    {
+        $count = (int)$pdo->query('SELECT COUNT(*) FROM admins')->fetchColumn();
+        if ($count > 0) {
+            return;
+        }
+        $username = trim((string)($cfg['admin_username'] ?? 'liner0211'));
+        if ($username === '') {
+            $username = 'liner0211';
+        }
+        $hash = (string)($cfg['admin_password_hash'] ?? '');
+        if ($hash === '') {
+            $plain = (string)($cfg['admin_password'] ?? '');
+            if ($plain !== '' && str_starts_with($plain, '$2y$')) {
+                $hash = $plain;
+            } elseif ($plain !== '' && $plain !== '请改成强密码') {
+                $hash = password_hash($plain, PASSWORD_BCRYPT);
+            }
+        }
+        if ($hash === '') {
+            // 无可用密码时不建账号，避免空口令超级管理员
+            return;
+        }
+        $now = (int)(microtime(true) * 1000);
+        $pdo->prepare(
+            'INSERT INTO admins (username, password_hash, role, is_enabled, token_version, created_at)
+             VALUES (?,?,?,?,0,?)'
+        )->execute([$username, $hash, 'super', 1, $now]);
     }
 
     private static function ensureColumn(PDO $pdo, string $table, string $column, string $definition): void

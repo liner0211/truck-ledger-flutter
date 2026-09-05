@@ -3,10 +3,40 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
+import '../services/app_updater.dart';
 import '../state/auth_controller.dart';
 
-class AboutScreen extends StatelessWidget {
+class AboutScreen extends StatefulWidget {
   const AboutScreen({super.key});
+
+  @override
+  State<AboutScreen> createState() => _AboutScreenState();
+}
+
+class _AboutScreenState extends State<AboutScreen> {
+  bool _updating = false;
+  double _progress = 0;
+
+  Future<void> _update(String url) async {
+    setState(() {
+      _updating = true;
+      _progress = 0;
+    });
+    try {
+      await AppUpdater.openOrInstall(
+        url,
+        onProgress: (p) {
+          if (mounted) setState(() => _progress = p);
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } finally {
+      if (mounted) setState(() => _updating = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -14,6 +44,10 @@ class AboutScreen extends StatelessWidget {
     final auth = context.watch<AuthController>();
     final control = auth.lastControl;
     final profile = auth.profile;
+    final update = control?.update;
+    final canUpdate = update != null &&
+        update.available &&
+        update.downloadUrl.trim().isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(title: const Text('关于')),
@@ -57,6 +91,25 @@ class AboutScreen extends StatelessWidget {
                         .bodyMedium
                         ?.copyWith(color: cs.onSurfaceVariant),
                   ),
+                  if (canUpdate) ...[
+                    const SizedBox(height: 12),
+                    if (_updating)
+                      LinearProgressIndicator(value: _progress > 0 ? _progress : null),
+                    if (_updating) const SizedBox(height: 8),
+                    FilledButton.icon(
+                      onPressed: _updating ? null : () => _update(update.downloadUrl),
+                      icon: const Icon(Icons.system_update),
+                      label: Text(
+                        _updating
+                            ? '下载中 ${(_progress * 100).toStringAsFixed(0)}%'
+                            : '更新到 ${control!.latestVersion}',
+                      ),
+                    ),
+                    if (update.releaseNotes.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(update.releaseNotes, style: Theme.of(context).textTheme.bodySmall),
+                    ],
+                  ],
                 ],
               ),
             ),

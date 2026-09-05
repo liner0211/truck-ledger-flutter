@@ -13,7 +13,10 @@ return [
     // 兼容旧配置：明文密码（生产请改用 admin_password_hash）
     'admin_password' => '请改成强密码',
     'admin_password_hash' => '',
+    // 首次迁移写入 admins 表的超级管理员用户名
+    'admin_username' => 'liner0211',
     'jwt_expire_sec' => 60 * 60 * 24 * 30,
+    'admin_jwt_expire_sec' => 60 * 60 * 24 * 7,
     'max_upload_bytes' => 20 * 1024 * 1024,
     // CORS：生产建议改为具体域名列表，例如 ['https://truck.liner0211.online']
     'cors_origins' => ['*'],

@@ -4,6 +4,39 @@ import 'api_http_client.dart';
 import 'auth_api.dart';
 import 'feature_flags.dart';
 
+class AppUpdateInfo {
+  AppUpdateInfo({
+    required this.available,
+    required this.force,
+    this.reason,
+    required this.downloadUrl,
+    required this.releaseNotes,
+    required this.latestVersion,
+    required this.minVersion,
+  });
+
+  final bool available;
+  final bool force;
+  final String? reason;
+  final String downloadUrl;
+  final String releaseNotes;
+  final String latestVersion;
+  final String minVersion;
+
+  factory AppUpdateInfo.fromJson(Map<String, dynamic>? m) {
+    m ??= const {};
+    return AppUpdateInfo(
+      available: m['available'] == true,
+      force: m['force'] == true,
+      reason: m['reason'] as String?,
+      downloadUrl: (m['download_url'] as String?) ?? '',
+      releaseNotes: (m['release_notes'] as String?) ?? '',
+      latestVersion: (m['latest_version'] as String?) ?? '',
+      minVersion: (m['min_version'] as String?) ?? '',
+    );
+  }
+}
+
 class AppControlResult {
   AppControlResult({
     required this.allowed,
@@ -18,7 +51,17 @@ class AppControlResult {
     required this.offlineGraceSec,
     this.account,
     FeatureFlags? featureFlags,
-  }) : featureFlags = featureFlags ?? FeatureFlags();
+    AppUpdateInfo? update,
+  })  : featureFlags = featureFlags ?? FeatureFlags(),
+        update = update ??
+            AppUpdateInfo(
+              available: false,
+              force: false,
+              downloadUrl: '',
+              releaseNotes: '',
+              latestVersion: '',
+              minVersion: '',
+            );
 
   final bool allowed;
   final String? reason;
@@ -32,10 +75,12 @@ class AppControlResult {
   final int offlineGraceSec;
   final UserProfile? account;
   final FeatureFlags featureFlags;
+  final AppUpdateInfo update;
 
   factory AppControlResult.fromJson(Map<String, dynamic> m) {
     final app = (m['app'] as Map?)?.cast<String, dynamic>() ?? {};
     final policy = (m['policy'] as Map?)?.cast<String, dynamic>() ?? {};
+    final updateMap = (m['update'] as Map?)?.cast<String, dynamic>();
     UserProfile? account;
     final acc = m['account'];
     if (acc is Map<String, dynamic>) {
@@ -56,6 +101,7 @@ class AppControlResult {
       offlineGraceSec: (policy['offline_grace_sec'] as num?)?.toInt() ?? 259200,
       account: account,
       featureFlags: FeatureFlags.tryParse(m['feature_flags']),
+      update: AppUpdateInfo.fromJson(updateMap),
     );
   }
 }

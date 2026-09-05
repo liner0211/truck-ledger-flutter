@@ -34,12 +34,15 @@
 </head>
 <body>
   <div class="card">
-    <h1>🚛 卡车记账 · 管理后台</h1>
-    <p>请输入管理员密码（config.php 中 admin_password）</p>
+    <h1>卡车记账 · 管理后台</h1>
+    <p>使用管理员账号登录（超级管理员 / 运营）</p>
     <?php if (!empty($error)): ?><div class="err"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
     <form method="post" action="/admin/login">
-      <label for="password">管理员密码</label>
-      <input id="password" name="password" type="password" autofocus required>
+      <label for="username">用户名</label>
+      <input id="username" name="username" type="text" autocomplete="username"
+             value="<?= htmlspecialchars((string)($default_username ?? 'liner0211'), ENT_QUOTES, 'UTF-8') ?>" required>
+      <label for="password">密码</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
       <button type="submit">登录</button>
     </form>
     <div class="hint">健康检查：<a href="/api/health">/api/health</a></div>

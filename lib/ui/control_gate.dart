@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
+import '../services/app_updater.dart';
 import '../services/auth_api.dart';
 import '../state/auth_controller.dart';
 import '../state/ledger_controller.dart';
@@ -25,6 +26,9 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
   String? _blockBody;
   bool _blocked = false;
   String? _banner;
+  String? _updateUrl;
+  bool _updating = false;
+  double _updateProgress = 0;
 
   @override
   void initState() {
@@ -58,6 +62,7 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
         _blocked = false;
         _blockTitle = null;
         _blockBody = null;
+        _updateUrl = null;
       });
     }
     try {
@@ -72,13 +77,26 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
         final reason = result.reason ?? 'BLOCKED';
         String title = '暂时无法使用';
         String body = result.maintenanceMessage;
+        String? updateUrl;
         if (reason == 'MAINTENANCE' || reason == 'DISABLED') {
           title = reason == 'MAINTENANCE' ? '系统维护中' : '服务已停用';
           if (body.isEmpty) body = '请稍后再试，或联系管理员。';
-        } else if (reason == 'UPDATE_REQUIRED') {
+        } else if (reason == 'VERSION_TOO_LOW' || reason == 'UPDATE_REQUIRED') {
           title = '需要更新应用';
           body =
               '当前版本过低。最低要求 ${result.minVersion}，最新 ${result.latestVersion}。\n请更新后再打开。';
+          updateUrl = result.update.downloadUrl;
+          if (result.update.releaseNotes.isNotEmpty) {
+            body = '$body\n\n${result.update.releaseNotes}';
+          }
+        } else if (reason == 'FORCE_UPDATE') {
+          title = '请更新到最新版';
+          body =
+              '管理员要求更新到 ${result.latestVersion}（当前 ${info.version}）。';
+          updateUrl = result.update.downloadUrl;
+          if (result.update.releaseNotes.isNotEmpty) {
+            body = '$body\n\n${result.update.releaseNotes}';
+          }
         } else if (reason == 'DEVICE_REVOKED') {
           title = '本设备已被吊销';
           body = '请联系管理员，或在其他设备登录。';
@@ -93,13 +111,16 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
           _blocked = true;
           _blockTitle = title;
           _blockBody = body;
+          _updateUrl = updateUrl;
         });
         return;
       }
 
       final profile = result.account ?? auth.profile;
       String? banner;
-      if (result.announcement.trim().isNotEmpty) {
+      if (result.update.available && result.update.downloadUrl.isNotEmpty) {
+        banner = '发现新版本 ${result.latestVersion}，可在关于页更新';
+      } else if (result.announcement.trim().isNotEmpty) {
         banner = result.announcement.trim();
       } else if (profile != null && profile.isTrial && profile.daysLeft != null) {
         banner = '试用剩余 ${profile.daysLeft} 天';
@@ -110,7 +131,6 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
         banner = '当前账号为只读，无法修改账本';
       }
 
-      // 启动后自动对账一次
       try {
         await context.read<LedgerController>().syncWithCloud();
       } catch (_) {}
@@ -128,6 +148,7 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
         _checking = false;
         _blocked = false;
         _banner = banner;
+        _updateUrl = result.update.available ? result.update.downloadUrl : null;
       });
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -167,6 +188,37 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _doUpdate() async {
+    final url = _updateUrl;
+    if (url == null || url.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('未配置下载地址，请联系管理员')),
+      );
+      return;
+    }
+    setState(() {
+      _updating = true;
+      _updateProgress = 0;
+    });
+    try {
+      await AppUpdater.openOrInstall(
+        url,
+        onProgress: (p) {
+          if (mounted) setState(() => _updateProgress = p);
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _updating = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_checking) {
@@ -175,6 +227,7 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
       );
     }
     if (_blocked) {
+      final canUpdate = _updateUrl != null && _updateUrl!.isNotEmpty;
       return Scaffold(
         body: SafeArea(
           child: Padding(
@@ -182,7 +235,7 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.block, size: 48, color: Theme.of(context).colorScheme.error),
+                Icon(Icons.system_update, size: 48, color: Theme.of(context).colorScheme.error),
                 const SizedBox(height: 16),
                 Text(
                   _blockTitle ?? '不可用',
@@ -191,16 +244,30 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 12),
                 Text(_blockBody ?? '', textAlign: TextAlign.center),
+                if (_updating) ...[
+                  const SizedBox(height: 16),
+                  LinearProgressIndicator(value: _updateProgress > 0 ? _updateProgress : null),
+                  const SizedBox(height: 8),
+                  Text('下载中… ${(_updateProgress * 100).toStringAsFixed(0)}%'),
+                ],
                 const SizedBox(height: 24),
-                FilledButton(
-                  onPressed: () => _runCheck(),
+                if (canUpdate)
+                  FilledButton(
+                    onPressed: _updating ? null : _doUpdate,
+                    child: const Text('立即更新'),
+                  ),
+                if (canUpdate) const SizedBox(height: 8),
+                FilledButton.tonal(
+                  onPressed: _updating ? null : () => _runCheck(),
                   child: const Text('重试'),
                 ),
                 const SizedBox(height: 8),
                 TextButton(
-                  onPressed: () async {
-                    await context.read<AuthController>().logout();
-                  },
+                  onPressed: _updating
+                      ? null
+                      : () async {
+                          await context.read<AuthController>().logout();
+                        },
                   child: const Text('退出登录'),
                 ),
                 if (!kIsWeb && (Platform.isAndroid || Platform.isIOS))
@@ -232,6 +299,11 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
                     const Icon(Icons.info_outline, size: 18),
                     const SizedBox(width: 8),
                     Expanded(child: Text(_banner!, style: const TextStyle(fontSize: 13))),
+                    if (_updateUrl != null && _updateUrl!.isNotEmpty)
+                      TextButton(
+                        onPressed: _updating ? null : _doUpdate,
+                        child: const Text('更新'),
+                      ),
                     IconButton(
                       visualDensity: VisualDensity.compact,
                       onPressed: () => setState(() => _banner = null),

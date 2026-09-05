@@ -15,13 +15,23 @@ final class AppControlService
     public static function check(PDO $pdo, array $user, string $appVersion, ?string $deviceId): array
     {
         $s = self::settings($pdo);
-        $now = (int)(microtime(true) * 1000);
         $accountStatus = EntitlementService::normalizeStatus($user);
         $device = self::touchDevice($pdo, (int)$user['id'], $deviceId, $appVersion);
         $appStatus = strtoupper((string)($s['app_status'] ?? 'ACTIVE'));
-        $minVersion = (string)($s['min_version'] ?? '1.0.0');
-        $updateRequired = self::versionCompare($appVersion, $minVersion) < 0
-            || (($s['force_update'] ?? '0') === '1');
+        $minVersion = self::normalizeVersion((string)($s['min_version'] ?? '1.0.0'));
+        $latestVersion = self::normalizeVersion((string)($s['latest_version'] ?? '1.0.0'));
+        $clientVersion = self::normalizeVersion($appVersion);
+        $forceFlag = (($s['force_update'] ?? '0') === '1');
+        $belowMin = self::versionCompare($clientVersion, $minVersion) < 0;
+        $belowLatest = self::versionCompare($clientVersion, $latestVersion) < 0;
+        $forceUpdateNeeded = $forceFlag && $belowLatest;
+        $updateRequired = $belowMin || $forceUpdateNeeded;
+        $updateReason = null;
+        if ($belowMin) {
+            $updateReason = 'VERSION_TOO_LOW';
+        } elseif ($forceUpdateNeeded) {
+            $updateReason = 'FORCE_UPDATE';
+        }
         $deviceOk = $device === null || ($device['status'] ?? 'ACTIVE') === 'ACTIVE';
         $accountOk = in_array($accountStatus, ['ACTIVE', 'EXPIRED'], true);
         // EXPIRED 仍允许进入（只读由 Entitlement 控制）；SUSPENDED/REVOKED 不允许
@@ -40,8 +50,18 @@ final class AppControlService
         } elseif (!$deviceOk) {
             $reason = 'DEVICE_REVOKED';
         } elseif ($updateRequired) {
-            $reason = 'UPDATE_REQUIRED';
+            $reason = $updateReason ?? 'UPDATE_REQUIRED';
         }
+        $platform = strtolower((string)($_SERVER['HTTP_X_APP_PLATFORM'] ?? 'unknown'));
+        $apkUrl = trim((string)($s['apk_download_url'] ?? ''));
+        $iosUrl = trim((string)($s['ios_download_url'] ?? ''));
+        $downloadUrl = '';
+        if (str_contains($platform, 'ios') || $platform === 'iphone' || $platform === 'ipad') {
+            $downloadUrl = $iosUrl !== '' ? $iosUrl : $apkUrl;
+        } else {
+            $downloadUrl = $apkUrl !== '' ? $apkUrl : $iosUrl;
+        }
+        $releaseNotes = trim((string)($s['update_release_notes'] ?? ''));
         return [
             'allowed' => $allowed,
             'reason' => $reason,
@@ -49,11 +69,22 @@ final class AppControlService
             'app' => [
                 'status' => $appStatus,
                 'min_version' => $minVersion,
-                'latest_version' => (string)($s['latest_version'] ?? '1.0.0'),
-                'force_update' => ($s['force_update'] ?? '0') === '1',
+                'latest_version' => $latestVersion,
+                'force_update' => $forceFlag,
                 'maintenance_message' => (string)($s['maintenance_message'] ?? ''),
                 'control_version' => (int)($s['control_version'] ?? 1),
                 'announcement' => (string)($s['announcement'] ?? ''),
+                'apk_download_url' => $apkUrl,
+                'ios_download_url' => $iosUrl,
+            ],
+            'update' => [
+                'available' => $belowLatest,
+                'force' => $updateRequired,
+                'reason' => $updateReason,
+                'download_url' => $downloadUrl,
+                'release_notes' => $releaseNotes,
+                'latest_version' => $latestVersion,
+                'min_version' => $minVersion,
             ],
             'account' => EntitlementService::publicProfile($pdo, $user),
             'device' => $device ? ['id' => $device['device_id'], 'status' => $device['status']] : null,
@@ -100,6 +131,7 @@ final class AppControlService
             'maintenance_message', 'offline_grace_sec', 'announcement',
             'trial_days', 'trial_max_rounds', 'trial_max_attachments', 'expiry_policy',
             'registration_enabled', 'feature_flags',
+            'apk_download_url', 'ios_download_url', 'update_release_notes',
         ];
         if (!in_array($key, $allowed, true)) {
             JsonResponse::error('不允许修改该配置', 400);
@@ -109,6 +141,11 @@ final class AppControlService
         }
         if ($key === 'force_update' && !in_array($value, ['0', '1'], true)) {
             JsonResponse::error('强制升级值无效', 400);
+        }
+        if (in_array($key, ['apk_download_url', 'ios_download_url'], true) && $value !== '') {
+            if (!filter_var($value, FILTER_VALIDATE_URL) || !preg_match('#^https?://#i', $value)) {
+                JsonResponse::error('下载地址须为 http(s) URL', 400);
+            }
         }
         if ($key === 'offline_grace_sec' && (!ctype_digit($value) || (int)$value > 31536000)) {
             JsonResponse::error('离线宽限时间无效', 400);
@@ -249,8 +286,24 @@ final class AppControlService
         return $out;
     }
 
+    private static function normalizeVersion(string $v): string
+    {
+        $v = trim($v);
+        if ($v === '') {
+            return '0.0.0';
+        }
+        if (preg_match('/^[vV]/', $v) === 1) {
+            $v = substr($v, 1);
+        }
+        // 去掉 build 后缀：1.2.0+12 / 1.2.0-12
+        $v = preg_replace('/[+\-].*$/', '', $v) ?? $v;
+        return trim($v) !== '' ? trim($v) : '0.0.0';
+    }
+
     private static function versionCompare(string $a, string $b): int
     {
+        $a = self::normalizeVersion($a);
+        $b = self::normalizeVersion($b);
         $pa = array_map('intval', preg_split('/[^0-9]+/', $a) ?: [0]);
         $pb = array_map('intval', preg_split('/[^0-9]+/', $b) ?: [0]);
         for ($i = 0; $i < 3; $i++) {
