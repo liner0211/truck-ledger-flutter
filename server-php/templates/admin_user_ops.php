@@ -53,11 +53,15 @@
             <td class="muted"><?= htmlspecialchars(date('Y-m-d H:i', (int)($s['created_at'] / 1000)), ENT_QUOTES, 'UTF-8') ?></td>
             <td><?= htmlspecialchars((string)$s['note'], ENT_QUOTES, 'UTF-8') ?></td>
             <td>
+              <?php if (!empty($admin) && in_array('snapshots.restore', $admin['permissions'] ?? [], true)): ?>
               <form method="post" action="/admin/users/<?= (int)$userId ?>/snapshots/<?= (int)$s['id'] ?>/restore"
                     onsubmit="return confirm('确定恢复到该快照？当前账本会再自动存一份快照。');">
                 <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
                 <button type="submit" class="btn">恢复</button>
               </form>
+              <?php else: ?>
+              <span class="muted">仅开发者</span>
+              <?php endif; ?>
             </td>
           </tr>
         <?php endforeach; ?>
@@ -82,12 +86,14 @@
             <td><?= htmlspecialchars($d['status'], ENT_QUOTES, 'UTF-8') ?></td>
             <td class="muted"><?= htmlspecialchars(date('Y-m-d H:i', (int)($d['last_seen_at'] / 1000)), ENT_QUOTES, 'UTF-8') ?></td>
             <td>
-              <?php if (($d['status'] ?? '') === 'ACTIVE'): ?>
+              <?php if (($d['status'] ?? '') === 'ACTIVE' && !empty($admin) && in_array('devices.write', $admin['permissions'] ?? [], true)): ?>
               <form method="post" action="/admin/users/<?= (int)$userId ?>/devices/<?= rawurlencode($d['device_id']) ?>/revoke"
                     onsubmit="return confirm('吊销后该设备下次控制检查将被拦截');">
                 <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
                 <button type="submit" class="btn">吊销</button>
               </form>
+              <?php elseif (($d['status'] ?? '') === 'ACTIVE'): ?>
+              <span class="muted">仅开发者</span>
               <?php else: ?>—<?php endif; ?>
             </td>
           </tr>

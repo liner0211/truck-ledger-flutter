@@ -1,7 +1,7 @@
 name: truck_ledger_admin
 description: 卡车记账管理端（Android / iOS / Windows / Linux）
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.1.0+1
 
 environment:
   sdk: ^3.11.5
@@ -13,6 +13,8 @@ dependencies:
   http: ^1.2.2
   provider: ^6.1.2
   shared_preferences: ^2.5.3
+  excel: ^4.0.6
+  share_plus: ^10.1.4
 
 dev_dependencies:
   flutter_test:

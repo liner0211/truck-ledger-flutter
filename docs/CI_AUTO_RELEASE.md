@@ -11,7 +11,9 @@
 发版同步内容：
 - `public/downloads/truckledger-latest.{apk,ipa,deb}`
 - `/api/ci/publish-release` → `latest_version` / `apk_download_url` / `ios_download_url`（IPA）/ 更新说明
-- **GitHub Releases**：`Release Packages` / `Release Admin Packages` 以及手动 `Android APK Release` / `iOS Runner.app Build` 的安装包均挂到对应 Release
+管理端发版：
+- 独立 Release：`admin-v*`（标题「卡车记账 · 管理端 …」）
+- **同时挂到当前主 App Latest Release**（`v*`），便于在 Releases 首页直接看到 Android / iOS / Windows / Linux 包
 
 ## 远端 config.php 必填
 

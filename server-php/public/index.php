@@ -479,6 +479,87 @@ if (strpos($uri, '/api/') === 0) {
             JsonResponse::send(['ok' => true]);
         }
 
+        if (preg_match('#^/api/admin/operators/(\d+)$#', $uri, $m) && $method === 'DELETE') {
+            AdminAuthService::requirePermission($admin, 'admins.manage');
+            try {
+                if (!AdminAuthService::deleteAdmin($pdo, (int)$m[1], $adminId)) {
+                    JsonResponse::error('管理员不存在', 404);
+                }
+            } catch (InvalidArgumentException $e) {
+                JsonResponse::error($e->getMessage(), 400);
+            }
+            JsonResponse::send(['ok' => true, 'detail' => '已删除会计管理员']);
+        }
+
+        if (preg_match('#^/api/admin/users/(\d+)/ledger$#', $uri, $m)) {
+            $userId = (int)$m[1];
+            if ($method === 'GET') {
+                AdminAuthService::requirePermission($admin, 'ledger.read');
+                $ledger = AdminService::getUserLedger($pdo, $userId);
+                if ($ledger === null) {
+                    JsonResponse::error('用户不存在', 404);
+                }
+                JsonResponse::send($ledger);
+            }
+            if ($method === 'PUT' || $method === 'POST') {
+                AdminAuthService::requirePermission($admin, 'ledger.write');
+                $result = AdminService::putUserLedger($pdo, $userId, readJsonBody());
+                if ($result === null) {
+                    JsonResponse::error('用户不存在', 404);
+                }
+                AppControlService::audit($pdo, $adminId, 'ADMIN_LEDGER_PUT', 'user', (string)$userId, []);
+                JsonResponse::send($result);
+            }
+        }
+
+        if (preg_match('#^/api/admin/users/(\d+)/attachments/([^/]+)$#', $uri, $m)) {
+            $userId = (int)$m[1];
+            $filename = urldecode($m[2]);
+            if ($method === 'GET') {
+                AdminAuthService::requirePermission($admin, 'ledger.read');
+                if (AdminService::getUser($pdo, $userId) === null) {
+                    JsonResponse::error('用户不存在', 404);
+                }
+                AttachmentService::download($cfg, $userId, $filename);
+            }
+            if ($method === 'POST') {
+                AdminAuthService::requirePermission($admin, 'ledger.write');
+                if (AdminService::getUser($pdo, $userId) === null) {
+                    JsonResponse::error('用户不存在', 404);
+                }
+                JsonResponse::send(AttachmentService::upload($cfg, $userId, $filename));
+            }
+        }
+
+        if (preg_match('#^/api/admin/users/(\d+)/devices$#', $uri, $m) && $method === 'GET') {
+            AdminAuthService::requirePermission($admin, 'users.read');
+            JsonResponse::send(['devices' => AppControlService::listDevices($pdo, (int)$m[1])]);
+        }
+
+        if (preg_match('#^/api/admin/users/(\d+)/devices/([^/]+)/revoke$#', $uri, $m) && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'devices.write');
+            $ok = AppControlService::setDeviceStatus($pdo, (int)$m[1], urldecode($m[2]), 'REVOKED', $adminId);
+            if (!$ok) {
+                JsonResponse::error('设备不存在', 404);
+            }
+            JsonResponse::send(['ok' => true, 'detail' => '已吊销设备']);
+        }
+
+        if (preg_match('#^/api/admin/users/(\d+)/snapshots$#', $uri, $m) && $method === 'GET') {
+            AdminAuthService::requirePermission($admin, 'ledger.read');
+            JsonResponse::send(['snapshots' => SnapshotService::list($pdo, (int)$m[1])]);
+        }
+
+        if (preg_match('#^/api/admin/users/(\d+)/snapshots/(\d+)/restore$#', $uri, $m) && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'snapshots.restore');
+            $result = SnapshotService::restore($pdo, (int)$m[1], (int)$m[2]);
+            if ($result === null) {
+                JsonResponse::error('快照不存在', 404);
+            }
+            AppControlService::audit($pdo, $adminId, 'SNAPSHOT_RESTORE', 'user', $m[1], ['snapshot_id' => (int)$m[2]]);
+            JsonResponse::send($result);
+        }
+
         JsonResponse::error('Not Found', 404);
     }
 
@@ -488,10 +569,12 @@ if (strpos($uri, '/api/') === 0) {
 // ---------- 管理后台 API（Session 鉴权）----------
 if (strpos($uri, '/admin/api/') === 0) {
     AdminService::requireLoginJson();
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
 
     if (preg_match('#^/admin/api/users/(\d+)/ledger$#', $uri, $m)) {
         $userId = (int)$m[1];
         if ($method === 'GET') {
+            AdminAuthService::requirePermission($sessionAdmin, 'ledger.read');
             $ledger = AdminService::getUserLedger($pdo, $userId);
             if ($ledger === null) {
                 JsonResponse::error('用户不存在', 404);
@@ -499,6 +582,7 @@ if (strpos($uri, '/admin/api/') === 0) {
             JsonResponse::send($ledger);
         }
         if ($method === 'PUT' || $method === 'POST') {
+            AdminAuthService::requirePermission($sessionAdmin, 'ledger.write');
             $result = AdminService::putUserLedger($pdo, $userId, readJsonBody());
             if ($result === null) {
                 JsonResponse::error('用户不存在', 404);
@@ -511,6 +595,7 @@ if (strpos($uri, '/admin/api/') === 0) {
         $userId = (int)$m[1];
         $filename = urldecode($m[2]);
         if ($method === 'GET') {
+            AdminAuthService::requirePermission($sessionAdmin, 'ledger.read');
             $user = AdminService::getUser($pdo, $userId);
             if ($user === null) {
                 JsonResponse::error('用户不存在', 404);
@@ -518,6 +603,7 @@ if (strpos($uri, '/admin/api/') === 0) {
             AttachmentService::download($cfg, $userId, $filename);
         }
         if ($method === 'POST') {
+            AdminAuthService::requirePermission($sessionAdmin, 'ledger.write');
             $user = AdminService::getUser($pdo, $userId);
             if ($user === null) {
                 JsonResponse::error('用户不存在', 404);
@@ -527,10 +613,12 @@ if (strpos($uri, '/admin/api/') === 0) {
     }
 
     if (preg_match('#^/admin/api/users/(\d+)/snapshots$#', $uri, $m) && $method === 'GET') {
+        AdminAuthService::requirePermission($sessionAdmin, 'ledger.read');
         JsonResponse::send(['snapshots' => SnapshotService::list($pdo, (int)$m[1])]);
     }
 
     if (preg_match('#^/admin/api/users/(\d+)/snapshots/(\d+)/restore$#', $uri, $m) && $method === 'POST') {
+        AdminAuthService::requirePermission($sessionAdmin, 'snapshots.restore');
         $result = SnapshotService::restore($pdo, (int)$m[1], (int)$m[2]);
         if ($result === null) {
             JsonResponse::error('快照不存在', 404);
@@ -539,6 +627,7 @@ if (strpos($uri, '/admin/api/') === 0) {
     }
 
     if (preg_match('#^/admin/api/users/(\d+)/devices$#', $uri, $m) && $method === 'GET') {
+        AdminAuthService::requirePermission($sessionAdmin, 'users.read');
         JsonResponse::send(['devices' => AppControlService::listDevices($pdo, (int)$m[1])]);
     }
 
@@ -725,7 +814,12 @@ if (preg_match('#^/admin/users/(\d+)/kick$#', $uri, $m) && $method === 'POST') {
 if (preg_match('#^/admin/users/(\d+)/devices/([^/]+)/revoke$#', $uri, $m) && $method === 'POST') {
     AdminService::requireLogin();
     AdminService::assertCsrf($_POST['csrf'] ?? null);
-    $ok = AppControlService::setDeviceStatus($pdo, (int)$m[1], urldecode($m[2]), 'REVOKED', null);
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
+    if (!AdminAuthService::can($sessionAdmin, 'devices.write')) {
+        header('Location: /admin/users/' . (int)$m[1] . '/ops?msg=' . urlencode('权限不足：仅开发者可吊销设备'));
+        exit;
+    }
+    $ok = AppControlService::setDeviceStatus($pdo, (int)$m[1], urldecode($m[2]), 'REVOKED', $sessionAdmin ? (int)$sessionAdmin['id'] : null);
     $msg = $ok ? '已吊销设备' : '设备不存在';
     header('Location: /admin/users/' . (int)$m[1] . '/ops?msg=' . urlencode($msg));
     exit;
@@ -760,7 +854,7 @@ if ($uri === '/admin/operators/create' && $method === 'POST') {
             (string)($_POST['password'] ?? ''),
             $sessionAdmin ? (int)$sessionAdmin['id'] : null
         );
-        $msg = '已创建运营账号';
+        $msg = '已创建会计管理员';
     } catch (InvalidArgumentException $e) {
         $msg = $e->getMessage();
     } catch (Throwable $e) {
@@ -824,6 +918,30 @@ if (preg_match('#^/admin/operators/(\d+)/reset-password$#', $uri, $m) && $method
     exit;
 }
 
+if (preg_match('#^/admin/operators/(\d+)/delete$#', $uri, $m) && $method === 'POST') {
+    AdminService::requireLogin();
+    AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
+    if (!AdminAuthService::can($sessionAdmin, 'admins.manage')) {
+        header('Location: /admin/dashboard?msg=' . urlencode('权限不足'));
+        exit;
+    }
+    try {
+        AdminAuthService::deleteAdmin(
+            $pdo,
+            (int)$m[1],
+            $sessionAdmin ? (int)$sessionAdmin['id'] : null
+        );
+        $msg = '已删除会计管理员';
+    } catch (InvalidArgumentException $e) {
+        $msg = $e->getMessage();
+    } catch (Throwable $e) {
+        $msg = '删除失败';
+    }
+    header('Location: /admin/dashboard?msg=' . urlencode($msg));
+    exit;
+}
+
 if (preg_match('#^/admin/users/(\d+)/ledger$#', $uri, $m) && $method === 'GET') {
     AdminService::requireLogin();
     $user = AdminService::getUser($pdo, (int)$m[1]);
@@ -856,12 +974,18 @@ if (preg_match('#^/admin/users/(\d+)/ops$#', $uri, $m) && $method === 'GET') {
         'devices' => AppControlService::listDevices($pdo, (int)$m[1]),
         'csrf' => AdminService::csrfToken(),
         'message' => (string)($_GET['msg'] ?? ''),
+        'admin' => AdminAuthService::publicAdmin(AdminAuthService::currentSessionAdmin($pdo) ?? ['id'=>0,'username'=>'','role'=>'operator','is_enabled'=>1]),
     ]);
 }
 
 if (preg_match('#^/admin/users/(\d+)/snapshots/(\d+)/restore$#', $uri, $m) && $method === 'POST') {
     AdminService::requireLogin();
     AdminService::assertCsrf($_POST['csrf'] ?? null);
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
+    if (!AdminAuthService::can($sessionAdmin, 'snapshots.restore')) {
+        header('Location: /admin/users/' . (int)$m[1] . '/ops?msg=' . urlencode('权限不足：仅开发者可恢复快照'));
+        exit;
+    }
     $result = SnapshotService::restore($pdo, (int)$m[1], (int)$m[2]);
     $msg = $result === null ? '快照不存在' : '已恢复到 revision ' . ($result['revision'] ?? '');
     header('Location: /admin/users/' . (int)$m[1] . '/ops?msg=' . urlencode($msg));

@@ -221,14 +221,19 @@ jobs:
           source ./scripts/flutter_build_version_env.sh
           TAG="admin-v${APP_BUILD_NAME}-${APP_BUILD_NUMBER}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "name=管理端 ${APP_BUILD_NAME} (${APP_BUILD_NUMBER})" >> "$GITHUB_OUTPUT"
+          # 标题带「卡车记账」，便于在 Releases 列表里一眼看到
+          echo "name=卡车记账 · 管理端 ${APP_BUILD_NAME} (${APP_BUILD_NUMBER})" >> "$GITHUB_OUTPUT"
           {
             echo "body<<EOF"
-            echo "## 卡车记账管理端 ${APP_BUILD_NAME}+${APP_BUILD_NUMBER}"
+            echo "## 卡车记账 · 管理端 ${APP_BUILD_NAME}+${APP_BUILD_NUMBER}"
             echo ""
             echo "- Commit: \`${GITHUB_SHA}\`"
-            echo "- Android APK / iOS IPA / Linux tar.gz / Windows zip"
-            echo "- 均由 CI 编译；IPA 未签名，需自行侧载"
+            echo "- Android APK"
+            echo "- iOS IPA（未签名）"
+            echo "- Linux x64 tar.gz"
+            echo "- Windows x64 zip（PC）"
+            echo ""
+            echo "产物同时会挂到当前主 App 的 Latest Release，便于在 Releases 首页看到。"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
           find release-assets -mindepth 2 -type f -exec mv -t release-assets/ {} + 2>/dev/null || true
@@ -243,10 +248,28 @@ jobs:
           body: ${{ steps.meta.outputs.body }}
           draft: false
           prerelease: false
+          make_latest: false
           files: release-assets/*
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Also attach to latest main App Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # 找到非 admin 的最新主 App Release，把管理端四平台包挂上去（Releases 首页可见）
+          MAIN_TAG="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 \
+            --json tagName,isDraft,isPrerelease \
+            --jq '[.[] | select((.isDraft|not) and (.isPrerelease|not) and (.tagName|startswith("admin-")|not))][0].tagName')"
+          if [[ -z "${MAIN_TAG:-}" || "$MAIN_TAG" == "null" ]]; then
+            echo "未找到主 App Release，跳过挂载。"
+            exit 0
+          fi
+          echo "Attaching admin assets to main release: $MAIN_TAG"
+          gh release upload "$MAIN_TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release view "$MAIN_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'
 
   publish-downloads:
     needs: [build-android, build-ios, build-linux, build-windows, github-release]

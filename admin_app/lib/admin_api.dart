@@ -26,6 +26,8 @@ class AdminProfile {
 
   bool get isSuper => role == 'super';
   bool can(String p) => permissions.contains(p);
+  String get roleLabel =>
+      role == 'super' ? '开发者' : '会计管理员';
 
   factory AdminProfile.fromJson(Map<String, dynamic> m) => AdminProfile(
         id: (m['id'] as num).toInt(),
@@ -59,13 +61,17 @@ class AdminApi {
     final uri = _u(path);
     late http.Response res;
     if (method == 'GET') {
-      res = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 20));
+      res = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 30));
     } else if (method == 'DELETE') {
-      res = await http.delete(uri, headers: _headers).timeout(const Duration(seconds: 20));
+      res = await http.delete(uri, headers: _headers).timeout(const Duration(seconds: 30));
+    } else if (method == 'PUT') {
+      res = await http
+          .put(uri, headers: _headers, body: jsonEncode(body ?? {}))
+          .timeout(const Duration(seconds: 60));
     } else {
       res = await http
           .post(uri, headers: _headers, body: jsonEncode(body ?? {}))
-          .timeout(const Duration(seconds: 20));
+          .timeout(const Duration(seconds: 30));
     }
     Map<String, dynamic>? data;
     try {
@@ -137,6 +143,30 @@ class AdminApi {
       'username': username,
       'password': password,
     });
+  }
+
+  Future<void> setOperatorEnabled(int id, bool enabled) async {
+    await _json('POST', '/api/admin/operators/$id/${enabled ? 'enable' : 'disable'}');
+  }
+
+  Future<void> resetOperatorPassword(int id, String password) async {
+    await _json('POST', '/api/admin/operators/$id/reset-password', body: {
+      'password': password,
+    });
+  }
+
+  Future<String> deleteOperator(int id) async {
+    final m = await _json('DELETE', '/api/admin/operators/$id');
+    return m['detail']?.toString() ?? '已删除';
+  }
+
+  Future<Map<String, dynamic>> userLedger(int userId) =>
+      _json('GET', '/api/admin/users/$userId/ledger');
+
+  Future<Map<String, dynamic>> putUserLedger(int userId, Map<String, dynamic> body) {
+    final payload = Map<String, dynamic>.from(body);
+    payload['force'] = true;
+    return _json('PUT', '/api/admin/users/$userId/ledger', body: payload);
   }
 
   static String defaultBaseUrl() {

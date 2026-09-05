@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 /**
  * 管理员身份：Web Session + Flutter Admin JWT（typ=admin）。
- * role: super | operator
+ * role:
+ *   - super    = 开发者/维护者（底层控制面、运营账号、删用户、设备/快照等）
+ *   - operator = 会计管理员（用户与账本业务数据，不可动底层配置）
  */
 final class AdminAuthService
 {
@@ -13,25 +15,30 @@ final class AdminAuthService
     /** @return list<string> */
     public static function permissionsForRole(string $role): array
     {
-        if ($role === self::ROLE_SUPER) {
-            return [
-                'dashboard.read',
-                'users.read',
-                'users.write',
-                'users.delete',
-                'control.write',
-                'messages.send',
-                'admins.manage',
-                'ledger.write',
-                'devices.write',
-            ];
-        }
-        return [
+        // 会计管理员：业务运营（看改用户/账本、发消息），不含底层维护
+        $accountant = [
             'dashboard.read',
             'users.read',
             'users.write',
             'messages.send',
+            'ledger.read',
+            'ledger.write',
         ];
+        if ($role === self::ROLE_SUPER) {
+            return array_values(array_unique(array_merge($accountant, [
+                'users.delete',
+                'control.write',
+                'admins.manage',
+                'devices.write',
+                'snapshots.restore',
+            ])));
+        }
+        return $accountant;
+    }
+
+    public static function roleLabel(string $role): string
+    {
+        return $role === self::ROLE_SUPER ? '开发者' : '会计管理员';
     }
 
     public static function can(?array $admin, string $permission): bool
@@ -60,6 +67,7 @@ final class AdminAuthService
             'id' => (int)$row['id'],
             'username' => (string)$row['username'],
             'role' => $role,
+            'role_label' => self::roleLabel($role),
             'is_enabled' => (int)($row['is_enabled'] ?? 1) === 1,
             'permissions' => self::permissionsForRole($role),
             'last_login_at' => isset($row['last_login_at']) ? (int)$row['last_login_at'] : null,
@@ -207,7 +215,7 @@ final class AdminAuthService
             return false;
         }
         if ((string)$row['role'] === self::ROLE_SUPER && !$enabled) {
-            throw new InvalidArgumentException('不能禁用超级管理员');
+            throw new InvalidArgumentException('不能禁用开发者账号');
         }
         $pdo->prepare(
             'UPDATE admins SET is_enabled=?, token_version=token_version+1 WHERE id=?'
@@ -232,6 +240,26 @@ final class AdminAuthService
             'UPDATE admins SET password_hash=?, token_version=token_version+1 WHERE id=?'
         )->execute([$hash, $adminId]);
         AppControlService::audit($pdo, $actorId, 'ADMIN_PASSWORD_RESET', 'admin', (string)$adminId, []);
+        return true;
+    }
+
+    /** 删除会计管理员账号（不可删开发者 super） */
+    public static function deleteAdmin(PDO $pdo, int $adminId, ?int $actorId): bool
+    {
+        $row = self::findById($pdo, $adminId);
+        if (!$row) {
+            return false;
+        }
+        if ((string)$row['role'] === self::ROLE_SUPER) {
+            throw new InvalidArgumentException('不能删除开发者账号');
+        }
+        if ($actorId !== null && $actorId === $adminId) {
+            throw new InvalidArgumentException('不能删除当前登录账号');
+        }
+        $pdo->prepare('DELETE FROM admins WHERE id=?')->execute([$adminId]);
+        AppControlService::audit($pdo, $actorId, 'ADMIN_DELETE', 'admin', (string)$adminId, [
+            'username' => (string)$row['username'],
+        ]);
         return true;
     }
 }

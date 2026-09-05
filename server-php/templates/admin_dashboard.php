@@ -59,7 +59,7 @@
       <?php if (!empty($admin)): ?>
         <span style="color:#c8e6c9;font-size:.85rem;margin-right:8px">
           <?= htmlspecialchars($admin['username'], ENT_QUOTES, 'UTF-8') ?>
-          · <?= htmlspecialchars($admin['role'] === 'super' ? '超级管理员' : '运营', ENT_QUOTES, 'UTF-8') ?>
+          · <?= htmlspecialchars($admin['role_label'] ?? ($admin['role'] === 'super' ? '开发者' : '会计管理员'), ENT_QUOTES, 'UTF-8') ?>
         </span>
       <?php endif; ?>
       <a href="/app/" target="_blank">用户 Web 账本</a>
@@ -172,7 +172,7 @@
             <button type="submit" class="btn-primary">保存</button>
           </form>
           <?php else: ?>
-            <span class="muted">只读（需超级管理员）</span>
+            <span class="muted">只读（需开发者权限）</span>
           <?php endif; ?>
         </div>
         <?php endforeach; ?>
@@ -313,11 +313,13 @@
                 <button type="submit" class="btn-toggle btn-enable">允许</button>
               </form>
               <?php endif; ?>
+              <?php if (!empty($admin) && in_array('users.delete', $admin['permissions'] ?? [], true)): ?>
               <form method="post" action="/admin/users/<?= (int)$u['id'] ?>/delete" style="display:inline"
                     onsubmit="return confirm('确定删除用户 <?= htmlspecialchars($u['username'], ENT_QUOTES, 'UTF-8') ?>？');">
                 <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
                 <button type="submit" class="btn-del">删除</button>
               </form>
+              <?php endif; ?>
             </td>
           </tr>
           <?php endforeach; ?>
@@ -352,8 +354,9 @@
 
     <?php if (!empty($admin) && in_array('admins.manage', $admin['permissions'] ?? [], true)): ?>
     <div class="panel">
-      <h2>运营账号</h2>
+      <h2>会计管理员账号</h2>
       <div class="panel-body">
+        <p class="muted" style="margin-top:0">会计管理员可管理用户与账本业务数据；控制面、删用户、设备吊销、快照恢复等仅开发者可用。</p>
         <form method="post" action="/admin/operators/create" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:end">
           <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
           <div>
@@ -364,7 +367,7 @@
             <label class="muted">初始密码</label><br>
             <input type="password" name="password" required minlength="6">
           </div>
-          <button type="submit" class="btn-primary">创建运营账号</button>
+          <button type="submit" class="btn-primary">创建会计管理员</button>
         </form>
         <table>
           <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>状态</th><th>操作</th></tr></thead>
@@ -373,7 +376,7 @@
             <tr>
               <td><?= (int)$op['id'] ?></td>
               <td><?= htmlspecialchars($op['username'], ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars($op['role'], ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars($op['role_label'] ?? $op['role'], ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= !empty($op['is_enabled']) ? '启用' : '禁用' ?></td>
               <td>
                 <?php if ($op['role'] !== 'super'): ?>
@@ -394,8 +397,13 @@
                     <input type="hidden" name="new_password" value="">
                     <button type="submit" class="btn-toggle">重置密码</button>
                   </form>
+                  <form method="post" action="/admin/operators/<?= (int)$op['id'] ?>/delete" style="display:inline"
+                        onsubmit="return confirm('确定删除会计管理员 <?= htmlspecialchars($op['username'], ENT_QUOTES, 'UTF-8') ?>？');">
+                    <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
+                    <button type="submit" class="btn-toggle btn-disable">删除</button>
+                  </form>
                 <?php else: ?>
-                  <span class="muted">—</span>
+                  <span class="muted">开发者（不可删）</span>
                 <?php endif; ?>
               </td>
             </tr>

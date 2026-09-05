@@ -164,14 +164,14 @@ class _AboutScreenState extends State<AboutScreen> {
               children: const [
                 ListTile(
                   leading: Icon(Icons.person_outline),
-                  title: Text('作者'),
+                  title: Text('开发者'),
                   subtitle: Text('张圣康'),
                 ),
                 Divider(height: 1),
                 ListTile(
                   leading: Icon(Icons.wechat_outlined),
                   title: Text('微信'),
-                  subtitle: Text('17631803349'),
+                  subtitle: Text('13323182418'),
                 ),
                 Divider(height: 1),
                 ListTile(

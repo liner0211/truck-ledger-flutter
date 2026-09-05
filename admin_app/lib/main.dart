@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'admin_api.dart';
+import 'user_ledger_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -241,13 +242,13 @@ class _HomeShellState extends State<HomeShell> {
       if (admin.can('control.write'))
         const NavigationRailDestination(icon: Icon(Icons.settings_outlined), label: Text('控制面')),
       if (admin.can('admins.manage'))
-        const NavigationRailDestination(icon: Icon(Icons.admin_panel_settings_outlined), label: Text('运营账号')),
+        const NavigationRailDestination(icon: Icon(Icons.admin_panel_settings_outlined), label: Text('会计账号')),
     ];
     if (_index >= pages.length) _index = 0;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('管理端 · ${admin.username}（${admin.isSuper ? '超级' : '运营'}）'),
+        title: Text('管理端 · ${admin.username}（${admin.roleLabel}）'),
         actions: [
           IconButton(
             tooltip: '退出',
@@ -409,8 +410,26 @@ class _UsersPageState extends State<UsersPage> {
               subtitle: Text(
                 '${u['status']} / ${u['plan']} · 圈次 ${u['round_count']} · rev ${u['revision']}',
               ),
+              onTap: () {
+                Navigator.push<void>(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => UserLedgerPage(user: u),
+                  ),
+                );
+              },
               trailing: PopupMenuButton<String>(
                 onSelected: (v) async {
+                  if (v == 'ledger') {
+                    if (!mounted) return;
+                    Navigator.push<void>(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => UserLedgerPage(user: u),
+                      ),
+                    );
+                    return;
+                  }
                   if (v == 'extend') {
                     await _act(id, 'extend', body: {'days': 7});
                   } else if (v == 'convert') {
@@ -465,13 +484,14 @@ class _UsersPageState extends State<UsersPage> {
                   }
                 },
                 itemBuilder: (_) => [
+                  const PopupMenuItem(value: 'ledger', child: Text('查看/编辑账本')),
                   const PopupMenuItem(value: 'extend', child: Text('延期试用 7 天')),
                   const PopupMenuItem(value: 'convert', child: Text('转正式')),
                   const PopupMenuItem(value: 'kick', child: Text('踢下线')),
                   const PopupMenuItem(value: 'enable', child: Text('启用')),
                   const PopupMenuItem(value: 'disable', child: Text('禁用')),
                   const PopupMenuItem(value: 'reset', child: Text('重置密码')),
-                  if (canDelete) const PopupMenuItem(value: 'delete', child: Text('删除')),
+                  if (canDelete) const PopupMenuItem(value: 'delete', child: Text('删除用户（开发者）')),
                 ],
               ),
             ),
@@ -683,9 +703,14 @@ class _OperatorsPageState extends State<OperatorsPage> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        Text(
+          '会计管理员可管理用户与账本；控制面/删用户/设备吊销等仅开发者可见。',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: TextField(controller: _user, decoration: const InputDecoration(labelText: '新运营用户名'))),
+            Expanded(child: TextField(controller: _user, decoration: const InputDecoration(labelText: '新会计管理员用户名'))),
             const SizedBox(width: 8),
             Expanded(child: TextField(controller: _pass, obscureText: true, decoration: const InputDecoration(labelText: '初始密码'))),
             const SizedBox(width: 8),
@@ -707,10 +732,79 @@ class _OperatorsPageState extends State<OperatorsPage> {
           ],
         ),
         const SizedBox(height: 16),
-        ..._list.map((a) => ListTile(
+        ..._list.map((a) {
+          final id = (a['id'] as num).toInt();
+          final role = '${a['role']}';
+          final enabled = a['is_enabled'] == true;
+          final label = a['role_label'] ?? (role == 'super' ? '开发者' : '会计管理员');
+          return Card(
+            child: ListTile(
               title: Text('${a['username']}'),
-              subtitle: Text('${a['role']} · ${a['is_enabled'] == true ? '启用' : '禁用'}'),
-            )),
+              subtitle: Text('$label · ${enabled ? '启用' : '禁用'}'),
+              trailing: role == 'super'
+                  ? const Text('不可删', style: TextStyle(color: Colors.grey))
+                  : PopupMenuButton<String>(
+                      onSelected: (v) async {
+                        try {
+                          if (v == 'enable') {
+                            await api.setOperatorEnabled(id, true);
+                          } else if (v == 'disable') {
+                            await api.setOperatorEnabled(id, false);
+                          } else if (v == 'reset') {
+                            final ctrl = TextEditingController();
+                            final pass = await showDialog<String>(
+                              context: context,
+                              builder: (c) => AlertDialog(
+                                title: const Text('重置密码'),
+                                content: TextField(
+                                  controller: ctrl,
+                                  obscureText: true,
+                                  decoration: const InputDecoration(labelText: '新密码'),
+                                ),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(c), child: const Text('取消')),
+                                  FilledButton(onPressed: () => Navigator.pop(c, ctrl.text), child: const Text('确定')),
+                                ],
+                              ),
+                            );
+                            if (pass == null || pass.length < 6) return;
+                            await api.resetOperatorPassword(id, pass);
+                          } else if (v == 'delete') {
+                            final ok = await showDialog<bool>(
+                              context: context,
+                              builder: (c) => AlertDialog(
+                                title: const Text('删除会计管理员'),
+                                content: Text('确定删除 ${a['username']}？'),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')),
+                                  FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('删除')),
+                                ],
+                              ),
+                            );
+                            if (ok == true) {
+                              final msg = await api.deleteOperator(id);
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+                              }
+                            }
+                          }
+                          _load();
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+                          }
+                        }
+                      },
+                      itemBuilder: (_) => [
+                        if (!enabled) const PopupMenuItem(value: 'enable', child: Text('启用')),
+                        if (enabled) const PopupMenuItem(value: 'disable', child: Text('禁用')),
+                        const PopupMenuItem(value: 'reset', child: Text('重置密码')),
+                        const PopupMenuItem(value: 'delete', child: Text('删除')),
+                      ],
+                    ),
+            ),
+          );
+        }),
       ],
     );
   }

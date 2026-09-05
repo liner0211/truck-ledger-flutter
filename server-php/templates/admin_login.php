@@ -35,7 +35,7 @@
 <body>
   <div class="card">
     <h1>卡车记账 · 管理后台</h1>
-    <p>使用管理员账号登录（超级管理员 / 运营）</p>
+    <p>开发者或会计管理员账号登录</p>
     <?php if (!empty($error)): ?><div class="err"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
     <form method="post" action="/admin/login">
       <label for="username">用户名</label>
