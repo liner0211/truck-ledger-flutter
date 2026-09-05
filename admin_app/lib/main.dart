@@ -609,7 +609,7 @@ class _ControlPageState extends State<ControlPage> {
           },
         ),
         TextField(controller: _min, decoration: const InputDecoration(labelText: '最低版本')),
-        TextField(controller: _latest, decoration: const InputDecoration(labelText: '最新版本')),
+        TextField(controller: _latest, decoration: const InputDecoration(labelText: '最新版本（如 1.2.0+45）')),
         DropdownButtonFormField<String>(
           initialValue: _force,
           decoration: const InputDecoration(labelText: '强制升级（仅低于最新版时拦截）'),

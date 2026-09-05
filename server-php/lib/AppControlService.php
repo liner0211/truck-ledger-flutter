@@ -18,9 +18,15 @@ final class AppControlService
         $accountStatus = EntitlementService::normalizeStatus($user);
         $device = self::touchDevice($pdo, (int)$user['id'], $deviceId, $appVersion);
         $appStatus = strtoupper((string)($s['app_status'] ?? 'ACTIVE'));
-        $minVersion = self::normalizeVersion((string)($s['min_version'] ?? '1.0.0'));
-        $latestVersion = self::normalizeVersion((string)($s['latest_version'] ?? '1.0.0'));
-        $clientVersion = self::normalizeVersion($appVersion);
+        $minVersion = trim((string)($s['min_version'] ?? '1.0.0'));
+        $latestVersion = trim((string)($s['latest_version'] ?? '1.0.0'));
+        if ($minVersion === '') {
+            $minVersion = '1.0.0';
+        }
+        if ($latestVersion === '') {
+            $latestVersion = '1.0.0';
+        }
+        $clientVersion = trim($appVersion);
         $forceFlag = (($s['force_update'] ?? '0') === '1');
         $belowMin = self::versionCompare($clientVersion, $minVersion) < 0;
         $belowLatest = self::versionCompare($clientVersion, $latestVersion) < 0;
@@ -286,31 +292,43 @@ final class AppControlService
         return $out;
     }
 
-    private static function normalizeVersion(string $v): string
+    /** @return list<int> [major, minor, patch, build] */
+    private static function versionParts(string $v): array
     {
         $v = trim($v);
         if ($v === '') {
-            return '0.0.0';
+            return [0, 0, 0, 0];
         }
         if (preg_match('/^[vV]/', $v) === 1) {
             $v = substr($v, 1);
         }
-        // 去掉 build 后缀：1.2.0+12 / 1.2.0-12
-        $v = preg_replace('/[+\-].*$/', '', $v) ?? $v;
-        return trim($v) !== '' ? trim($v) : '0.0.0';
+        $build = 0;
+        if (preg_match('/^(.+?)[+\-](\d+)\s*$/', $v, $m) === 1) {
+            $v = $m[1];
+            $build = (int)$m[2];
+        } elseif (preg_match('/[+\-]/', $v) === 1) {
+            $v = preg_replace('/[+\-].*$/', '', $v) ?? $v;
+        }
+        $v = trim($v);
+        if ($v === '') {
+            return [0, 0, 0, $build];
+        }
+        $pa = array_map('intval', preg_split('/[^0-9]+/', $v) ?: [0]);
+        return [
+            $pa[0] ?? 0,
+            $pa[1] ?? 0,
+            $pa[2] ?? 0,
+            $build,
+        ];
     }
 
     private static function versionCompare(string $a, string $b): int
     {
-        $a = self::normalizeVersion($a);
-        $b = self::normalizeVersion($b);
-        $pa = array_map('intval', preg_split('/[^0-9]+/', $a) ?: [0]);
-        $pb = array_map('intval', preg_split('/[^0-9]+/', $b) ?: [0]);
-        for ($i = 0; $i < 3; $i++) {
-            $x = $pa[$i] ?? 0;
-            $y = $pb[$i] ?? 0;
-            if ($x !== $y) {
-                return $x <=> $y;
+        $pa = self::versionParts($a);
+        $pb = self::versionParts($b);
+        for ($i = 0; $i < 4; $i++) {
+            if ($pa[$i] !== $pb[$i]) {
+                return $pa[$i] <=> $pb[$i];
             }
         }
         return 0;

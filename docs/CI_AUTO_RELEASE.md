@@ -6,7 +6,11 @@
 2. **push `main` 且改 App（lib/android/ios/pubspec）** → `Release Packages`：编 APK/IPA/DEB → GitHub Release → 上传 APK/**IPA**/DEB 到服务器 `public/downloads/` → 调用 `/api/ci/publish-release` 更新控制面（**`ios_download_url` 指向 IPA**，不再用 deb）
 3. **push `main` 且改 `admin_app/**`** → `Release Admin Packages`：编管理端 Android / iOS / Linux / Windows → GitHub Release → 上传到 `downloads/truckledger-admin-latest.*`
 
-客户端随后会在关于页/横幅看到新版本；若 Secrets 中 `FORCE_UPDATE_ON_RELEASE=1` 则对低于最新版的用户强制更新。
+客户端随后会在关于页/横幅看到新版本；控制面 `latest_version` 会写成 **`营销版本+构建号`**（如 `1.2.0+45`），与 App 内 `version+buildNumber` 比较，因此每次 CI 发版上传安装包时都会同步可更新提示。若 Secrets 中 `FORCE_UPDATE_ON_RELEASE=1` 则对低于最新版的用户强制更新。
+
+发版同步内容：
+- `public/downloads/truckledger-latest.{apk,ipa,deb}`
+- `/api/ci/publish-release` → `latest_version` / `apk_download_url` / `ios_download_url`（IPA）/ 更新说明
 
 ## 远端 config.php 必填
 

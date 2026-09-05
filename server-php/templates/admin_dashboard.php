@@ -130,7 +130,7 @@
           $ctrlFields = [
             'app_status' => ['应用状态', 'select', ['ACTIVE'=>'运行','MAINTENANCE'=>'维护','DISABLED'=>'停用']],
             'min_version' => ['最低版本', 'text', null],
-            'latest_version' => ['最新版本', 'text', null],
+            'latest_version' => ['最新版本（含构建号，如 1.2.0+45）', 'text', null],
             'force_update' => ['强制升级(仅低于最新版时拦截)', 'select', ['0'=>'否','1'=>'是']],
             'apk_download_url' => ['Android APK 下载地址', 'text', null],
             'ios_download_url' => ['iOS IPA 下载地址', 'text', null],

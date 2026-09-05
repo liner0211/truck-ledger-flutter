@@ -272,17 +272,17 @@ jobs:
           IPA=$(ls -1 release-assets/*.ipa 2>/dev/null | head -1 || true)
           DEB=$(ls -1 release-assets/*.deb 2>/dev/null | head -1 || true)
           test -f "$APK"
+          if [[ -z "${IPA:-}" || ! -f "$IPA" ]]; then
+            echo "ERROR: 缺少 IPA，无法同步 iOS 更新地址到服务器" >&2
+            ls -la release-assets/ >&2 || true
+            exit 1
+          fi
 
           "${SSH[@]}" "${USER}@${SERVER_HOST}" "mkdir -p '${PATH_ROOT}/public/downloads'"
           "${SCP[@]}" "$APK" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-latest.apk"
           "${SCP[@]}" "$APK" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-${VERSION_NAME}-${VERSION_CODE}.apk"
-          # 应用内更新用 IPA（不用 deb）
-          IOS_URL=""
-          if [[ -n "${IPA:-}" && -f "$IPA" ]]; then
-            "${SCP[@]}" "$IPA" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-latest.ipa"
-            "${SCP[@]}" "$IPA" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-${VERSION_NAME}-${VERSION_CODE}.ipa"
-            IOS_URL="${BASE}/downloads/truckledger-latest.ipa"
-          fi
+          "${SCP[@]}" "$IPA" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-latest.ipa"
+          "${SCP[@]}" "$IPA" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-${VERSION_NAME}-${VERSION_CODE}.ipa"
           # deb 仍上传供越狱一键安装，但不写入 ios_download_url
           if [[ -n "${DEB:-}" && -f "$DEB" ]]; then
             "${SCP[@]}" "$DEB" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-latest.deb"
@@ -290,13 +290,16 @@ jobs:
           fi
           "${SSH[@]}" "${USER}@${SERVER_HOST}" "if id www >/dev/null 2>&1; then chown -R www:www '${PATH_ROOT}/public/downloads' || true; chmod -R a+rX '${PATH_ROOT}/public/downloads' || true; fi"
 
+          # 控制面版本含构建号，与客户端 package 的 version+buildNumber 对齐，保证发版后能提示更新
+          FULL_VERSION="${VERSION_NAME}+${VERSION_CODE}"
           APK_URL="${BASE}/downloads/truckledger-latest.apk"
-          NOTES="自动发布 ${VERSION_NAME}+${VERSION_CODE}（${GITHUB_SHA::7}）"
+          IOS_URL="${BASE}/downloads/truckledger-latest.ipa"
+          NOTES="自动发布 ${FULL_VERSION}（${GITHUB_SHA::7}）"
           FORCE="${FORCE_UPDATE_ON_RELEASE:-0}"
           if [[ "$FORCE" != "1" ]]; then FORCE=0; fi
 
           BODY=$(jq -n \
-            --arg v "$VERSION_NAME" \
+            --arg v "$FULL_VERSION" \
             --arg apk "$APK_URL" \
             --arg ios "$IOS_URL" \
             --arg notes "$NOTES" \
@@ -315,4 +318,7 @@ jobs:
             -d "$BODY"
 
           echo
-          echo "Published latest_version=$VERSION_NAME apk=$APK_URL ios=$IOS_URL force=$FORCE"
+          echo "Published latest_version=$FULL_VERSION apk=$APK_URL ios=$IOS_URL force=$FORCE"
+          # 校验 downloads 可访问
+          curl -fsSI "$APK_URL" | head -n 1
+          curl -fsSI "$IOS_URL" | head -n 1

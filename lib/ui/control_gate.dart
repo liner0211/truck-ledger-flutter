@@ -67,7 +67,9 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
     }
     try {
       final info = await PackageInfo.fromPlatform();
-      final result = await auth.runControlCheck(info.version);
+      // 带构建号，便于控制面识别「同营销版本的新 CI 包」
+      final appVersion = '${info.version}+${info.buildNumber}';
+      final result = await auth.runControlCheck(appVersion);
       if (!mounted) return;
       if (result == null) {
         setState(() => _checking = false);
@@ -92,7 +94,7 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
         } else if (reason == 'FORCE_UPDATE') {
           title = '请更新到最新版';
           body =
-              '管理员要求更新到 ${result.latestVersion}（当前 ${info.version}）。';
+              '管理员要求更新到 ${result.latestVersion}（当前 $appVersion）。';
           updateUrl = result.update.downloadUrl;
           if (result.update.releaseNotes.isNotEmpty) {
             body = '$body\n\n${result.update.releaseNotes}';
