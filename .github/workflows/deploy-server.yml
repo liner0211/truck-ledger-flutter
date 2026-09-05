@@ -44,10 +44,14 @@ jobs:
           SERVER_HEALTH_URL: ${{ secrets.SERVER_HEALTH_URL }}
         run: |
           set -euo pipefail
+          # trim accidental newlines from secrets
+          SERVER_HOST="$(printf '%s' "${SERVER_HOST:-}" | tr -d '\r\n')"
+          SERVER_USER="$(printf '%s' "${SERVER_USER:-root}" | tr -d '\r\n')"
+          SERVER_PORT="$(printf '%s' "${SERVER_PORT:-22}" | tr -d '\r\n')"
+          SERVER_PATH="$(printf '%s' "${SERVER_PATH:-/www/wwwroot/truck.liner0211.online}" | tr -d '\r\n')"
+          SERVER_HEALTH_URL="$(printf '%s' "${SERVER_HEALTH_URL:-}" | tr -d '\r\n')"
           : "${SERVER_HOST:?set secrets.SERVER_HOST}"
-          export SERVER_USER="${SERVER_USER:-root}"
-          export SERVER_PORT="${SERVER_PORT:-22}"
-          export SERVER_PATH="${SERVER_PATH:-/www/wwwroot/truck.liner0211.online}"
+          export SERVER_HOST SERVER_USER SERVER_PORT SERVER_PATH
           export SERVER_SSH_KEY="$HOME/.ssh/deploy_key"
           export SERVER_HEALTH_URL="${SERVER_HEALTH_URL:-https://${SERVER_HOST}/api/health?deep=1}"
           ./scripts/deploy_server_php.sh

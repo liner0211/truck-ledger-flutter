@@ -258,10 +258,11 @@ jobs:
           printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-          USER="${SERVER_USER:-root}"
-          PORT="${SERVER_PORT:-22}"
-          PATH_ROOT="${SERVER_PATH:-/www/wwwroot/truck.liner0211.online}"
-          BASE="${PUBLIC_BASE_URL:-https://truck.liner0211.online}"
+          SERVER_HOST="$(printf '%s' "${SERVER_HOST:-}" | tr -d '\r\n')"
+          USER="$(printf '%s' "${SERVER_USER:-root}" | tr -d '\r\n')"
+          PORT="$(printf '%s' "${SERVER_PORT:-22}" | tr -d '\r\n')"
+          PATH_ROOT="$(printf '%s' "${SERVER_PATH:-/www/wwwroot/truck.liner0211.online}" | tr -d '\r\n')"
+          BASE="$(printf '%s' "${PUBLIC_BASE_URL:-https://truck.liner0211.online}" | tr -d '\r\n')"
           BASE="${BASE%/}"
           SSH=(ssh -i "$HOME/.ssh/deploy_key" -p "$PORT" -o StrictHostKeyChecking=accept-new)
           SCP=(scp -i "$HOME/.ssh/deploy_key" -P "$PORT" -o StrictHostKeyChecking=accept-new)
