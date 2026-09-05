@@ -3,7 +3,8 @@
 ## 流程
 
 1. **push `main` 且改 `server-php/`** → `Deploy Server PHP`：rsync 到宝塔（保留 `config.php` / `data/` / `public/downloads/`）
-2. **push `main` 且改 App（lib/android/ios/pubspec）** → `Release Packages`：编 APK/IPA/DEB → GitHub Release → 上传 APK/DEB 到服务器 `public/downloads/` → 调用 `/api/ci/publish-release` 更新控制面 `latest_version` 与下载地址
+2. **push `main` 且改 App（lib/android/ios/pubspec）** → `Release Packages`：编 APK/IPA/DEB → GitHub Release → 上传 APK/**IPA**/DEB 到服务器 `public/downloads/` → 调用 `/api/ci/publish-release` 更新控制面（**`ios_download_url` 指向 IPA**，不再用 deb）
+3. **push `main` 且改 `admin_app/**`** → `Release Admin Packages`：编管理端 Android / iOS / Linux / Windows → GitHub Release → 上传到 `downloads/truckledger-admin-latest.*`
 
 客户端随后会在关于页/横幅看到新版本；若 Secrets 中 `FORCE_UPDATE_ON_RELEASE=1` 则对低于最新版的用户强制更新。
 
@@ -30,7 +31,14 @@
 | `FORCE_UPDATE_ON_RELEASE` | 可选，`1` 则每次发版强制更新 |
 | Android 签名四件套 | 见 `android/SIGNING.md` |
 
-## 下载地址示例
+## 本机安装（不编译）
 
-- APK：`https://truck.liner0211.online/downloads/truckledger-latest.apk`
-- DEB：`https://truck.liner0211.online/downloads/truckledger-latest.deb`
+```bash
+./one_click_apk_install.sh
+./one_click_deb_install.sh
+./one_click_ipa.sh
+```
+
+优先从 `PUBLIC_BASE_URL/downloads/truckledger-latest.{apk,ipa,deb}` 下载；失败则用 `gh` 拉最新 GitHub Release。
+
+管理端产物：`truckledger-admin-latest.{apk,ipa}` 与 linux/windows 包，见 `admin_app/README.md`。

@@ -195,9 +195,10 @@ jobs:
           echo "" >> "$GITHUB_OUTPUT"
           echo "- Commit: \`${GITHUB_SHA}\`" >> "$GITHUB_OUTPUT"
           echo "- Android: Release APK" >> "$GITHUB_OUTPUT"
-          echo "- iOS: IPA（未签名容器）+ 越狱 DEB + Runner.app.zip" >> "$GITHUB_OUTPUT"
+          echo "- iOS 更新包: IPA（控制面 ios_download_url）" >> "$GITHUB_OUTPUT"
+          echo "- 越狱可选: DEB + Runner.app.zip" >> "$GITHUB_OUTPUT"
           echo "" >> "$GITHUB_OUTPUT"
-          echo "IPA 需自行签名或配合 TrollStore 等工具；DEB 用于越狱设备 \`dpkg -i\`。" >> "$GITHUB_OUTPUT"
+          echo "应用内更新请用 IPA；DEB 仅供越狱 \`dpkg -i\`。" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
           ls -lh release-assets/
 
@@ -268,17 +269,24 @@ jobs:
           SCP=(scp -i "$HOME/.ssh/deploy_key" -P "$PORT" -o StrictHostKeyChecking=accept-new)
 
           APK=$(ls -1 release-assets/*.apk | head -1)
+          IPA=$(ls -1 release-assets/*.ipa 2>/dev/null | head -1 || true)
           DEB=$(ls -1 release-assets/*.deb 2>/dev/null | head -1 || true)
           test -f "$APK"
 
           "${SSH[@]}" "${USER}@${SERVER_HOST}" "mkdir -p '${PATH_ROOT}/public/downloads'"
           "${SCP[@]}" "$APK" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-latest.apk"
           "${SCP[@]}" "$APK" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-${VERSION_NAME}-${VERSION_CODE}.apk"
+          # 应用内更新用 IPA（不用 deb）
           IOS_URL=""
+          if [[ -n "${IPA:-}" && -f "$IPA" ]]; then
+            "${SCP[@]}" "$IPA" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-latest.ipa"
+            "${SCP[@]}" "$IPA" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-${VERSION_NAME}-${VERSION_CODE}.ipa"
+            IOS_URL="${BASE}/downloads/truckledger-latest.ipa"
+          fi
+          # deb 仍上传供越狱一键安装，但不写入 ios_download_url
           if [[ -n "${DEB:-}" && -f "$DEB" ]]; then
             "${SCP[@]}" "$DEB" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-latest.deb"
             "${SCP[@]}" "$DEB" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-${VERSION_NAME}-${VERSION_CODE}.deb"
-            IOS_URL="${BASE}/downloads/truckledger-latest.deb"
           fi
           "${SSH[@]}" "${USER}@${SERVER_HOST}" "if id www >/dev/null 2>&1; then chown -R www:www '${PATH_ROOT}/public/downloads' || true; chmod -R a+rX '${PATH_ROOT}/public/downloads' || true; fi"
 
@@ -307,4 +315,4 @@ jobs:
             -d "$BODY"
 
           echo
-          echo "Published latest_version=$VERSION_NAME apk=$APK_URL force=$FORCE"
+          echo "Published latest_version=$VERSION_NAME apk=$APK_URL ios=$IOS_URL force=$FORCE"

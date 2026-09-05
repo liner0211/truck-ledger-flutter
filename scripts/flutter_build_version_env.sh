@@ -10,7 +10,17 @@
 # - 构建号：优先 GITHUB_RUN_NUMBER；其次 FLUTTER_BUILD_NUMBER_OVERRIDE；再次 git rev-list --count HEAD；最后用 pubspec 的 + 后半段
 # - 设 SKIP_AUTO_BUILD_NUMBER=1 时不导出上述变量（由调用方决定不传参）
 
-_flutter_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# 主 App 默认仓库根；管理端等子项目可设 FLUTTER_APP_ROOT=admin_app（绝对或相对仓库根）
+_script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -n "${FLUTTER_APP_ROOT:-}" ]]; then
+  if [[ "${FLUTTER_APP_ROOT}" = /* ]]; then
+    _flutter_root="$FLUTTER_APP_ROOT"
+  else
+    _flutter_root="$(cd "$_script_root/${FLUTTER_APP_ROOT}" && pwd)"
+  fi
+else
+  _flutter_root="$_script_root"
+fi
 _raw="$(
   grep -m1 '^version:' "$_flutter_root/pubspec.yaml" 2>/dev/null \
     | sed -E 's/^version:[[:space:]]+//' | tr -d "'\"[:space:]" || true

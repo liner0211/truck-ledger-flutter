@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 与 TheosUIApp/TruckLedger/deploy.sh 相同流程：打 deb → 发现设备 → scp + dpkg -i。
+# 安装已有 CI 产物 deb（不编译）：发现设备 → scp + dpkg -i。
+# 先 ./one_click_deb_install.sh，或手动把 .deb 放到 packages/ / 设 DEB_FILE=。
 # 依赖: python3、paramiko（pip install paramiko）
 #
 # Usage:
 #   DEVICE_PASS=0211 ./deploy.sh
 # 推荐在 dev/machine.env（或 .device.env）中配置 DEVICE_PASS 等，脚本会自动加载。
 # Optional:
-#   DEVICE_IP=192.168.0.129 DEVICE_USER=mobile DEVICE_PASS=0211 ./deploy.sh
+#   DEB_FILE=packages/xxx.deb DEVICE_IP=192.168.0.129 DEVICE_PASS=0211 ./deploy.sh
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
@@ -29,8 +30,16 @@ if [[ -z "$DEVICE_PASS" ]]; then
   exit 1
 fi
 
-echo "[1/3] Building package..."
-./package_deb.sh
+echo "[1/3] Locating CI-built deb（禁止本机编译）..."
+if [[ -n "${DEB_FILE:-}" && -f "$DEB_FILE" ]]; then
+  LATEST_DEB="$DEB_FILE"
+elif ls -t packages/*.deb >/dev/null 2>&1; then
+  LATEST_DEB="$(ls -t packages/*.deb | head -n 1)"
+else
+  echo "Error: packages/ 下没有 deb。请先: ./one_click_deb_install.sh（从 CI/生产拉取）" >&2
+  exit 1
+fi
+echo "Using deb: $LATEST_DEB"
 
 echo "[2/3] Discovering device IP (or using provided DEVICE_IP)..."
 DETECTED_IP="$(
@@ -218,9 +227,9 @@ fi
 
 echo "Device found: $DETECTED_IP"
 
-LATEST_DEB="$(ls -t packages/*.deb | head -n 1)"
-if [[ -z "$LATEST_DEB" ]]; then
-  echo "Error: no deb package found in packages/"
+# LATEST_DEB 已在步骤 1 选定
+if [[ -z "${LATEST_DEB:-}" || ! -f "$LATEST_DEB" ]]; then
+  echo "Error: no deb package found"
   exit 1
 fi
 

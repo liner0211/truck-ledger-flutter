@@ -2,78 +2,36 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "一键：生成 APK（Release）",
+      "label": "一键：Android 安装 CI APK 到设备（adb）",
       "type": "shell",
-      "command": "./scripts/with_project_env.sh ./scripts/build_apk.sh --release",
+      "command": "./scripts/with_project_env.sh ./one_click_apk_install.sh",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
       "group": { "kind": "build", "isDefault": true }
     },
     {
-      "label": "一键：Android 打包并安装到设备（Release + adb）",
-      "type": "shell",
-      "command": "./scripts/with_project_env.sh ./one_click_apk_install.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    },
-    {
-      "label": "一键：生成 IPA（CI 拉取 Runner.app）",
+      "label": "一键：拉取 CI IPA",
       "type": "shell",
       "command": "./scripts/with_project_env.sh ./one_click_ipa.sh",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
     {
-      "label": "一键：拉取 CI 并打 deb（不安装）",
-      "type": "shell",
-      "command": "./scripts/with_project_env.sh ./scripts/fetch_runner_and_package_deb.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    },
-    {
-      "label": "一键：iOS deb（CI）打包并安装越狱机（machine.env）",
+      "label": "一键：拉取 CI deb 并安装越狱机（machine.env）",
       "type": "shell",
       "command": "./scripts/with_project_env.sh ./one_click_deb_install.sh",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
     {
-      "label": "一键：iOS deb（CI）打包并安装越狱机（任务里输入 SSH 密码）",
+      "label": "一键：拉取 CI deb 并安装越狱机（任务里输入 SSH 密码）",
       "type": "shell",
       "command": "DEVICE_PASS=${input:devicePass} ./scripts/with_project_env.sh ./one_click_deb_install.sh",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
     {
-      "label": "仅安装：deploy.sh（已有 deb / 会重新打包）",
-      "type": "shell",
-      "command": "DEVICE_PASS=${input:devicePass} SKIP_BUILD=1 ./scripts/with_project_env.sh ./deploy.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    },
-    {
-      "label": "TruckLedger Flutter: ios-build (flutter)",
-      "type": "shell",
-      "command": "./scripts/with_project_env.sh ./scripts/flutter_build_ios_release.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    },
-    {
-      "label": "TruckLedger Flutter: Package deb (package_deb.sh)",
-      "type": "shell",
-      "command": "./scripts/with_project_env.sh ./package_deb.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    },
-    {
-      "label": "TruckLedger Flutter: Package ipa (package_ipa.sh)",
-      "type": "shell",
-      "command": "./scripts/with_project_env.sh ./package_ipa.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    },
-    {
-      "label": "TruckLedger Flutter: Deploy to device (deploy.sh)",
+      "label": "仅安装：deploy.sh（packages/ 已有 CI deb）",
       "type": "shell",
       "command": "DEVICE_PASS=${input:devicePass} ./scripts/with_project_env.sh ./deploy.sh",
       "options": { "cwd": "${workspaceFolder}" },
@@ -97,6 +55,13 @@
       "label": "一键：部署 PHP 后端（rsync server-php）",
       "type": "shell",
       "command": "./scripts/with_project_env.sh ./one_click_server_deploy.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "仅扫描：发现 Android 设备",
+      "type": "shell",
+      "command": "./scripts/with_project_env.sh ./one_click_find_android.sh",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     }

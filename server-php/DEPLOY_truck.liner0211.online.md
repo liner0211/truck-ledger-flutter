@@ -250,10 +250,10 @@ curl -s -o /dev/null -w "%{http_code}\n" https://truck.liner0211.online/api/atta
 
 ## 与 App 打包
 
-修改默认服务器后需重新安装 APK：
+发布 APK 由 CI「Release Packages」产出；本机只下载安装：
 
 ```bash
-./scripts/one_click_apk_install.sh
+./one_click_apk_install.sh
 ```
 
-或本地：`flutter build apk --release`
+详见根目录 `docs/CI_AUTO_RELEASE.md`。

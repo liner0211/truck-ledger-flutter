@@ -1,0 +1,295 @@
+name: Release Admin Packages
+
+# 管理端：Android APK + iOS IPA + Linux / Windows 桌面包（仅 CI 编译）
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "admin_app/**"
+      - ".github/workflows/release-admin-packages.yml"
+      - "scripts/flutter_build_version_env.sh"
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_APP_ROOT: admin_app
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      version_name: ${{ steps.ver.outputs.name }}
+      version_code: ${{ steps.ver.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve version
+        id: ver
+        run: |
+          set -euo pipefail
+          source ./scripts/flutter_build_version_env.sh
+          echo "name=$APP_BUILD_NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$APP_BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Pub Get
+        working-directory: admin_app
+        run: flutter pub get
+
+      - name: Configure Android signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "No keystore secret; admin APK will use debug signing."
+            exit 0
+          fi
+          mkdir -p android/keystore
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/keystore/upload-keystore.jks
+          {
+            echo "storePassword=${ANDROID_STORE_PASSWORD}"
+            echo "keyPassword=${ANDROID_KEY_PASSWORD}"
+            echo "keyAlias=${ANDROID_KEY_ALIAS}"
+            echo "storeFile=../keystore/upload-keystore.jks"
+          } > android/key.properties
+          # admin_app 会回读仓库根 android/key.properties
+          echo "Release signing configured for admin (shared keystore)."
+
+      - name: Build Admin APK
+        working-directory: admin_app
+        run: |
+          set -euo pipefail
+          source ../scripts/flutter_build_version_env.sh
+          flutter build apk --release \
+            --build-name="$APP_BUILD_NAME" \
+            --build-number="$APP_BUILD_NUMBER"
+          mkdir -p ../dist-admin
+          cp -f build/app/outputs/flutter-apk/app-release.apk \
+            "../dist-admin/truckledger-admin-${APP_BUILD_NAME}-${APP_BUILD_NUMBER}-release.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: admin-android-apk
+          path: dist-admin/*.apk
+          retention-days: 30
+
+  build-ios:
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Pub Get
+        working-directory: admin_app
+        run: flutter pub get
+
+      - name: Build iOS (no codesign) + IPA
+        working-directory: admin_app
+        run: |
+          set -euo pipefail
+          source ../scripts/flutter_build_version_env.sh
+          flutter build ios --release --no-codesign \
+            --build-name="$APP_BUILD_NAME" \
+            --build-number="$APP_BUILD_NUMBER"
+          test -d build/ios/iphoneos/Runner.app
+          rm -rf ipa-out
+          mkdir -p ipa-out/Payload
+          cp -a build/ios/iphoneos/Runner.app ipa-out/Payload/
+          (
+            cd ipa-out
+            zip -qry "truckledger-admin-${APP_BUILD_NAME}-${APP_BUILD_NUMBER}.ipa" Payload
+          )
+          mkdir -p ../dist-admin
+          cp -f "ipa-out/truckledger-admin-${APP_BUILD_NAME}-${APP_BUILD_NUMBER}.ipa" ../dist-admin/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: admin-ios-ipa
+          path: dist-admin/*.ipa
+          retention-days: 30
+
+  build-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux deps
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Build Linux
+        working-directory: admin_app
+        run: |
+          set -euo pipefail
+          source ../scripts/flutter_build_version_env.sh
+          flutter config --enable-linux-desktop
+          flutter pub get
+          flutter build linux --release \
+            --build-name="$APP_BUILD_NAME" \
+            --build-number="$APP_BUILD_NUMBER"
+          mkdir -p ../dist-admin
+          ARCHIVE="truckledger-admin-${APP_BUILD_NAME}-${APP_BUILD_NUMBER}-linux-x64.tar.gz"
+          tar -C build/linux/x64/release/bundle -czf "../dist-admin/${ARCHIVE}" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: admin-linux
+          path: dist-admin/*.tar.gz
+          retention-days: 30
+
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Build Windows
+        working-directory: admin_app
+        shell: bash
+        run: |
+          set -euo pipefail
+          source ../scripts/flutter_build_version_env.sh
+          flutter config --enable-windows-desktop
+          flutter pub get
+          flutter build windows --release \
+            --build-name="$APP_BUILD_NAME" \
+            --build-number="$APP_BUILD_NUMBER"
+          mkdir -p ../dist-admin
+          ARCHIVE="truckledger-admin-${APP_BUILD_NAME}-${APP_BUILD_NUMBER}-windows-x64.zip"
+          RELEASE_DIR="$(find build/windows -type d -path '*/runner/Release' | head -1)"
+          test -n "$RELEASE_DIR"
+          powershell.exe -NoProfile -Command \
+            "Compress-Archive -Path '$RELEASE_DIR\\*' -DestinationPath '$GITHUB_WORKSPACE\\dist-admin\\${ARCHIVE}' -Force"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: admin-windows
+          path: dist-admin/*.zip
+          retention-days: 30
+
+  github-release:
+    needs: [build-android, build-ios, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: admin-*
+          merge-multiple: true
+
+      - name: Prepare release
+        id: meta
+        run: |
+          set -euo pipefail
+          source ./scripts/flutter_build_version_env.sh
+          TAG="admin-v${APP_BUILD_NAME}-${APP_BUILD_NUMBER}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "name=管理端 ${APP_BUILD_NAME} (${APP_BUILD_NUMBER})" >> "$GITHUB_OUTPUT"
+          {
+            echo "body<<EOF"
+            echo "## 卡车记账管理端 ${APP_BUILD_NAME}+${APP_BUILD_NUMBER}"
+            echo ""
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Android APK / iOS IPA / Linux tar.gz / Windows zip"
+            echo "- 均由 CI 编译；IPA 未签名，需自行侧载"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          find release-assets -type f -ls
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          body: ${{ steps.meta.outputs.body }}
+          draft: false
+          prerelease: false
+          files: |
+            release-assets/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-downloads:
+    needs: [build-android, build-ios, build-linux, build-windows, github-release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: admin-*
+          merge-multiple: true
+
+      - name: Upload admin packages to server downloads
+        env:
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_PORT: ${{ secrets.SERVER_PORT }}
+          SERVER_PATH: ${{ secrets.SERVER_PATH }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVER_SSH_KEY:-}" ] || [ -z "${SERVER_HOST:-}" ]; then
+            echo "跳过服务器 uploads（缺少 SSH 配置）"
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          SERVER_HOST="$(printf '%s' "${SERVER_HOST:-}" | tr -d '\r\n')"
+          USER="$(printf '%s' "${SERVER_USER:-root}" | tr -d '\r\n')"
+          PORT="$(printf '%s' "${SERVER_PORT:-22}" | tr -d '\r\n')"
+          PATH_ROOT="$(printf '%s' "${SERVER_PATH:-/www/wwwroot/truck.liner0211.online}" | tr -d '\r\n')"
+          SSH=(ssh -i "$HOME/.ssh/deploy_key" -p "$PORT" -o StrictHostKeyChecking=accept-new)
+          SCP=(scp -i "$HOME/.ssh/deploy_key" -P "$PORT" -o StrictHostKeyChecking=accept-new)
+          "${SSH[@]}" "${USER}@${SERVER_HOST}" "mkdir -p '${PATH_ROOT}/public/downloads'"
+
+          APK=$(find release-assets -name '*.apk' | head -1 || true)
+          IPA=$(find release-assets -name '*.ipa' | head -1 || true)
+          LIN=$(find release-assets -name '*linux*.tar.gz' | head -1 || true)
+          WIN=$(find release-assets -name '*windows*.zip' | head -1 || true)
+
+          [[ -n "$APK" ]] && "${SCP[@]}" "$APK" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-admin-latest.apk"
+          [[ -n "$IPA" ]] && "${SCP[@]}" "$IPA" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-admin-latest.ipa"
+          [[ -n "$LIN" ]] && "${SCP[@]}" "$LIN" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-admin-latest-linux-x64.tar.gz"
+          [[ -n "$WIN" ]] && "${SCP[@]}" "$WIN" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-admin-latest-windows-x64.zip"
+
+          "${SSH[@]}" "${USER}@${SERVER_HOST}" "if id www >/dev/null 2>&1; then chown -R www:www '${PATH_ROOT}/public/downloads' || true; chmod -R a+rX '${PATH_ROOT}/public/downloads' || true; fi"
+          echo "Admin packages uploaded."

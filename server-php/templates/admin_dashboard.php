@@ -133,7 +133,7 @@
             'latest_version' => ['最新版本', 'text', null],
             'force_update' => ['强制升级(仅低于最新版时拦截)', 'select', ['0'=>'否','1'=>'是']],
             'apk_download_url' => ['Android APK 下载地址', 'text', null],
-            'ios_download_url' => ['iOS 安装包/页面地址', 'text', null],
+            'ios_download_url' => ['iOS IPA 下载地址', 'text', null],
             'update_release_notes' => ['更新说明', 'text', null],
             'maintenance_message' => ['维护文案', 'text', null],
             'announcement' => ['全局公告', 'text', null],

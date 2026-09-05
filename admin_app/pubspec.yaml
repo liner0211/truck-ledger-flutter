@@ -1,5 +1,5 @@
 name: truck_ledger_admin
-description: 卡车记账管理端（Android / Windows / Linux）
+description: 卡车记账管理端（Android / iOS / Windows / Linux）
 publish_to: 'none'
 version: 1.0.0+1
 

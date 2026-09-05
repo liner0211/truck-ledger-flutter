@@ -1,43 +1,23 @@
 # 与 TheosUIApp/TruckLedger 一致：供 deploy.sh / debug.sh 读取默认设备 IP。
 THEOS_DEVICE_IP ?= 192.168.0.129
 
-FLUTTER ?= flutter
+.PHONY: ipa-one deb-install-one apk-install-one machine-env-example server-deploy
 
-.PHONY: clean ios-build package ipa ipa-one deb-install-one apk-install-one machine-env-example server-deploy server-zip
-
-clean:
-	$(FLUTTER) clean
-
-ios-build:
-	./scripts/flutter_build_ios_release.sh
-
-# 打越狱 deb（脚本内会执行 flutter build；需 macOS + Xcode）
-package:
-	./package_deb.sh
-
-# 打 ipa 容器（Payload + zip；签名需自行处理）
-ipa:
-	./package_ipa.sh
-
-# 一键：CI 拉取 Runner.app → ipa（本机需 gh）
+# 一键：从 CI / 生产下载 IPA（禁止本机编译）
 ipa-one:
 	./one_click_ipa.sh
 
-# 一键：CI 拉取 → 打 deb → SSH 安装（需 gh、paramiko、.device.env 或 DEVICE_PASS）
+# 一键：从 CI / 生产下载 deb → SSH 安装
 deb-install-one:
 	./one_click_deb_install.sh
 
-# 一键：本机 Release APK + adb 安装（需 adb、FLUTTER_BIN_PATH）
+# 一键：从 CI / 生产下载 APK → adb 安装
 apk-install-one:
 	./one_click_apk_install.sh
 
 # 一键：rsync 部署 server-php（需 SERVER_*，见 machine.env.example）
 server-deploy:
 	./one_click_server_deploy.sh
-
-# 打包 server-php zip（宝塔上传用，不含 config.php / data）
-server-zip:
-	./scripts/package_server_php_zip.sh ./server-php-release.zip
 
 # 首次克隆后：复制本机配置模板（若已存在则跳过）
 machine-env-example:

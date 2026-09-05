@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# 一键：本机 flutter build apk（Release）→ adb install -r 到已连接设备
-# 依赖: dev/machine.env 中 FLUTTER_BIN_PATH（或 PATH 已有 flutter）、adb
-# 自动发现：USB 已连接设备，或扫描局域网无线 adb（默认端口 5555，见 discover_android_adb.py）
-# 多设备时在 machine.env 设置 ANDROID_SERIAL=序列号；固定 IP 可设 ANDROID_IP
+# 一键：从 CI/生产下载 Release APK → adb install -r（禁止本机 flutter build）
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -15,14 +12,9 @@ if ! command -v adb >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "[一键 Android] 正在编译 Release APK..."
-"$ROOT_DIR/scripts/build_apk.sh" --release
-
-APK="$ROOT_DIR/build/app/outputs/flutter-apk/app-release.apk"
-if [[ ! -f "$APK" ]]; then
-  echo "ERROR: 未找到产物: $APK" >&2
-  exit 1
-fi
+echo "[一键 Android] 正在拉取 CI 编译的 APK（非本机构建）..."
+APK="$("$ROOT_DIR/scripts/fetch_ci_release_asset.sh" apk)"
+APK="$(echo "$APK" | tail -1)"
 
 echo "[一键 Android] 正在发现设备..."
 ANDROID_TARGET="$(

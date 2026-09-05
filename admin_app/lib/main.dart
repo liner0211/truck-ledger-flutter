@@ -624,7 +624,7 @@ class _ControlPageState extends State<ControlPage> {
           },
         ),
         TextField(controller: _apk, decoration: const InputDecoration(labelText: 'APK 下载地址')),
-        TextField(controller: _ios, decoration: const InputDecoration(labelText: 'iOS 下载地址')),
+        TextField(controller: _ios, decoration: const InputDecoration(labelText: 'iOS IPA 下载地址')),
         TextField(controller: _notes, decoration: const InputDecoration(labelText: '更新说明'), maxLines: 3),
         const SizedBox(height: 12),
         FilledButton(

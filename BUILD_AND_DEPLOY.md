@@ -1,6 +1,8 @@
 # 卡车记账 Flutter — 编译、打包与部署手册
 
-本文档面向在新电脑 / 新环境中恢复开发与一键产出 **Android APK**、**越狱 deb**、**IPA 容器** 的流程整理（含此前踩坑与约定）。
+本文档面向在新电脑 / 新环境中恢复开发，以及通过 **CI** 产出并安装 **Android APK**、**越狱 deb**、**IPA 容器** 的流程。
+
+**硬约定：所有发布包只在 GitHub Actions 中编译；本机禁止用 `flutter build` / `package_*.sh` 产出正式安装包。** 本机一键脚本只负责下载 CI/生产产物并安装。
 
 ---
 
@@ -10,48 +12,32 @@
 |----|------|
 | 用途 | 车队记账：圈次、路线、费用、垫付、分成、Excel 导出等 |
 | 包名 | `com.liner0211.truckledger`，桌面名「卡车记账」 |
-| 数据 | 本地 JSON（`ledger_book.json` + `attachments/`，与原版 Swift 时间戳兼容） |
+| 数据 | 本地 JSON（`ledger_book.json` + `attachments/`） |
 | iOS 越狱安装 | 安装到 `/Applications` 的 **deb**（非 App Store 流程） |
+| 发版 | `docs/CI_AUTO_RELEASE.md` |
 
 ---
 
 ## 2. 新机器 Checklist
 
-按顺序准备即可在新环境「可控」编译与生成产物。
-
 ### 2.1 通用
 
 - [ ] **Git**、克隆本仓库
-- [ ] **本机配置文件（推荐第一步）**  
-  - `cp dev/machine.env.example dev/machine.env`  
-  - 填写 **`FLUTTER_BIN_PATH`**、`DEVICE_PASS`（若要用一键安装 deb）、可选 **`GITHUB_REPO`**、**`GIT_*`**（见文件内注释）  
-  - 可选：写入 `GIT_USER_NAME` / `GIT_USER_EMAIL` / `GIT_REMOTE_URL` 后执行 **`./dev/apply_git_config.sh`**，一次性写入本仓库 **local** 的 git 用户与 `origin`  
-- [ ] **Flutter SDK（Linux/macOS 原生路径）**  
-  - WSL/Linux 下请勿使用 Windows 分区上的 Flutter（例如仅有 `dart.exe` 的安装），应在 Linux 侧安装 Flutter 并加入 `PATH`。  
-  - 验证：`flutter doctor -v`
-- [ ] 项目目录执行：`flutter pub get`
-- [ ] **新 AI / 协作者**：阅读根目录 **[`AGENTS.md`](./AGENTS.md)**（索引 + 约定）
+- [ ] **`cp dev/machine.env.example dev/machine.env`**，填写 `DEVICE_PASS`、可选 `GITHUB_REPO` / `PUBLIC_BASE_URL` / `SERVER_*` / `GIT_*`
+- [ ] 可选：`./dev/apply_git_config.sh`
+- [ ] 开发调试：本机 **Flutter**（`flutter run` / Debug）；WSL 用 Linux 侧 SDK
+- [ ] `flutter pub get`；阅读 [`AGENTS.md`](./AGENTS.md)
 
-### 2.2 仅 Android
+### 2.2 安装发布包（无需本机编 Release）
 
-- [ ] **Android SDK**（或通过 Android Studio 安装）
-- [ ] `flutter doctor --android-licenses`
-- [ ] **adb** 可用，USB 调试或局域网 `adb connect`
+- [ ] **Android**：`adb` + `./one_click_apk_install.sh`（从生产 downloads 或 GitHub Release 拉 APK）
+- [ ] **越狱 iOS**：`python3` + `paramiko` + `DEVICE_PASS` + `./one_click_deb_install.sh`
+- [ ] **IPA 容器**：`./one_click_ipa.sh`（需可访问 GitHub Release；或 `gh auth login`）
+- [ ] 发版前：代码 **push `main`**，等 **Release Packages** 成功（或确认生产 `/downloads/` 已更新）
 
-### 2.3 仅 iOS（本机有 macOS + Xcode）
+### 2.3 仅运维 / 改后端
 
-- [ ] **Xcode**、`flutter build ios --release --no-codesign` 可直接在本机生成 `build/ios/iphoneos/Runner.app`
-- [ ] 之后可用仓库内 `package_deb.sh` / `package_ipa.sh`（见下文「手动打包」）
-
-### 2.4 iOS 在无 Xcode 的机器上（例如 Linux / WSL）
-
-- [ ] 代码推到 **GitHub**，仓库上有 Workflow：**iOS Runner.app Build**（macOS Runner 上执行 `flutter build ios`）
-- [ ] 安装 [**GitHub CLI `gh`**](https://cli.github.com/) 并完成登录  
-  - `gh auth login`  
-  - Personal Access Token 建议权限：**repo**、**workflow**、**read:org**（否则 `gh` 可能报错）
-- [ ] **Git 推送**建议用 **SSH**：`git remote set-url origin git@github.com:OWNER/REPO.git`
-- [ ] 打 **deb** 需要：**`dpkg-deb`**，常见用法为 **`fakeroot dpkg-deb`**（Debian/Ubuntu/WSL：`sudo apt install fakeroot dpkg-dev`）
-- [ ] **安装 deb 到越狱机**需要：**Python 3** + **`pip install paramiko`**
+- [ ] `SERVER_*` 配好后 `./one_click_server_deploy.sh`；或依赖 push `server-php/**` 触发的 Deploy Server PHP
 
 ---
 
@@ -59,189 +45,120 @@
 
 | 文件 | 作用 |
 |------|------|
-| **`dev/machine.env`**（已 `.gitignore`，从 **`dev/machine.env.example`** 复制） | **推荐唯一本机配置**：`FLUTTER_BIN_PATH`、`GITHUB_REPO`、`DEVICE_*`、`GIT_*` 等；由 **`scripts/project_env.sh`** 自动加载 |
-| **`.device.env`**（项目根，已 `.gitignore`） | 仍支持；在 `machine.env` **之后**加载，可覆盖同名变量 |
-| **`.last_device_ip`** | 脚本缓存的上次成功 IP（若存在） |
+| **`dev/machine.env`** | 本机配置；`scripts/project_env.sh` 自动加载 |
+| **`.device.env`** | 可选覆盖 |
+| **`.last_device_ip`** | 上次成功 IP 缓存 |
 
-所有 **`deploy.sh` / `debug.sh` / 一键脚本 / `fetch_runner_and_package_deb.sh`** 均会加载 `dev/machine.env`（及 `.device.env`）。VS Code 任务通过 **`./scripts/with_project_env.sh`** 注入环境；若在任务里填写了密码输入框，会**覆盖**配置文件中的 `DEVICE_PASS`（非空时）。
+所有 **`deploy.sh` / `debug.sh` / 一键脚本** 会加载上述配置。VS Code 任务经 **`./scripts/with_project_env.sh`**；任务里填的 `DEVICE_PASS` 可覆盖文件中的值。
 
 ### VS Code 一键任务
 
-打开 **终端 → 运行任务**，常用项包括：
+- **一键：Android 安装 CI APK 到设备**
+- **一键：拉取 CI IPA**
+- **一键：拉取 CI deb 并安装越狱机**
+- **一键：部署 PHP 后端**
 
-- **一键：生成 APK（Release）**
-- **一键：Android 打包并安装到设备（Release + adb）**
-- **一键：生成 IPA（CI 拉取 Runner.app）**
-- **一键：拉取 CI 并打 deb（不安装）**
-- **一键：iOS deb（CI）打包并安装越狱机**（`machine.env` 或任务里输入 SSH 密码）
-
-配置见 **`.vscode/tasks.json`**。
+见 **`.vscode/tasks.json`**。
 
 ---
 
-## 4. Android：编译与安装
-
-```bash
-cd truck_ledger_flutter
-flutter pub get
-flutter build apk --release   # 或 --debug
-```
-
-产物：`build/app/outputs/flutter-apk/app-release.apk`
-
-一键编译并安装（需 `adb`、已连接设备；多设备时在 `machine.env` 设置 `ANDROID_SERIAL`）：
+## 4. Android：安装（不本地编 Release）
 
 ```bash
 ./one_click_apk_install.sh
+# 等价：从 https://…/downloads/truckledger-latest.apk 或最新 GitHub Release 下载后 adb install -r
 ```
 
-安装示例：
-
-```bash
-adb install -r build/app/outputs/flutter-apk/app-release.apk
-# 或局域网设备（先 adb connect）
-adb connect 192.168.x.x:5555
-adb install -r ...
-```
-
-可选：`./scripts/build_apk.sh`（会先经 `with_project_env` 加载 **`dev/machine.env`** 中的 `FLUTTER_BIN_PATH`）：
-
-```bash
-./scripts/with_project_env.sh ./scripts/build_apk.sh --release
-```
+开发联调仍可用 `flutter run`；**不要**用本机 `flutter build apk --release` 当正式发布包（签名与构建号以 CI 为准）。
 
 ---
 
-## 5. iOS：GitHub Actions 产出 Runner.app
+## 5. iOS / 越狱：CI 产物
 
-- Workflow 文件：`.github/workflows/ios-runner-app-build.yml`
-- 成功后在 Actions 页面下载 Artifact：**runner-app-ios**（内含 `Runner.app.zip`）
-- **推送 `main` 通常会触发构建**；也可用：`gh workflow run "iOS Runner.app Build" --repo OWNER/REPO`
-
-查询最近一次成功 run：
+- 主流程：`.github/workflows/release-packages.yml`（APK + IPA + DEB + 上传 downloads + 控制面版本）
+- 手动单平台仍可用：`iOS Runner.app Build` / `Android APK Release`（workflow_dispatch）
+- 本机安装：
 
 ```bash
-gh run list --repo OWNER/REPO --workflow "iOS Runner.app Build" --limit 5 \
-  --json databaseId,headSha,status,conclusion,url
+./one_click_ipa.sh              # → ipa-out/Runner.ipa
+./one_click_deb_install.sh      # 拉 deb → deploy.sh
 ```
+
+应用内更新：Android 用 APK，iOS 用 **IPA**（`ios_download_url` → `truckledger-latest.ipa`）。越狱 deb 仍可由 CI 产出，供 `./one_click_deb_install.sh`，不作为更新地址。
+
+管理端改动走 **`Release Admin Packages`**（Android / iOS / Linux / Windows）。
 
 ---
 
-## 6. 一键脚本（推荐日常使用）
-
-均在项目根执行；仓库默认识别 **`git remote origin`**（GitHub `owner/repo`），也可显式传入或使用 `GITHUB_REPO`。
+## 6. 一键脚本一览
 
 | 脚本 | 作用 |
 |------|------|
-| **`./one_click_ipa.sh`** | 拉取最新成功 CI 的 `Runner.app` → 生成 **`ipa-out/Runner.ipa`**（容器；侧载需自行签名/TrollStore 等） |
-| **`./one_click_deb_install.sh`** | 同上拉取 → **`package_deb.sh`** 打 deb → **`deploy.sh`** SSH 安装到越狱设备 |
-| **`./one_click_apk_install.sh`** | 本机 **`flutter build apk --release`** → **`adb install -r`**（不含 CI；即改即编） |
-
-依赖：**`gh` 已登录**（ipa/deb 拉 CI）；deb 安装还需 **`DEVICE_PASS`**（`dev/machine.env` 或环境变量）+ **paramiko**。Android 一键还需 **`adb`** 与 **`FLUTTER_BIN_PATH`**（或 PATH 中已有 flutter）。
-
-可选指定仓库：
-
-```bash
-./one_click_deb_install.sh liner0211/truck-ledger-flutter
-# 或
-GITHUB_REPO=liner0211/truck-ledger-flutter ./one_click_ipa.sh
-```
-
-Makefile 等价：
+| **`./one_click_ipa.sh`** | 拉 CI IPA → `ipa-out/Runner.ipa` |
+| **`./one_click_deb_install.sh`** | 拉 CI deb → **`deploy.sh`** 安装 |
+| **`./one_click_apk_install.sh`** | 拉 CI APK → **`adb install -r`** |
+| **`./one_click_find_android.sh`** | 仅发现 Android 设备 |
+| **`./one_click_server_deploy.sh`** | rsync `server-php/` |
+| **`./scripts/fetch_ci_release_asset.sh`** | `apk` / `deb` / `ipa` 下载底层 |
 
 ```bash
-make ipa-one           # 一键 IPA
-make deb-install-one   # 一键 deb + 安装越狱机
-make apk-install-one   # 一键 APK + adb 安装
+make ipa-one
+make deb-install-one
+make apk-install-one
+make server-deploy
 ```
 
----
-
-## 7. 手动分步（调试 CI / 脚本时用）
-
-```bash
-# 下载最新成功 run 的 artifact 并解压到 build/ios/iphoneos/Runner.app，再打 deb
-./scripts/fetch_runner_and_package_deb.sh          # 仓库从 remote 推断
-# 或
-./scripts/fetch_runner_and_package_deb.sh liner0211/truck-ledger-flutter
-
-# 仅下载 Runner.app、不打 deb（给 ipa 用）
-SKIP_PACKAGE_DEB=1 ./scripts/fetch_runner_and_package_deb.sh
-
-# 已有 Runner.app 时只打 deb（跳过 flutter build）
-SKIP_BUILD=1 ./package_deb.sh
-
-# 已有 Runner.app 时只打 ipa
-SKIP_BUILD=1 ./package_ipa.sh
-
-# 已有 deb，只安装（会先 ./package_deb.sh；若已有 deb 可配合 SKIP_BUILD）
-SKIP_BUILD=1 ./deploy.sh
-```
-
-deb 输出目录：**`packages/`**，文件名形如 `com.liner0211.truckledger_*_iphoneos-arm64e.deb`。
+已有 deb 仅安装：`DEB_FILE=packages/xxx.deb ./deploy.sh`（或 `packages/*.deb`）。
 
 ---
 
-## 8. deb 与越狱机注意事项
+## 7. deb 与越狱机
 
-- **`control`**：deb 元数据；版本号与 **`pubspec.yaml`** 的 `version:` 解析一致。
-- **`package_deb.sh`**： staging 内会对 `Runner.app` 做权限规范化；deb 内含 **`DEBIAN/postinst`**，安装后在设备上执行 `chmod -R a+rX /Applications/Runner.app`，缓解部分越狱工具把框架改成 **700** 导致 **`mobile` 用户闪退**的问题。
-- 仍闪退时可用仓库内 **`./debug.sh`**（同样可读 `.device.env`）配合设备日志排查。
-
----
-
-## 9. 版本号与应用内展示
-
-- **`pubspec.yaml`**：`version: x.y.z+默认构建号`（`+` 前半为 **版本名**，关于页里的「版本」；`+` 后半仅在未走脚本时作为默认构建号）。
-- **关于页**使用 **`package_info_plus`**，展示的是安装包里的 **versionName** 与 **versionCode**（即 Flutter 的 `--build-name` / `--build-number`）。
-- **自动构建号**（每次打包都会变，无需手改 `pubspec` 里的 `+` 数字）  
-  - 脚本：`scripts/flutter_build_version_env.sh`（被 `scripts/build_apk.sh`、`scripts/flutter_build_ios_release.sh`、CI 使用）。  
-  - **GitHub Actions**：`GITHUB_RUN_NUMBER`（随 workflow 运行单调递增）。  
-  - **本机**：`git rev-list --count HEAD`（随提交递增；浅克隆可能偏小，可接受）。  
-  - 可选覆盖：环境变量 **`FLUTTER_BUILD_NUMBER_OVERRIDE`**，或 **`SKIP_AUTO_BUILD_NUMBER=1`** 恢复完全使用 `flutter build` 默认（仅用 pubspec）。
+- 版本与 CI 写入的 `pubspec` / 构建号一致。
+- 闪退排查：`./debug.sh` + 设备日志。
 
 ---
 
-## 10. ETC 对账手续费
+## 8. 版本号与应用内展示
 
-- 逻辑常量：`lib/services/profit_calculator.dart` 中 **`etcTollReconcileRate = 0.0035`**（即 **0.35%**）。
-- UI / 导出文案需与之一致（详情页、费用编辑说明、Excel 导出等）。
+- **`pubspec.yaml`**：`version: x.y.z+…`（改营销版本改 `+` 前半段）
+- 关于页：`package_info_plus`（CI 注入的 `--build-name` / `--build-number`）
+- 自动构建号：`scripts/flutter_build_version_env.sh`（CI 用 `GITHUB_RUN_NUMBER`）
 
 ---
 
-## 11. 常见问题
+## 9. ETC 对账手续费
+
+- `lib/services/profit_calculator.dart`：`etcTollReconcileRate = 0.0035`（**0.35%**）
+
+---
+
+## 10. 常见问题
 
 | 现象 | 处理方向 |
 |------|----------|
-| **改代码后一键 deb/ipa 仍是旧界面** | 一键任务下载的是 **GitHub Actions 已成功构建的那次提交** 的 `Runner.app`，**不是**你当前工作区未编译的代码。需 **`git push`**，等 **「iOS Runner.app Build」** 变绿后再跑一键；或在 **Mac + Xcode** 本机 `flutter build ios` 后用 `package_deb.sh` / `package_ipa.sh`（勿依赖 CI 下载）。脚本会在本地 `HEAD` 与 CI 提交不一致时打印 **警告**（可用 `SKIP_SHA_CHECK=1` 跳过提示）。 |
-| WSL 里 `flutter` / `dart` 无法运行 | 使用 Linux 原生 Flutter，不要用 Windows 分区上的 SDK |
-| `gh run list` / API 504 | 稍后重试；或用网页 Actions 查看 run id，`RUN_ID=xxx ./scripts/fetch_runner_and_package_deb.sh` |
-| `deploy.sh` 要求 `DEVICE_PASS` | 配置 `.device.env` 或导出环境变量 |
-| SSH `Connection refused` | 确认手机 IP、越狱 SSH 服务开启；或不写死错误 IP，删掉 `.device.env` 里错误的 `DEVICE_IP` 让脚本扫描 |
-| 与旧 Kotlin 安卓共存 | 包名相同不能并存；调试一方前先卸载另一方或临时改 `applicationId` |
+| **改代码后一键仍是旧包** | 需 **push** 且 **Release Packages** 成功，生产 downloads / Release 已更新后再跑一键 |
+| 生产下载失败 | 配置 `gh auth login`，脚本会回退 GitHub Release |
+| `deploy.sh` 要 `DEVICE_PASS` | 写 `dev/machine.env` |
+| SSH `Connection refused` | 核对手机 IP / 越狱 SSH；可清空错误的 `DEVICE_IP` 让脚本扫描 |
+| 本机跑 `package_deb.sh` 报错 | 预期行为；请用一键拉 CI 包 |
 
 ---
 
-## 12. 相关文件索引
+## 11. 相关文件索引
 
 | 路径 | 说明 |
 |------|------|
-| `package_deb.sh` | 组装越狱 deb |
-| `package_ipa.sh` | Payload  zip → ipa |
-| `deploy.sh` | 发现设备、上传 deb、`dpkg -i`、`uicache` |
-| `debug.sh` | SSH 侧调试辅助 |
-| `scripts/fetch_runner_and_package_deb.sh` | `gh` 下载 artifact + 解压 +（可选）打 deb |
-| `scripts/github_repo.sh` | 解析 `owner/repo` |
-| `scripts/project_env.sh` | 加载 `dev/machine.env` + `.device.env` |
-| `scripts/flutter_build_version_env.sh` | 计算 `FLUTTER_BUILD_NAME` / `FLUTTER_BUILD_NUMBER`（关于页随包更新） |
-| `scripts/flutter_build_ios_release.sh` | 带自动构建号的 `flutter build ios --release --no-codesign` |
-| `scripts/with_project_env.sh` | 任务/终端包装，支持临时覆盖 `DEVICE_PASS` 等 |
-| `dev/apply_git_config.sh` | 将 `machine.env` 中 `GIT_*` 写入本仓库 `git config --local` |
-| `AGENTS.md` | 给 AI / 新成员的短索引 |
-| `.vscode/tasks.json` | 一键 APK / IPA / deb / 安装 |
-| `scripts/one_click_apk_install.sh` | Release APK + `adb install -r` |
-| `Makefile` | `package` / `ipa` / `ipa-one` / `deb-install-one` / `apk-install-one` 等 |
+| `docs/CI_AUTO_RELEASE.md` | CI 发版与控制面 |
+| `scripts/fetch_ci_release_asset.sh` | 拉取 apk/deb/ipa |
+| `deploy.sh` | 安装已有 deb（不编译） |
+| `debug.sh` | SSH 调试 |
+| `package_deb.sh` / `package_ipa.sh` | **仅 CI** 组装 |
+| `scripts/flutter_build_ios_release.sh` | **仅 CI** iOS build |
+| `scripts/flutter_build_version_env.sh` | CI 构建号 |
+| `.vscode/tasks.json` | 一键任务 |
+| `Makefile` | `ipa-one` / `deb-install-one` / `apk-install-one` / `server-deploy` |
 
 ---
 
-如有流程变更，优先更新本文档与 `.github/workflows` 注释，保持与新成员环境一致。
+如有流程变更，优先更新本文档与 `.github/workflows`，并保持「发布只走 CI」。

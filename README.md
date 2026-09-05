@@ -28,11 +28,13 @@ flutter doctor -v
 ### 一键（需 `gh` / adb / 越狱 SSH 等，见手册）
 
 ```bash
-./one_click_apk_install.sh      # Release APK → 已连接设备
-./one_click_ipa.sh              # CI Runner.app → ipa
-./one_click_deb_install.sh      # CI → deb → 越狱机
+./one_click_apk_install.sh      # 拉取 CI APK → adb 安装
+./one_click_ipa.sh              # 拉取 CI IPA
+./one_click_deb_install.sh      # 拉取 CI deb → 越狱机
 ./one_click_server_deploy.sh    # 同步 server-php（保留远端 config.php / data）
 ```
+
+发布包一律由 GitHub Actions 编译；本机脚本只下载安装。详见 `docs/CI_AUTO_RELEASE.md`。
 
 或 VS Code 任务：「一键：…」系列。
 

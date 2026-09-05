@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
-# 与 TheosUIApp/TruckLedger/package_ipa.sh 相同思路：Payload + zip。
-# .ipa 仅作容器；非越狱安装需自行签名（TrollStore / 证书等）。
+# 使用 CI 已构建的 Runner.app 打成 .ipa 容器。
+# 本机禁止 flutter build：须 SKIP_BUILD=1 或在 GitHub Actions 内运行。
 set -euo pipefail
 
 APP_NAME="${APP_NAME:-Runner}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
-if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
-  if [[ "${FLUTTER_CLEAN:-0}" == "1" ]]; then
-    echo "[1/4] flutter clean..."
-    flutter clean
-  fi
-  echo "[1/4] flutter build ios --release --no-codesign..."
+if [[ "${GITHUB_ACTIONS:-}" == "true" && "${SKIP_BUILD:-0}" != "1" ]]; then
+  echo "[1/4] CI 内 flutter build ios…"
   "$ROOT_DIR/scripts/flutter_build_ios_release.sh"
+elif [[ "${SKIP_BUILD:-0}" != "1" ]]; then
+  echo "ERROR: 禁止本机编译发布包。请使用 ./one_click_ipa.sh 拉取 CI 产物。" >&2
+  exit 1
 fi
 
 APP_SRC="$ROOT_DIR/build/ios/iphoneos/${APP_NAME}.app"

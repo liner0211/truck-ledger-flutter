@@ -17,7 +17,7 @@ Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`，当前版�
 1. `flutter pub get`，`flutter doctor -v` 确认环境（Linux/WSL 使用 **本机可执行的** Flutter，不要用 Windows 分区里只有 exe 的 SDK）。
 2. `cp dev/machine.env.example dev/machine.env`，填写 **`GITHUB_REPO`**（可空，会从 `git remote` 推断）、**`FLUTTER_BIN_PATH`**、`DEVICE_PASS`（越狱 SSH）、可选 **`GIT_*`**、服务端 **`SERVER_*`**。
 3. 可选：`./dev/apply_git_config.sh` 写入本仓库 `user.name` / `user.email` / `remote.origin.url`。
-4. iOS 无 Xcode：`gh auth login`，推送代码触发 **iOS Runner.app Build**，再用一键脚本拉产物。
+4. 发布包：`git push` 触发 **Release Packages**，再用一键脚本从生产 / Release 安装（禁止本机编 Release）。
 5. VS Code：**运行任务** → 「一键：…」系列（见 `.vscode/tasks.json`）。
 
 ## 配置从哪来
@@ -27,32 +27,35 @@ Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`，当前版�
 
 ## 一键脚本（项目根）
 
-**注意**：一键 ipa / 一键 deb 安装使用的是 **CI 已构建的 Runner.app**，与当前工作区代码一致的前提是：**改动已 push 且「iOS Runner.app Build」已成功**。仅本地改代码未推远程时，打出来仍是旧包；Mac 本机可直接 `flutter build ios` 后跑 `package_deb.sh` / `package_ipa.sh`。
+**约定：所有发布包（APK / IPA / DEB）只由 CI 编译**；本机一键脚本只下载 + 安装，禁止本机 `flutter build` 出发布包。与当前工作区一致的前提是：**改动已 push 且「Release Packages」成功**（或生产 downloads 已更新）。
 
 | 脚本 | 作用 |
 |------|------|
-| `./one_click_ipa.sh` | `gh` 拉最新成功 CI 的 Runner.app → `ipa-out/Runner.ipa`（或直接从 Release 下 IPA） |
-| `./one_click_deb_install.sh` | 拉 CI → 打 deb → SSH `dpkg -i` |
-| `./one_click_apk_install.sh` | 本机 `flutter build apk --release` → 自动发现设备 → `adb install -r` |
+| `./one_click_ipa.sh` | 从 GitHub Release 拉 IPA → `ipa-out/Runner.ipa` |
+| `./one_click_deb_install.sh` | 从生产 downloads / Release 拉 deb → SSH `dpkg -i` |
+| `./one_click_apk_install.sh` | 从生产 downloads / Release 拉 APK → `adb install -r` |
 | `./one_click_find_android.sh` | 仅扫描/连接 Android（打印 serial） |
 | `./one_click_server_deploy.sh` | rsync 部署 `server-php/`（保留远端 config.php / data） |
 | `make ipa-one` / `make deb-install-one` / `make apk-install-one` / `make server-deploy` | 同上 |
 
-**CI「Release Packages」**（push `main` 且改动 lib/android/ios/pubspec 时自动跑）：产出 Android APK、iOS IPA、越狱 DEB、Runner.app.zip，并发布到 GitHub **Releases**（tag 形如 `v1.0.4-22`）。单平台手动任务仍可用 workflow_dispatch：`Android APK Release` / `iOS Runner.app Build`。
+**CI「Release Packages」**（push `main` 且改动 lib/android/ios/pubspec 时自动跑）：产出 Android APK、iOS IPA、越狱 DEB、Runner.app.zip，发布到 GitHub **Releases**，并上传 APK/DEB 到服务器 downloads + 更新控制面版本。说明见 `docs/CI_AUTO_RELEASE.md`。
 
-均需：**`gh` 已登录**；deb 安装需 **`python3` + paramiko`**，设备密码在 **`dev/machine.env`** 或通过环境变量传入。
+均需：拉包可用生产 URL 或 **`gh` 已登录**；deb 安装需 **`python3` + paramiko`**，设备密码在 **`dev/machine.env`**。
 
 ## 关键文件
 
 | 路径 | 说明 |
 |------|------|
 | `BUILD_AND_DEPLOY.md` | 给人看的完整手册 |
+| `docs/CI_AUTO_RELEASE.md` | CI 发版与控制面回写 |
 | `dev/machine.env.example` | 本机配置模板 |
 | `scripts/project_env.sh` | 加载 machine.env + .device.env |
 | `scripts/with_project_env.sh` | 供任务包装；支持任务里传入的 `DEVICE_PASS` 覆盖配置 |
-| `package_deb.sh` / `package_ipa.sh` / `deploy.sh` | deb / ipa / 安装 |
+| `scripts/fetch_ci_release_asset.sh` | 拉取 CI 产物 apk/deb/ipa |
+| `package_deb.sh` / `package_ipa.sh` | **仅 CI** 内组装（本机直接跑会拒绝编译） |
+| `deploy.sh` | 安装已有 deb（不编译） |
 | `scripts/discover_android_adb.py` | 局域网/USB 自动发现 Android adb |
-| `.github/workflows/ios-runner-app-build.yml` | macOS 上编 Runner.app |
+| `.github/workflows/release-packages.yml` | 统一发版流水线 |
 | `lib/state/auth_controller.dart` | 内置默认云端 URL（不进 Release UI） |
 | `lib/ui/login_screen.dart` / `account_screen.dart` / `about_screen.dart` | Release 隐藏域名展示 |
 
@@ -68,12 +71,12 @@ Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`，当前版�
 - **触达**：站内信 `/api/messages`；可选 FCM（`fcm_server_key`）。
 - **功能开关**：`feature_flags`（导出/导入/消息/Web）。
 - **运维**：审计、自动快照恢复、设备管理、`/api/health?deep=1`。
-- **部署**：`./one_click_server_deploy.sh`；CI：iOS Runner.app + Android APK Release。
+- **部署**：`./one_click_server_deploy.sh`；App CI：`Release Packages`；管理端 CI：`Release Admin Packages`。
 
 ## 关于页版本 / 构建号
 
 - 关于里「版本 / 构建」来自 **`package_info_plus`**，与 **`flutter build`** 写入的 `--build-name` / `--build-number` 一致。
-- 打包脚本与 CI 会通过 **`scripts/flutter_build_version_env.sh`** 自动注入构建号（CI 用 `GITHUB_RUN_NUMBER`，本机用 `git rev-list --count HEAD`），无需每次手改 `pubspec.yaml` 的 `+` 后缀。
+- CI 通过 **`scripts/flutter_build_version_env.sh`** 注入构建号（`GITHUB_RUN_NUMBER`），无需每次手改 `pubspec.yaml` 的 `+` 后缀。
 - 改营销版本号（如 `1.0.3` → `1.0.4`）时改 **`pubspec.yaml` 的 `version:` 行**。
 
 ## 账本导入 / 导出备份

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 使用 flutter 构建的 Runner.app 组装 Cydia 风格 deb（安装到 /Applications）。
-# 需在 macOS 上执行（flutter build ios 依赖 Xcode）。
+# 使用 CI 已构建的 Runner.app 组装 Cydia 风格 deb（安装到 /Applications）。
+# 本机禁止 flutter build：必须 SKIP_BUILD=1，且存在 build/ios/iphoneos/Runner.app（由 CI 产物解压）。
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,22 +9,18 @@ cd "$ROOT_DIR"
 APP_NAME="${APP_NAME:-Runner}"
 APP_SRC="$ROOT_DIR/build/ios/iphoneos/${APP_NAME}.app"
 
-if ! command -v flutter >/dev/null 2>&1; then
-  echo "ERROR: flutter 不在 PATH 中" >&2
-  exit 1
-fi
-
-if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
-  if [[ "${FLUTTER_CLEAN:-0}" == "1" ]]; then
-    echo "[package_deb] flutter clean..."
-    flutter clean
-  fi
-  echo "[package_deb] flutter build ios --release --no-codesign..."
+if [[ "${GITHUB_ACTIONS:-}" == "true" && "${SKIP_BUILD:-0}" != "1" ]]; then
+  echo "[package_deb] CI 内构建 Runner.app…"
   "$ROOT_DIR/scripts/flutter_build_ios_release.sh"
+elif [[ "${SKIP_BUILD:-0}" != "1" ]]; then
+  echo "ERROR: 禁止本机编译发布包。请 push 触发 Release Packages，再用 ./one_click_deb_install.sh 安装。" >&2
+  echo "  （CI 流水线内会自动构建；本地打包请设 SKIP_BUILD=1 并提供 CI 产物 Runner.app）" >&2
+  exit 1
 fi
 
 if [[ ! -d "$APP_SRC" ]]; then
   echo "ERROR: 未找到构建产物: $APP_SRC" >&2
+  echo "  请从 CI 下载 Runner.app.zip 解压，或直接拉取 Release 中的 .deb。" >&2
   exit 1
 fi
 
