@@ -67,17 +67,15 @@ jobs:
           if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then
             echo "ANDROID_KEYSTORE_BASE64 not set; release APK will use debug signing."
             exit 0
-          }
+          fi
           mkdir -p android/keystore
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/keystore/upload-keystore.jks
-          cat > android/key.properties <<EOF
-          storePassword=${ANDROID_STORE_PASSWORD}
-          keyPassword=${ANDROID_KEY_PASSWORD}
-          keyAlias=${ANDROID_KEY_ALIAS}
-          storeFile=../keystore/upload-keystore.jks
-          EOF
-          # strip leading spaces from heredoc indentation
-          sed -i 's/^[[:space:]]*//' android/key.properties
+          {
+            echo "storePassword=${ANDROID_STORE_PASSWORD}"
+            echo "keyPassword=${ANDROID_KEY_PASSWORD}"
+            echo "keyAlias=${ANDROID_KEY_ALIAS}"
+            echo "storeFile=../keystore/upload-keystore.jks"
+          } > android/key.properties
           echo "Release signing configured."
 
       - name: Build Release APK
