@@ -5,6 +5,7 @@ class ProfitSummary {
     required this.totalFreight,
     required this.totalInfoFee,
     required this.fuelExpense,
+    required this.fuelKilogramsTotal,
     required this.tollExpense,
     required this.tollEtcAmount,
     required this.etcTollReconcileFee,
@@ -27,6 +28,8 @@ class ProfitSummary {
   final double totalFreight;
   final double totalInfoFee;
   final double fuelExpense;
+  /// 本圈油费气耗公斤合计。
+  final double fuelKilogramsTotal;
   final double tollExpense;
   final double tollEtcAmount;
   final double etcTollReconcileFee;
@@ -67,6 +70,9 @@ class ProfitCalculator {
     final fuelExpense = ledger.expenses
         .where((e) => e.category == ExpenseCategory.fuel)
         .fold<double>(0, (a, e) => a + e.amount);
+    final fuelKilogramsTotal = ledger.expenses
+        .where((e) => e.category == ExpenseCategory.fuel)
+        .fold<double>(0, (a, e) => a + e.fuelKilograms);
     final tollExpense = ledger.expenses
         .where((e) => e.category == ExpenseCategory.toll)
         .fold<double>(0, (a, e) => a + e.amount);
@@ -115,6 +121,7 @@ class ProfitCalculator {
       totalFreight: freight,
       totalInfoFee: infoFee,
       fuelExpense: fuelExpense,
+      fuelKilogramsTotal: fuelKilogramsTotal,
       tollExpense: tollExpense,
       tollEtcAmount: tollEtcBase,
       etcTollReconcileFee: etcTollReconcileFee,

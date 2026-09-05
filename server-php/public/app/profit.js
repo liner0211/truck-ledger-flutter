@@ -34,6 +34,9 @@ function calculateProfit(ledger) {
   const fuelExpense = expenses
     .filter((e) => e.category === '油费')
     .reduce((a, e) => a + (Number(e.amount) || 0), 0);
+  const fuelKilogramsTotal = expenses
+    .filter((e) => e.category === '油费')
+    .reduce((a, e) => a + (Number(e.fuelKilograms) || 0), 0);
   const tollExpense = expenses
     .filter((e) => e.category === '高速费')
     .reduce((a, e) => a + (Number(e.amount) || 0), 0);
@@ -74,6 +77,7 @@ function calculateProfit(ledger) {
     totalFreight: freight,
     totalInfoFee: infoFee,
     fuelExpense,
+    fuelKilogramsTotal,
     tollExpense,
     tollEtcAmount: tollEtcBase,
     etcTollReconcileFee,

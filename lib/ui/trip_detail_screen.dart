@@ -334,10 +334,13 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
           else
             ...List.generate(_trip.routeLegs.length, (i) {
               final leg = _trip.routeLegs[i];
+              final freightLabel = leg.freightExpression.isNotEmpty
+                  ? '运费 ${widget.money(leg.freight)}（${leg.freightExpression}）'
+                  : '运费 ${widget.money(leg.freight)}';
               return ListTile(
                 title: Text('${i + 1}. ${leg.loadPlace} -> ${leg.unloadPlace}'),
                 subtitle: Text(
-                  '运费 ${widget.money(leg.freight)}  信息费 ${widget.money(leg.infoFee)} · ${leg.infoFeePaymentSource.label}',
+                  '$freightLabel  信息费 ${widget.money(leg.infoFee)} · ${leg.infoFeePaymentSource.label}',
                 ),
                 trailing: IconButton(
                   icon: const Icon(Icons.delete_outline),
@@ -437,13 +440,22 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         ? '司机应发工资：${widget.money(sum.driverWagePayable)}'
             '（分成 ${widget.money(sum.driverShare)} + 老板还你 ${widget.money(sum.reimbursableOwnerShare)}）\n'
         : '';
+    final fuelDetail = sum.fuelKilogramsTotal > 0.000001
+        ? '油费 ${widget.money(sum.fuelExpense)}（气耗 ${_fmtKg(sum.fuelKilogramsTotal)} kg）'
+        : '油费 ${widget.money(sum.fuelExpense)}';
     return '''
 运费(总): ${widget.money(sum.totalFreight)}    利润: ${widget.money(sum.netProfit)}
 费用(总): ${widget.money(sum.totalExpense)}    分成: 司机 ${widget.money(sum.driverShare)} / 老板 ${widget.money(sum.ownerShare)}
 
-费用明细：油费 ${widget.money(sum.fuelExpense)}｜高速 ${widget.money(sum.tollExpense)}｜其他 ${widget.money(sum.otherExpense)}｜信息费 ${widget.money(sum.totalInfoFee)}
+费用明细：$fuelDetail｜高速 ${widget.money(sum.tollExpense)}｜其他 ${widget.money(sum.otherExpense)}｜信息费 ${widget.money(sum.totalInfoFee)}
 $etcLine$reimbLine$travelLine交账净额：${_reconcileText(sum.cashNetSettlement)}（仅出车费差额）
 $wageLine''';
+  }
+
+  String _fmtKg(double kg) {
+    if ((kg - kg.roundToDouble()).abs() < 0.000001) return kg.toInt().toString();
+    final t = kg.toStringAsFixed(3);
+    return t.replaceFirst(RegExp(r'\.?0+$'), '');
   }
 
   Widget _sectionTitle(String t) => Padding(

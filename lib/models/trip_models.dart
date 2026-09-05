@@ -41,6 +41,7 @@ class RouteLeg {
     required this.loadPlace,
     required this.unloadPlace,
     required this.freight,
+    this.freightExpression = '',
     required this.infoFee,
     required this.infoFeePaymentSource,
     required this.note,
@@ -52,6 +53,8 @@ class RouteLeg {
   String loadPlace;
   String unloadPlace;
   double freight;
+  /// 运费录入表达式（如 `32*280`、`8000*3%`）；空表示直接存数值。
+  String freightExpression;
   double infoFee;
   PaymentSource infoFeePaymentSource;
   String note;
@@ -63,6 +66,7 @@ class RouteLeg {
         loadPlace: loadPlace,
         unloadPlace: unloadPlace,
         freight: freight,
+        freightExpression: freightExpression,
         infoFee: infoFee,
         infoFeePaymentSource: infoFeePaymentSource,
         note: note,
@@ -75,6 +79,7 @@ class RouteLeg {
         'loadPlace': loadPlace,
         'unloadPlace': unloadPlace,
         'freight': freight,
+        'freightExpression': freightExpression,
         'infoFee': infoFee,
         'infoFeePaymentSource': infoFeePaymentSource.label,
         'note': note,
@@ -87,6 +92,7 @@ class RouteLeg {
         loadPlace: j['loadPlace'] as String? ?? '',
         unloadPlace: j['unloadPlace'] as String? ?? '',
         freight: (j['freight'] as num?)?.toDouble() ?? 0,
+        freightExpression: j['freightExpression'] as String? ?? '',
         infoFee: (j['infoFee'] as num?)?.toDouble() ?? 0,
         infoFeePaymentSource:
             PaymentSource.fromLabel(j['infoFeePaymentSource'] as String? ?? ''),

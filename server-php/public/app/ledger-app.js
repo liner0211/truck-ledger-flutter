@@ -67,7 +67,35 @@
     const t = String(s ?? '').trim();
     if (!t) return null;
     const v = Number(t);
-    return Number.isFinite(v) ? v : null;
+    return Number.isFinite(v) && /^-?\d+(\.\d+)?$/.test(t.replace(/,/g, '.'))
+      ? Number(t.replace(/,/g, '.'))
+      : null;
+  }
+
+  function parseAmountOrExpression(s) {
+    const plain = parseAmount(s);
+    if (plain != null) return plain;
+    return typeof tryEvalExpression === 'function' ? tryEvalExpression(s) : null;
+  }
+
+  function routePreview(round) {
+    const legs = round.routeLegs || [];
+    if (!legs.length) return '路线：暂无';
+    const parts = legs.map((l) => {
+      const a = (l.loadPlace || '').trim();
+      const b = (l.unloadPlace || '').trim();
+      if (!a && !b) return null;
+      if (!a) return b;
+      if (!b) return a;
+      return `${a} → ${b}`;
+    }).filter(Boolean);
+    return parts.length ? `路线：${parts.join(' ｜ ')}` : '路线：暂无';
+  }
+
+  function fmtKg(kg) {
+    const n = Number(kg) || 0;
+    if (Math.abs(n - Math.round(n)) < 0.000001) return String(Math.round(n));
+    return String(n).replace(/\.?0+$/, '');
   }
 
   function uuid() {
@@ -148,10 +176,13 @@
     const travelLine = `出车费差额：${reconcileText(sum.travelCashReconcile)}（现金花费 ${money(sum.cashTotalExpense)} − 已支取 ${money(sum.cashAdvances)}）\n`;
     const wageLine = sum.reimbursableCashExpense > 0.000001
       ? `司机应发工资：${money(sum.driverWagePayable)}（分成 ${money(sum.driverShare)} + 老板还你 ${money(sum.reimbursableOwnerShare)}）\n` : '';
+    const fuelDetail = (sum.fuelKilogramsTotal || 0) > 0.000001
+      ? `油费 ${money(sum.fuelExpense)}（气耗 ${fmtKg(sum.fuelKilogramsTotal)} kg）`
+      : `油费 ${money(sum.fuelExpense)}`;
     return `运费(总): ${money(sum.totalFreight)}    利润: ${money(sum.netProfit)}
 费用(总): ${money(sum.totalExpense)}    分成: 司机 ${money(sum.driverShare)} / 老板 ${money(sum.ownerShare)}
 
-费用明细：油费 ${money(sum.fuelExpense)}｜高速 ${money(sum.tollExpense)}｜其他 ${money(sum.otherExpense)}｜信息费 ${money(sum.totalInfoFee)}
+费用明细：${fuelDetail}｜高速 ${money(sum.tollExpense)}｜其他 ${money(sum.otherExpense)}｜信息费 ${money(sum.totalInfoFee)}
 ${etcLine}${reimbLine}${travelLine}交账净额：${reconcileText(sum.cashNetSettlement)}（仅出车费差额）
 ${wageLine}`;
   }
@@ -662,13 +693,14 @@ ${wageLine}`;
     wageSummary() {
       const rounds = this.book.rounds;
       if (!rounds.length) return '工资汇总：暂无圈次';
-      let due = 0, paid = 0;
+      let due = 0, paid = 0, unpaid = 0;
       rounds.forEach((r) => {
         const s = calculateProfit(r);
         due += s.driverWagePayable;
         if (r.isSalarySettled) paid += s.driverWagePayable;
+        if (r.isReconciled && !r.isSalarySettled) unpaid += s.driverWagePayable;
       });
-      return `工资汇总：应得 ${money(due)} ｜ 已发 ${money(paid)} ｜ 未发 ${money(due - paid)}`;
+      return `工资汇总：应得 ${money(due)} ｜ 已发 ${money(paid)} ｜ 未发 ${money(unpaid)}（仅已交账）`;
     }
 
     renderHome() {
@@ -687,6 +719,7 @@ ${wageLine}`;
                   <span class="round-title">${esc(r.title || '未命名')}</span>
                   <span class="chevron">›</span>
                 </div>
+                <div class="route-preview muted">${esc(routePreview(r))}</div>
                 <div class="pill-row">
                   <div class="pill"><span class="pill-label">司机应发</span><span class="pill-value">${money(p.driverWagePayable)}</span></div>
                   <div class="pill"><span class="pill-label">老板分成</span><span class="pill-value">${money(p.ownerShare)}</span></div>
@@ -952,7 +985,10 @@ ${wageLine}`;
       const sum = calculateProfit(trip);
 
       const legList = (trip.routeLegs || []).map((leg, i) => {
-        const sub = `运费 ${money(leg.freight)}  信息费 ${money(leg.infoFee)} · ${leg.infoFeePaymentSource}${leg.note ? '  备注：' + leg.note : ''}`;
+        const freightPart = leg.freightExpression
+          ? `运费 ${money(leg.freight)}（${leg.freightExpression}）`
+          : `运费 ${money(leg.freight)}`;
+        const sub = `${freightPart}  信息费 ${money(leg.infoFee)} · ${leg.infoFeePaymentSource}${leg.note ? '  备注：' + leg.note : ''}`;
         return `<div class="list-tile" data-edit-leg="${i}">
           <div class="tile-main">
             <div class="tile-title">${i + 1}. ${esc(leg.loadPlace)} → ${esc(leg.unloadPlace)}</div>
@@ -1186,16 +1222,22 @@ ${wageLine}`;
 
     editLeg(trip, index) {
       const leg = index == null
-        ? { id: uuid(), loadPlace: '', unloadPlace: '', freight: 0, infoFee: 0, infoFeePaymentSource: '现金', note: '', attachments: [], createdAt: encodeSwiftDate(new Date()) }
+        ? { id: uuid(), loadPlace: '', unloadPlace: '', freight: 0, freightExpression: '', infoFee: 0, infoFeePaymentSource: '现金', note: '', attachments: [], createdAt: encodeSwiftDate(new Date()) }
         : JSON.parse(JSON.stringify(trip.routeLegs[index]));
       const att = leg.attachments || (leg.attachments = []);
       const infoPay = leg.infoFeePaymentSource === '公司账户' ? '公司账户' : '现金';
+      const freightInput = (leg.freightExpression && String(leg.freightExpression).trim())
+        ? leg.freightExpression
+        : (leg.freight ? String(leg.freight) : '');
       this.modal(`
         <h3>${index == null ? '添加' : '编辑'}路线</h3>
         <p id="modal-err" class="error"></p>
         <label>装货地<input id="m-load" value="${esc(leg.loadPlace)}"></label>
         <label>卸货地<input id="m-unload" value="${esc(leg.unloadPlace)}"></label>
-        <label>运费<input id="m-freight" type="number" step="0.01" inputmode="decimal" value="${leg.freight}"></label>
+        <label>运费（支持运算式，如 32*280、8000*3%）
+          <input id="m-freight" inputmode="decimal" value="${esc(freightInput)}" placeholder="数字或表达式">
+          <div id="m-freight-hint" class="muted" style="margin-top:4px"></div>
+        </label>
         <label>信息费（可不填，默认 0）<input id="m-info" type="number" step="0.01" inputmode="decimal" value="${leg.infoFee}"></label>
         <label>备注<input id="m-note" value="${esc(leg.note)}"></label>
         <label>信息费支付方式
@@ -1206,12 +1248,14 @@ ${wageLine}`;
         const load = document.getElementById('m-load').value.trim();
         const unload = document.getElementById('m-unload').value.trim();
         if (!load || !unload) { showErr('装货地/卸货地不能为空'); return false; }
-        const freight = parseAmount(document.getElementById('m-freight').value);
-        if (freight == null) { showErr('运费请输入数字'); return false; }
+        const rawFreight = document.getElementById('m-freight').value.trim();
+        const freight = parseAmountOrExpression(rawFreight);
+        if (freight == null) { showErr('运费请输入数字或运算式（如 32*280、8000*3%）'); return false; }
         const src = overlay.querySelector('input[name="infosrc"]:checked');
         leg.loadPlace = load;
         leg.unloadPlace = unload;
         leg.freight = freight;
+        leg.freightExpression = parseAmount(rawFreight) == null ? rawFreight : '';
         leg.infoFee = parseAmount(document.getElementById('m-info').value) ?? 0;
         leg.infoFeePaymentSource = src?.value || '现金';
         leg.note = document.getElementById('m-note').value.trim();
@@ -1221,7 +1265,22 @@ ${wageLine}`;
         await this.commit();
         return true;
       }, {
-        onMount: (overlay) => this.mountAttachmentEditor(overlay.querySelector('#att-box'), att),
+        onMount: (overlay) => {
+          this.mountAttachmentEditor(overlay.querySelector('#att-box'), att);
+          const freightEl = overlay.querySelector('#m-freight');
+          const hint = overlay.querySelector('#m-freight-hint');
+          const updateHint = () => {
+            const raw = freightEl.value.trim();
+            const v = parseAmountOrExpression(raw);
+            if (raw && parseAmount(raw) == null && v != null) {
+              hint.textContent = `计算结果：${v.toFixed(2)}`;
+            } else {
+              hint.textContent = '支持 + - * / ( ) 与 %';
+            }
+          };
+          freightEl.addEventListener('input', updateHint);
+          updateHint();
+        },
       });
     }
 

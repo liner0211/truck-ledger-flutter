@@ -37,7 +37,11 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
       final r = _trip.routeLegs[idx];
       _load = TextEditingController(text: r.loadPlace);
       _unload = TextEditingController(text: r.unloadPlace);
-      _freight = TextEditingController(text: r.freight.toString());
+      _freight = TextEditingController(
+        text: r.freightExpression.isNotEmpty
+            ? r.freightExpression
+            : (r.freight == 0 ? '' : _fmtFreight(r.freight)),
+      );
       _infoFee = TextEditingController(text: r.infoFee.toString());
       _note = TextEditingController(text: r.note);
       _infoPay = r.infoFeePaymentSource;
@@ -49,6 +53,12 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
       _infoFee = TextEditingController();
       _note = TextEditingController();
     }
+    _freight.addListener(() => setState(() {}));
+  }
+
+  String _fmtFreight(double v) {
+    if (v == v.roundToDouble()) return v.toInt().toString();
+    return v.toString();
   }
 
   @override
@@ -83,12 +93,15 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
       _err('装货地/卸货地不能为空');
       return;
     }
-    final freight = parseAmount(_freight.text);
+    final rawFreight = _freight.text.trim();
+    final freight = parseAmountOrExpression(rawFreight);
     if (freight == null) {
-      _err('运费请输入数字');
+      _err('运费请输入数字或运算式（如 32*280、8000*3%）');
       return;
     }
     final infoFee = parseAmount(_infoFee.text) ?? 0;
+    final plain = parseAmount(rawFreight);
+    final freightExpression = plain == null ? rawFreight : '';
 
     final idx = widget.legIndex;
     final RouteLeg item;
@@ -99,6 +112,7 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
         loadPlace: load,
         unloadPlace: unload,
         freight: freight,
+        freightExpression: freightExpression,
         infoFee: infoFee,
         infoFeePaymentSource: _infoPay,
         note: _note.text.trim(),
@@ -112,6 +126,7 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
         loadPlace: load,
         unloadPlace: unload,
         freight: freight,
+        freightExpression: freightExpression,
         infoFee: infoFee,
         infoFeePaymentSource: _infoPay,
         note: _note.text.trim(),
@@ -126,14 +141,23 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
   void _err(String m) {
     showDialog<void>(
       context: context,
-      builder: (c) => AlertDialog(title: const Text('输入有误'), content: Text(m), actions: [
-        TextButton(onPressed: () => Navigator.pop(c), child: const Text('确定')),
-      ]),
+      builder: (c) => AlertDialog(
+        title: const Text('输入有误'),
+        content: Text(m),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: const Text('确定')),
+        ],
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final freightPreview = parseAmountOrExpression(_freight.text);
+    final showPreview = _freight.text.trim().isNotEmpty &&
+        parseAmount(_freight.text) == null &&
+        freightPreview != null;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('路线'),
@@ -142,25 +166,46 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          TextField(controller: _load, decoration: const InputDecoration(labelText: '装货地')),
-          TextField(controller: _unload, decoration: const InputDecoration(labelText: '卸货地')),
+          TextField(
+            controller: _load,
+            decoration: const InputDecoration(labelText: '装货地'),
+          ),
+          TextField(
+            controller: _unload,
+            decoration: const InputDecoration(labelText: '卸货地'),
+          ),
           TextField(
             controller: _freight,
-            decoration: const InputDecoration(labelText: '运费'),
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              labelText: '运费',
+              hintText: '数字，或 吨位*单价、金额*百分点%',
+              helperText: showPreview
+                  ? '计算结果：${freightPreview.toStringAsFixed(2)}'
+                  : '支持 + - * / ( ) 与 %，例：32*280、8000*3%',
+            ),
+            keyboardType: const TextInputType.numberWithOptions(
+              decimal: true,
+              signed: true,
+            ),
           ),
           TextField(
             controller: _infoFee,
             decoration: const InputDecoration(labelText: '信息费（可不填，默认 0）'),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
-          TextField(controller: _note, decoration: const InputDecoration(labelText: '备注')),
+          TextField(
+            controller: _note,
+            decoration: const InputDecoration(labelText: '备注'),
+          ),
           const SizedBox(height: 16),
           const Text('信息费支付方式', style: TextStyle(fontWeight: FontWeight.w600)),
           SegmentedButton<PaymentSource>(
             segments: const [
               ButtonSegment(value: PaymentSource.cash, label: Text('现金')),
-              ButtonSegment(value: PaymentSource.companyAccount, label: Text('公司账户')),
+              ButtonSegment(
+                value: PaymentSource.companyAccount,
+                label: Text('公司账户'),
+              ),
             ],
             selected: {_infoPay},
             onSelectionChanged: (s) => setState(() => _infoPay = s.first),
@@ -175,7 +220,11 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
           for (var i = 0; i < _attachments.length; i++)
             ListTile(
               title: Text('图片 ${i + 1}'),
-              subtitle: Text(_attachments[i], maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text(
+                _attachments[i],
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               trailing: IconButton(
                 icon: const Icon(Icons.delete_outline),
                 onPressed: () async {

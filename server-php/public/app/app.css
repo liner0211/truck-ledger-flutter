@@ -88,6 +88,7 @@ body {
   transition: box-shadow .15s;
 }
 .round-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.08); }
+.route-preview { margin: 8px 0 0; font-size: .85rem; line-height: 1.35; }
 .round-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .round-title { font-weight: 700; font-size: 1.05rem; flex: 1; text-align: left; }
 .chevron { color: #888; font-size: 1.2rem; }

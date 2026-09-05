@@ -341,6 +341,7 @@ class LedgerController extends ChangeNotifier {
               loadPlace: l.loadPlace,
               unloadPlace: l.unloadPlace,
               freight: l.freight,
+              freightExpression: l.freightExpression,
               infoFee: l.infoFee,
               infoFeePaymentSource: l.infoFeePaymentSource,
               note: l.note,

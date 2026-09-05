@@ -40,14 +40,20 @@ class HomeScreen extends StatelessWidget {
       final totalWageDue =
           summaries.fold<double>(0, (a, s) => a + s.driverWagePayable);
       var totalWagePaid = 0.0;
+      var unpaid = 0.0;
       for (var i = 0; i < book.rounds.length; i++) {
-        if (book.rounds[i].isSalarySettled) {
-          totalWagePaid += summaries[i].driverWagePayable;
+        final round = book.rounds[i];
+        final due = summaries[i].driverWagePayable;
+        if (round.isSalarySettled) {
+          totalWagePaid += due;
+        }
+        // 未发仅统计已交账且尚未工资结算的圈次
+        if (round.isReconciled && !round.isSalarySettled) {
+          unpaid += due;
         }
       }
-      final unpaid = totalWageDue - totalWagePaid;
       headerText =
-          '工资汇总（所有圈次）\n应得 ${ctrl.money(totalWageDue)} ｜ 已发 ${ctrl.money(totalWagePaid)} ｜ 未发 ${ctrl.money(unpaid)}';
+          '工资汇总（所有圈次）\n应得 ${ctrl.money(totalWageDue)} ｜ 已发 ${ctrl.money(totalWagePaid)} ｜ 未发 ${ctrl.money(unpaid)}（仅已交账）';
     }
 
     return Scaffold(
@@ -253,6 +259,21 @@ class HomeScreen extends StatelessWidget {
                                     ],
                                   ),
                                   const SizedBox(height: 10),
+                                  Text(
+                                    _routePreview(round),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant,
+                                          height: 1.35,
+                                        ),
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 10),
                                   Row(
                                     children: [
                                       Expanded(
@@ -303,6 +324,23 @@ class HomeScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static String _routePreview(TripLedger round) {
+    if (round.routeLegs.isEmpty) return '路线：暂无';
+    final parts = round.routeLegs
+        .map((l) {
+          final a = l.loadPlace.trim();
+          final b = l.unloadPlace.trim();
+          if (a.isEmpty && b.isEmpty) return null;
+          if (a.isEmpty) return b;
+          if (b.isEmpty) return a;
+          return '$a → $b';
+        })
+        .whereType<String>()
+        .toList();
+    if (parts.isEmpty) return '路线：暂无';
+    return '路线：${parts.join(' ｜ ')}';
   }
 
   Future<void> _addRound(BuildContext context) async {

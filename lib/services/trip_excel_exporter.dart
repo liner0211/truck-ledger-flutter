@@ -301,6 +301,9 @@ class TripExcelExporter {
     summaryLine('运费(总)', fmt(sum.totalFreight));
     summaryLine('信息费(总)', fmt(sum.totalInfoFee));
     summaryLine('油费', fmt(sum.fuelExpense));
+    if (sum.fuelKilogramsTotal > 0.000001) {
+      summaryLine('油费气耗(kg)', sum.fuelKilogramsTotal.toString());
+    }
     summaryLine('高速费', fmt(sum.tollExpense));
     summaryLine('高速ETC对账手续费(0.35%)', fmt(sum.etcTollReconcileFee));
     summaryLine('其他费用', fmt(sum.otherExpense));
