@@ -93,15 +93,27 @@ class _AboutScreenState extends State<AboutScreen> {
                   ),
                   if (canUpdate) ...[
                     const SizedBox(height: 12),
-                    if (_updating)
-                      LinearProgressIndicator(value: _progress > 0 ? _progress : null),
-                    if (_updating) const SizedBox(height: 8),
+                    if (_updating) ...[
+                      LinearProgressIndicator(
+                        value: _progress > 0 && _progress < 1 ? _progress : (_progress >= 1 ? 1 : null),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _progress <= 0
+                            ? '准备下载…'
+                            : _progress >= 1
+                                ? '下载完成，正在打开安装包…'
+                                : '下载中 ${(_progress * 100).toStringAsFixed(0)}%',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                     FilledButton.icon(
                       onPressed: _updating ? null : () => _update(update.downloadUrl),
                       icon: const Icon(Icons.system_update),
                       label: Text(
                         _updating
-                            ? '下载中 ${(_progress * 100).toStringAsFixed(0)}%'
+                            ? '更新中…'
                             : '更新到 ${control!.latestVersion}',
                       ),
                     ),

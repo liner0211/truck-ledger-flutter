@@ -200,7 +200,11 @@ jobs:
           echo "" >> "$GITHUB_OUTPUT"
           echo "应用内更新请用 IPA；DEB 仅供越狱 \`dpkg -i\`。" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
+          # 展平子目录，保证 Releases 挂上全部安装包
+          find release-assets -mindepth 2 -type f -exec mv -t release-assets/ {} + 2>/dev/null || true
+          find release-assets -mindepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
           ls -lh release-assets/
+          test "$(find release-assets -maxdepth 1 -type f | wc -l)" -ge 1
 
       - name: Create GitHub Release
         id: release
@@ -211,8 +215,7 @@ jobs:
           body: ${{ steps.meta.outputs.body }}
           draft: false
           prerelease: false
-          files: |
-            release-assets/*
+          files: release-assets/*
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

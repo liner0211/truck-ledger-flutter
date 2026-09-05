@@ -31,6 +31,16 @@ class SyncConflictException implements Exception {
 
 enum SyncStatus { idle, synced, dirty, pending, conflict, error }
 
+/// 同步进度（fraction 为 null 表示不确定进度）。
+class SyncProgress {
+  const SyncProgress({this.fraction, this.message = ''});
+
+  final double? fraction;
+  final String message;
+
+  static const idle = SyncProgress();
+}
+
 class SyncService {
   SyncService({required this.baseUrl, required this.token});
 
@@ -168,31 +178,78 @@ class SyncService {
     await dest.writeAsBytes(res.bodyBytes, flush: true);
   }
 
-  Future<int> uploadMissingAttachments(LedgerBook book) async {
+  Future<int> uploadMissingAttachments(
+    LedgerBook book, {
+    void Function(SyncProgress progress)? onProgress,
+  }) async {
     final needed = LedgerBackupExporter.collectAttachmentNames(book);
-    if (needed.isEmpty) return 0;
+    if (needed.isEmpty) {
+      onProgress?.call(const SyncProgress(fraction: 1, message: '无附件需上传'));
+      return 0;
+    }
+    onProgress?.call(const SyncProgress(fraction: 0.05, message: '检查云端附件…'));
     final remote = await listRemoteAttachments();
-    var uploaded = 0;
+    final toUpload = <String>[];
     for (final name in needed) {
       if (remote.contains(name)) continue;
       final file = await AttachmentStore.fileFor(name);
       if (!file.existsSync()) continue;
+      toUpload.add(name);
+    }
+    if (toUpload.isEmpty) {
+      onProgress?.call(const SyncProgress(fraction: 0.4, message: '附件已齐全'));
+      return 0;
+    }
+    var uploaded = 0;
+    for (var i = 0; i < toUpload.length; i++) {
+      final name = toUpload[i];
+      onProgress?.call(SyncProgress(
+        fraction: 0.1 + 0.5 * (i / toUpload.length),
+        message: '上传附件 ${i + 1}/${toUpload.length}',
+      ));
       await uploadAttachment(name);
       uploaded++;
+      onProgress?.call(SyncProgress(
+        fraction: 0.1 + 0.5 * ((i + 1) / toUpload.length),
+        message: '已上传附件 ${i + 1}/${toUpload.length}',
+      ));
     }
     return uploaded;
   }
 
-  Future<int> downloadMissingAttachments(LedgerBook book) async {
-    final needed = LedgerBackupExporter.collectAttachmentNames(book);
-    if (needed.isEmpty) return 0;
-    var downloaded = 0;
+  Future<int> downloadMissingAttachments(
+    LedgerBook book, {
+    void Function(SyncProgress progress)? onProgress,
+  }) async {
+    final needed = LedgerBackupExporter.collectAttachmentNames(book).toList();
+    if (needed.isEmpty) {
+      onProgress?.call(const SyncProgress(fraction: 1, message: '无附件需下载'));
+      return 0;
+    }
+    final toDownload = <String>[];
     for (final name in needed) {
       final file = await AttachmentStore.fileFor(name);
       if (file.existsSync()) continue;
+      toDownload.add(name);
+    }
+    if (toDownload.isEmpty) {
+      onProgress?.call(const SyncProgress(fraction: 0.9, message: '本地附件已齐全'));
+      return 0;
+    }
+    var downloaded = 0;
+    for (var i = 0; i < toDownload.length; i++) {
+      final name = toDownload[i];
+      onProgress?.call(SyncProgress(
+        fraction: 0.2 + 0.7 * (i / toDownload.length),
+        message: '下载附件 ${i + 1}/${toDownload.length}',
+      ));
       await downloadAttachment(name);
       final again = await AttachmentStore.fileFor(name);
       if (again.existsSync()) downloaded++;
+      onProgress?.call(SyncProgress(
+        fraction: 0.2 + 0.7 * ((i + 1) / toDownload.length),
+        message: '已下载附件 ${i + 1}/${toDownload.length}',
+      ));
     }
     return downloaded;
   }
@@ -201,14 +258,24 @@ class SyncService {
     LedgerBook book, {
     required int baseRevision,
     bool force = false,
+    void Function(SyncProgress progress)? onProgress,
   }) async {
-    await uploadMissingAttachments(book);
-    return push(book, baseRevision: baseRevision, force: force);
+    onProgress?.call(const SyncProgress(fraction: 0.02, message: '准备上传…'));
+    await uploadMissingAttachments(book, onProgress: onProgress);
+    onProgress?.call(const SyncProgress(fraction: 0.75, message: '上传账本…'));
+    final result = await push(book, baseRevision: baseRevision, force: force);
+    onProgress?.call(const SyncProgress(fraction: 1, message: '上传完成'));
+    return result;
   }
 
-  Future<RemoteLedger> pullFull() async {
+  Future<RemoteLedger> pullFull({
+    void Function(SyncProgress progress)? onProgress,
+  }) async {
+    onProgress?.call(const SyncProgress(fraction: 0.05, message: '拉取账本…'));
     final remote = await pull();
-    await downloadMissingAttachments(remote.book);
+    onProgress?.call(const SyncProgress(fraction: 0.35, message: '下载附件…'));
+    await downloadMissingAttachments(remote.book, onProgress: onProgress);
+    onProgress?.call(const SyncProgress(fraction: 1, message: '拉取完成'));
     return remote;
   }
 }

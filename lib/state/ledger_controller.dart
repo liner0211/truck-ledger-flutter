@@ -24,6 +24,8 @@ class LedgerController extends ChangeNotifier {
   SyncStatus _syncStatus = SyncStatus.idle;
   String? _syncError;
   RemoteLedger? _conflictServer;
+  double? _syncProgress;
+  String _syncProgressMessage = '';
 
   LedgerBook _book = LedgerBook.empty();
   bool _sortAscending = true;
@@ -36,6 +38,20 @@ class LedgerController extends ChangeNotifier {
   String? get syncError => _syncError;
   RemoteLedger? get conflictServer => _conflictServer;
   bool get writeAllowed => _auth?.writeAllowed ?? true;
+  /// 0~1；null 表示不确定进度（仅显示动画条）。
+  double? get syncProgress => _syncProgress;
+  String get syncProgressMessage => _syncProgressMessage;
+
+  void _setSyncProgress(SyncProgress p) {
+    _syncProgress = p.fraction;
+    _syncProgressMessage = p.message;
+    notifyListeners();
+  }
+
+  void _clearSyncProgress() {
+    _syncProgress = null;
+    _syncProgressMessage = '';
+  }
 
   void attachAuth(AuthController auth) {
     _auth = auth;
@@ -73,11 +89,15 @@ class LedgerController extends ChangeNotifier {
     if (!writeAllowed) return;
     _cloudPushPending = true;
     _syncStatus = SyncStatus.pending;
-    notifyListeners();
+    _setSyncProgress(const SyncProgress(fraction: 0, message: '正在同步…'));
     Future<void>(() async {
       try {
         final base = _auth?.localRevision ?? 0;
-        final result = await sync.pushFull(_book, baseRevision: base);
+        final result = await sync.pushFull(
+          _book,
+          baseRevision: base,
+          onProgress: _setSyncProgress,
+        );
         await _auth?.setRemoteUpdatedAt(result.updatedAt);
         await _auth?.setLocalUpdatedAt(result.updatedAt);
         await _auth?.setLocalRevision(result.revision);
@@ -99,6 +119,7 @@ class LedgerController extends ChangeNotifier {
         _syncError = '同步失败：$e';
       } finally {
         _cloudPushPending = false;
+        _clearSyncProgress();
         notifyListeners();
       }
     });
@@ -110,32 +131,41 @@ class LedgerController extends ChangeNotifier {
     if (!writeAllowed && !force) return '账号只读，无法上传';
     try {
       _syncStatus = SyncStatus.pending;
-      notifyListeners();
+      _setSyncProgress(const SyncProgress(fraction: 0, message: '准备上传…'));
       final base = _auth?.localRevision ?? 0;
-      final result = await sync.pushFull(_book, baseRevision: base, force: force);
+      final result = await sync.pushFull(
+        _book,
+        baseRevision: base,
+        force: force,
+        onProgress: _setSyncProgress,
+      );
       await _auth?.setRemoteUpdatedAt(result.updatedAt);
       await _auth?.setLocalUpdatedAt(result.updatedAt);
       await _auth?.setLocalRevision(result.revision);
       _syncStatus = SyncStatus.synced;
       _conflictServer = null;
       _syncError = null;
+      _clearSyncProgress();
       notifyListeners();
       return '已上传到云端（${_book.rounds.length} 个圈次，rev ${result.revision}）';
     } on SyncConflictException catch (e) {
       _syncStatus = SyncStatus.conflict;
       _conflictServer = e.server;
       _syncError = '版本冲突';
+      _clearSyncProgress();
       notifyListeners();
       return '云端与本机冲突，请选择保留本机或采用云端';
     } on ApiException catch (e) {
       if (e.statusCode == 401) await _auth?.logout();
       _syncStatus = SyncStatus.error;
       _syncError = e.message;
+      _clearSyncProgress();
       notifyListeners();
       return e.message;
     } catch (e) {
       _syncStatus = SyncStatus.error;
       _syncError = '$e';
+      _clearSyncProgress();
       notifyListeners();
       return '上传失败：$e';
     }
@@ -145,16 +175,27 @@ class LedgerController extends ChangeNotifier {
     final sync = _auth?.syncService;
     if (sync == null) return '请先登录';
     try {
-      final remote = await sync.pullFull();
+      _syncStatus = SyncStatus.pending;
+      _setSyncProgress(const SyncProgress(fraction: 0, message: '准备拉取…'));
+      final remote = await sync.pullFull(onProgress: _setSyncProgress);
       await _applyRemoteBook(remote);
       _syncStatus = SyncStatus.synced;
       _conflictServer = null;
+      _clearSyncProgress();
       notifyListeners();
       return '已从云端拉取（${remote.book.rounds.length} 个圈次，rev ${remote.revision}）';
     } on ApiException catch (e) {
       if (e.statusCode == 401) await _auth?.logout();
+      _syncStatus = SyncStatus.error;
+      _syncError = e.message;
+      _clearSyncProgress();
+      notifyListeners();
       return e.message;
     } catch (e) {
+      _syncStatus = SyncStatus.error;
+      _syncError = '$e';
+      _clearSyncProgress();
+      notifyListeners();
       return '拉取失败：$e';
     }
   }
@@ -166,11 +207,14 @@ class LedgerController extends ChangeNotifier {
     if (remote == null) return '无冲突数据';
     final sync = _auth?.syncService;
     if (sync != null) {
-      await sync.downloadMissingAttachments(remote.book);
+      _syncStatus = SyncStatus.pending;
+      _setSyncProgress(const SyncProgress(fraction: 0.1, message: '下载云端附件…'));
+      await sync.downloadMissingAttachments(remote.book, onProgress: _setSyncProgress);
     }
     await _applyRemoteBook(remote);
     _syncStatus = SyncStatus.synced;
     _conflictServer = null;
+    _clearSyncProgress();
     notifyListeners();
     return '已采用云端版本（rev ${remote.revision}）';
   }
@@ -180,6 +224,10 @@ class LedgerController extends ChangeNotifier {
     final sync = auth?.syncService;
     if (sync == null) return '请先登录';
     try {
+      final wasDirty =
+          _syncStatus == SyncStatus.dirty || _syncStatus == SyncStatus.error;
+      _syncStatus = SyncStatus.pending;
+      _setSyncProgress(const SyncProgress(fraction: 0.05, message: '检查云端版本…'));
       final remote = await sync.pull();
       final localAt = await auth!.readLocalUpdatedAt();
       final remoteAt = remote.updatedAt;
@@ -187,9 +235,10 @@ class LedgerController extends ChangeNotifier {
 
       if (remote.revision != localRev && _book.rounds.isNotEmpty && localAt > 0) {
         // 本地可能有未推送修改
-        if (_syncStatus == SyncStatus.dirty || _syncStatus == SyncStatus.error) {
+        if (wasDirty) {
           _syncStatus = SyncStatus.conflict;
           _conflictServer = remote;
+          _clearSyncProgress();
           notifyListeners();
           return '云端与本机版本不同，请选择「上传」或「拉取」';
         }
@@ -197,9 +246,10 @@ class LedgerController extends ChangeNotifier {
 
       if (remote.revision > localRev ||
           (remoteAt > localAt && (_book.rounds.isEmpty || localAt == 0))) {
-        await sync.downloadMissingAttachments(remote.book);
+        await sync.downloadMissingAttachments(remote.book, onProgress: _setSyncProgress);
         await _applyRemoteBook(remote);
         _syncStatus = SyncStatus.synced;
+        _clearSyncProgress();
         notifyListeners();
         return '已用云端较新版本覆盖本机（${remote.book.rounds.length} 个圈次）';
       }
@@ -209,12 +259,21 @@ class LedgerController extends ChangeNotifier {
       }
 
       _syncStatus = SyncStatus.synced;
+      _clearSyncProgress();
       notifyListeners();
       return '已是最新';
     } on ApiException catch (e) {
       if (e.statusCode == 401) await auth?.logout();
+      _syncStatus = SyncStatus.error;
+      _syncError = e.message;
+      _clearSyncProgress();
+      notifyListeners();
       return e.message;
     } catch (e) {
+      _syncStatus = SyncStatus.error;
+      _syncError = '$e';
+      _clearSyncProgress();
+      notifyListeners();
       return '同步失败：$e';
     }
   }

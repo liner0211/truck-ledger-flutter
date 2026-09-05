@@ -1,13 +1,19 @@
 name: iOS Runner.app Build
 
-# 单平台手动构建（push 请用 Release Packages：会直接产出 ipa/deb 并写入 Releases）。
+# 单平台手动构建，产物写入 GitHub Releases（日常请用 Release Packages）。
 on:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-ios-runner-app:
     runs-on: macos-15
     timeout-minutes: 50
+    outputs:
+      version_name: ${{ steps.ver.outputs.name }}
+      version_code: ${{ steps.ver.outputs.code }}
 
     steps:
       - name: Checkout
@@ -18,8 +24,13 @@ jobs:
         with:
           channel: stable
 
-      - name: Flutter Version
-        run: flutter --version
+      - name: Resolve version
+        id: ver
+        run: |
+          set -euo pipefail
+          source ./scripts/flutter_build_version_env.sh
+          echo "name=$APP_BUILD_NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$APP_BUILD_NUMBER" >> "$GITHUB_OUTPUT"
 
       - name: Install dpkg (for deb)
         run: brew install dpkg
@@ -51,9 +62,39 @@ jobs:
       - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
-          name: runner-app-ios
+          name: ios-packages
           path: |
             dist/Runner.app.zip
             dist/*.ipa
             dist/*.deb
-          retention-days: 14
+          retention-days: 30
+
+  github-release:
+    needs: [build-ios-runner-app]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-packages
+          path: release-assets
+      - name: Meta
+        id: meta
+        run: |
+          set -euo pipefail
+          source ./scripts/flutter_build_version_env.sh
+          echo "tag=ios-v${APP_BUILD_NAME}-${APP_BUILD_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "name=卡车记账 iOS ${APP_BUILD_NAME} (${APP_BUILD_NUMBER})" >> "$GITHUB_OUTPUT"
+          find release-assets -type f -ls
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          body: |
+            ## iOS IPA / DEB / Runner.app.zip（手动 workflow）
+            - Commit: `${{ github.sha }}`
+          files: release-assets/**
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

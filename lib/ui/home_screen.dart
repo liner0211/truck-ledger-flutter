@@ -607,7 +607,9 @@ class _SyncStatusBar extends StatelessWidget {
         break;
       case SyncStatus.pending:
         bg = Colors.blue.shade100;
-        text = '正在同步…';
+        text = ctrl.syncProgressMessage.isNotEmpty
+            ? ctrl.syncProgressMessage
+            : '正在同步…';
         break;
       case SyncStatus.conflict:
         bg = Colors.red.shade100;
@@ -635,23 +637,37 @@ class _SyncStatusBar extends StatelessWidget {
         },
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (status == SyncStatus.pending)
-                const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              else
-                Icon(
-                  status == SyncStatus.conflict || status == SyncStatus.error
-                      ? Icons.warning_amber
-                      : Icons.cloud_done_outlined,
-                  size: 16,
-                ),
-              const SizedBox(width: 8),
-              Expanded(child: Text(text, style: const TextStyle(fontSize: 13))),
+              Row(
+                children: [
+                  if (status == SyncStatus.pending)
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    Icon(
+                      status == SyncStatus.conflict || status == SyncStatus.error
+                          ? Icons.warning_amber
+                          : Icons.cloud_done_outlined,
+                      size: 16,
+                    ),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(text, style: const TextStyle(fontSize: 13))),
+                  if (status == SyncStatus.pending && ctrl.syncProgress != null)
+                    Text(
+                      '${(ctrl.syncProgress! * 100).toStringAsFixed(0)}%',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                ],
+              ),
+              if (status == SyncStatus.pending) ...[
+                const SizedBox(height: 6),
+                LinearProgressIndicator(value: ctrl.syncProgress),
+              ],
             ],
           ),
         ),

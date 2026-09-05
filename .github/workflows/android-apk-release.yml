@@ -1,13 +1,19 @@
 name: Android APK Release
 
-# 单平台手动构建（push 请用 Release Packages，避免重复构建）。
+# 单平台手动构建，产物写入 GitHub Releases（日常请用 Release Packages）。
 on:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-apk:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    outputs:
+      version_name: ${{ steps.ver.outputs.name }}
+      version_code: ${{ steps.ver.outputs.code }}
 
     steps:
       - name: Checkout
@@ -25,24 +31,82 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Flutter Version
-        run: flutter --version
+      - name: Resolve version
+        id: ver
+        run: |
+          set -euo pipefail
+          source ./scripts/flutter_build_version_env.sh
+          echo "name=$APP_BUILD_NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$APP_BUILD_NUMBER" >> "$GITHUB_OUTPUT"
 
       - name: Pub Get
         run: flutter pub get
 
+      - name: Configure Android signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "No keystore; debug signing."
+            exit 0
+          fi
+          mkdir -p android/keystore
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/keystore/upload-keystore.jks
+          {
+            echo "storePassword=${ANDROID_STORE_PASSWORD}"
+            echo "keyPassword=${ANDROID_KEY_PASSWORD}"
+            echo "keyAlias=${ANDROID_KEY_ALIAS}"
+            echo "storeFile=../keystore/upload-keystore.jks"
+          } > android/key.properties
+
       - name: Build Release APK
         run: |
           set -euo pipefail
-          # shellcheck source=/dev/null
           source ./scripts/flutter_build_version_env.sh
           flutter build apk --release \
             --build-name="$APP_BUILD_NAME" \
             --build-number="$APP_BUILD_NUMBER"
+          mkdir -p dist
+          cp -f build/app/outputs/flutter-apk/app-release.apk \
+            "dist/truckledger-${APP_BUILD_NAME}-${APP_BUILD_NUMBER}-release.apk"
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 14
+          name: android-apk
+          path: dist/*.apk
+          retention-days: 30
+
+  github-release:
+    needs: [build-apk]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: release-assets
+      - name: Meta
+        id: meta
+        run: |
+          set -euo pipefail
+          source ./scripts/flutter_build_version_env.sh
+          echo "tag=android-v${APP_BUILD_NAME}-${APP_BUILD_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "name=卡车记账 Android ${APP_BUILD_NAME} (${APP_BUILD_NUMBER})" >> "$GITHUB_OUTPUT"
+          find release-assets -type f -ls
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          body: |
+            ## Android APK（手动 workflow）
+            - Commit: `${{ github.sha }}`
+          files: release-assets/**
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

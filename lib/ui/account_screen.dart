@@ -128,6 +128,21 @@ class _AccountScreenState extends State<AccountScreen> {
                       style: Theme.of(context).textTheme.bodySmall),
                   Text('同步状态：${_syncLabel(ledger.syncStatus)}',
                       style: Theme.of(context).textTheme.bodySmall),
+                  if (ledger.syncStatus == SyncStatus.pending) ...[
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      value: ledger.syncProgress,
+                    ),
+                    if (ledger.syncProgressMessage.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        ledger.syncProgress == null
+                            ? ledger.syncProgressMessage
+                            : '${ledger.syncProgressMessage} · ${((ledger.syncProgress ?? 0) * 100).toStringAsFixed(0)}%',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ],
                   if (ledger.syncError != null)
                     Text(ledger.syncError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
                 ],
@@ -258,6 +273,21 @@ class _AccountScreenState extends State<AccountScreen> {
             ),
           ],
           const SizedBox(height: 12),
+          if (_busy || ledger.syncStatus == SyncStatus.pending) ...[
+            LinearProgressIndicator(
+              value: ledger.syncStatus == SyncStatus.pending ? ledger.syncProgress : null,
+            ),
+            const SizedBox(height: 8),
+            if (ledger.syncStatus == SyncStatus.pending &&
+                ledger.syncProgressMessage.isNotEmpty)
+              Text(
+                ledger.syncProgressMessage,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            if (ledger.syncStatus == SyncStatus.pending &&
+                ledger.syncProgressMessage.isNotEmpty)
+              const SizedBox(height: 8),
+          ],
           FilledButton.icon(
             onPressed: _busy ? null : () => _run(ledger.syncWithCloud),
             icon: const Icon(Icons.sync),

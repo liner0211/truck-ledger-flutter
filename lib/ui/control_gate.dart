@@ -248,9 +248,19 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
                 Text(_blockBody ?? '', textAlign: TextAlign.center),
                 if (_updating) ...[
                   const SizedBox(height: 16),
-                  LinearProgressIndicator(value: _updateProgress > 0 ? _updateProgress : null),
+                  LinearProgressIndicator(
+                    value: _updateProgress > 0 && _updateProgress < 1
+                        ? _updateProgress
+                        : (_updateProgress >= 1 ? 1 : null),
+                  ),
                   const SizedBox(height: 8),
-                  Text('下载中… ${(_updateProgress * 100).toStringAsFixed(0)}%'),
+                  Text(
+                    _updateProgress <= 0
+                        ? '准备下载…'
+                        : _updateProgress >= 1
+                            ? '下载完成，正在打开安装包…'
+                            : '下载中… ${(_updateProgress * 100).toStringAsFixed(0)}%',
+                  ),
                 ],
                 const SizedBox(height: 24),
                 if (canUpdate)
@@ -296,21 +306,43 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
               bottom: false,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Icon(Icons.info_outline, size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(child: Text(_banner!, style: const TextStyle(fontSize: 13))),
-                    if (_updateUrl != null && _updateUrl!.isNotEmpty)
-                      TextButton(
-                        onPressed: _updating ? null : _doUpdate,
-                        child: const Text('更新'),
-                      ),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => setState(() => _banner = null),
-                      icon: const Icon(Icons.close, size: 18),
+                    Row(
+                      children: [
+                        const Icon(Icons.info_outline, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(_banner!, style: const TextStyle(fontSize: 13))),
+                        if (_updateUrl != null && _updateUrl!.isNotEmpty)
+                          TextButton(
+                            onPressed: _updating ? null : _doUpdate,
+                            child: Text(_updating ? '下载中' : '更新'),
+                          ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          onPressed: _updating ? null : () => setState(() => _banner = null),
+                          icon: const Icon(Icons.close, size: 18),
+                        ),
+                      ],
                     ),
+                    if (_updating) ...[
+                      const SizedBox(height: 6),
+                      LinearProgressIndicator(
+                        value: _updateProgress > 0 && _updateProgress < 1
+                            ? _updateProgress
+                            : (_updateProgress >= 1 ? 1 : null),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _updateProgress <= 0
+                            ? '准备下载…'
+                            : _updateProgress >= 1
+                                ? '下载完成…'
+                                : '下载 ${(_updateProgress * 100).toStringAsFixed(0)}%',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
                   ],
                 ),
               ),
