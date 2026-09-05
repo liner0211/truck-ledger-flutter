@@ -1,0 +1,53 @@
+name: Deploy Server PHP
+
+# push main 且改动 server-php 时，自动 rsync 到生产机（保留 config.php / data / downloads）
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "server-php/**"
+      - "scripts/deploy_server_php.sh"
+      - ".github/workflows/deploy-server.yml"
+
+concurrency:
+  group: deploy-server-php
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        env:
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVER_SSH_KEY:-}" ]; then
+            echo "缺少 secrets.SERVER_SSH_KEY，跳过部署"
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Deploy via rsync
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_PORT: ${{ secrets.SERVER_PORT }}
+          SERVER_PATH: ${{ secrets.SERVER_PATH }}
+          SERVER_HEALTH_URL: ${{ secrets.SERVER_HEALTH_URL }}
+        run: |
+          set -euo pipefail
+          : "${SERVER_HOST:?set secrets.SERVER_HOST}"
+          export SERVER_USER="${SERVER_USER:-root}"
+          export SERVER_PORT="${SERVER_PORT:-22}"
+          export SERVER_PATH="${SERVER_PATH:-/www/wwwroot/truck.liner0211.online}"
+          export SERVER_SSH_KEY="$HOME/.ssh/deploy_key"
+          export SERVER_HEALTH_URL="${SERVER_HEALTH_URL:-https://${SERVER_HOST}/api/health?deep=1}"
+          ./scripts/deploy_server_php.sh

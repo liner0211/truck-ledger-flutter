@@ -66,6 +66,57 @@ if (strpos($uri, '/api/') === 0) {
         JsonResponse::send(AuthService::publicConfig($pdo));
     }
 
+    // CI：发布版本（更新 latest_version / 下载地址）；Header: X-CI-Token
+    if ($uri === '/api/ci/publish-release' && $method === 'POST') {
+        $expected = trim((string)($cfg['ci_publish_token'] ?? ''));
+        $got = trim(requestHeader('X-CI-Token'));
+        if ($expected === '' || $got === '' || !hash_equals($expected, $got)) {
+            JsonResponse::error('CI 令牌无效', 401);
+        }
+        $body = readJsonBody();
+        $version = trim((string)($body['latest_version'] ?? ''));
+        if ($version === '') {
+            JsonResponse::error('latest_version 不能为空', 400);
+        }
+        $adminId = null;
+        AppControlService::setSetting($pdo, 'latest_version', $version, $adminId);
+        if (array_key_exists('min_version', $body) && trim((string)$body['min_version']) !== '') {
+            AppControlService::setSetting($pdo, 'min_version', trim((string)$body['min_version']), $adminId);
+        }
+        if (array_key_exists('apk_download_url', $body)) {
+            AppControlService::setSetting($pdo, 'apk_download_url', trim((string)$body['apk_download_url']), $adminId);
+        }
+        if (array_key_exists('ios_download_url', $body)) {
+            AppControlService::setSetting($pdo, 'ios_download_url', trim((string)$body['ios_download_url']), $adminId);
+        }
+        if (array_key_exists('update_release_notes', $body)) {
+            AppControlService::setSetting($pdo, 'update_release_notes', trim((string)$body['update_release_notes']), $adminId);
+        }
+        if (array_key_exists('force_update', $body)) {
+            $fu = (string)$body['force_update'];
+            if (in_array($fu, ['0', '1'], true)) {
+                AppControlService::setSetting($pdo, 'force_update', $fu, $adminId);
+            }
+        }
+        AppControlService::audit($pdo, null, 'CI_PUBLISH_RELEASE', 'app_settings', 'latest_version', [
+            'latest_version' => $version,
+            'apk_download_url' => $body['apk_download_url'] ?? null,
+            'ios_download_url' => $body['ios_download_url'] ?? null,
+            'force_update' => $body['force_update'] ?? null,
+        ]);
+        JsonResponse::send([
+            'ok' => true,
+            'latest_version' => $version,
+            'settings' => [
+                'latest_version' => SettingsService::get($pdo, 'latest_version', $version),
+                'min_version' => SettingsService::get($pdo, 'min_version', ''),
+                'apk_download_url' => SettingsService::get($pdo, 'apk_download_url', ''),
+                'ios_download_url' => SettingsService::get($pdo, 'ios_download_url', ''),
+                'force_update' => SettingsService::get($pdo, 'force_update', '0'),
+            ],
+        ]);
+    }
+
     if ($uri === '/api/auth/register' && $method === 'POST') {
         RateLimitService::assert($cfg, 'register', 10, 3600);
         $body = readJsonBody();

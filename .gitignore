@@ -58,3 +58,4 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 dev/android_signing_secrets.env
+dev/ci_publish_secrets.env

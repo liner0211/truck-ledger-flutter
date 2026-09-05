@@ -22,4 +22,6 @@ return [
     'cors_origins' => ['*'],
     // 可选：Firebase Cloud Messaging Legacy Server Key；不配则仅站内信
     'fcm_server_key' => '',
+    // CI 发布版本令牌（GitHub Actions 调 /api/ci/publish-release）；请改为长随机串
+    'ci_publish_token' => '',
 ];

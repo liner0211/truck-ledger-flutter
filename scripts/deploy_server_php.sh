@@ -34,6 +34,7 @@ echo "    （跳过远端 config.php、data/）"
 rsync -avz --delete \
   --exclude 'config.php' \
   --exclude 'data/' \
+  --exclude 'public/downloads/' \
   --exclude '.git/' \
   --exclude '*.zip' \
   --exclude '.user.ini' \
@@ -46,11 +47,11 @@ echo "==> 远端权限与自检"
 ssh "${SSH_OPTS[@]}" "${SERVER_USER}@${SERVER_HOST}" bash -s <<EOF
 set -e
 cd '$SERVER_PATH'
-mkdir -p data/attachments
+mkdir -p data/attachments public/downloads
 # 宝塔常见运行用户 www
 if id www >/dev/null 2>&1; then
-  chown -R www:www data 2>/dev/null || true
-  chmod -R 755 data 2>/dev/null || true
+  chown -R www:www data public/downloads 2>/dev/null || true
+  chmod -R 755 data public/downloads 2>/dev/null || true
 fi
 if [[ ! -f config.php ]]; then
   echo '警告：远端尚无 config.php，请从 config.example.php 复制并填写密钥'

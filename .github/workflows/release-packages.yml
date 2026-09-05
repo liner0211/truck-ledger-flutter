@@ -204,6 +204,7 @@ jobs:
           ls -lh release-assets/
 
       - name: Create GitHub Release
+        id: release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
@@ -216,3 +217,95 @@ jobs:
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-control-plane:
+    needs: [build-android, build-ios, github-release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: release-assets
+
+      - name: Download iOS packages
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-packages
+          path: release-assets
+
+      - name: Upload packages + publish version to control plane
+        env:
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_PORT: ${{ secrets.SERVER_PORT }}
+          SERVER_PATH: ${{ secrets.SERVER_PATH }}
+          PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
+          CI_PUBLISH_TOKEN: ${{ secrets.CI_PUBLISH_TOKEN }}
+          FORCE_UPDATE_ON_RELEASE: ${{ secrets.FORCE_UPDATE_ON_RELEASE }}
+          VERSION_NAME: ${{ needs.build-android.outputs.version_name }}
+          VERSION_CODE: ${{ needs.build-android.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVER_SSH_KEY:-}" ] || [ -z "${CI_PUBLISH_TOKEN:-}" ] || [ -z "${SERVER_HOST:-}" ]; then
+            echo "缺少 SERVER_SSH_KEY / CI_PUBLISH_TOKEN / SERVER_HOST，跳过控制面版本发布。"
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          USER="${SERVER_USER:-root}"
+          PORT="${SERVER_PORT:-22}"
+          PATH_ROOT="${SERVER_PATH:-/www/wwwroot/truck.liner0211.online}"
+          BASE="${PUBLIC_BASE_URL:-https://truck.liner0211.online}"
+          BASE="${BASE%/}"
+          SSH=(ssh -i "$HOME/.ssh/deploy_key" -p "$PORT" -o StrictHostKeyChecking=accept-new)
+          SCP=(scp -i "$HOME/.ssh/deploy_key" -P "$PORT" -o StrictHostKeyChecking=accept-new)
+
+          APK=$(ls -1 release-assets/*.apk | head -1)
+          DEB=$(ls -1 release-assets/*.deb 2>/dev/null | head -1 || true)
+          test -f "$APK"
+
+          "${SSH[@]}" "${USER}@${SERVER_HOST}" "mkdir -p '${PATH_ROOT}/public/downloads'"
+          "${SCP[@]}" "$APK" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-latest.apk"
+          "${SCP[@]}" "$APK" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-${VERSION_NAME}-${VERSION_CODE}.apk"
+          IOS_URL=""
+          if [[ -n "${DEB:-}" && -f "$DEB" ]]; then
+            "${SCP[@]}" "$DEB" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-latest.deb"
+            "${SCP[@]}" "$DEB" "${USER}@${SERVER_HOST}:${PATH_ROOT}/public/downloads/truckledger-${VERSION_NAME}-${VERSION_CODE}.deb"
+            IOS_URL="${BASE}/downloads/truckledger-latest.deb"
+          fi
+          "${SSH[@]}" "${USER}@${SERVER_HOST}" "if id www >/dev/null 2>&1; then chown -R www:www '${PATH_ROOT}/public/downloads' || true; chmod -R a+rX '${PATH_ROOT}/public/downloads' || true; fi"
+
+          APK_URL="${BASE}/downloads/truckledger-latest.apk"
+          NOTES="自动发布 ${VERSION_NAME}+${VERSION_CODE}（${GITHUB_SHA::7}）"
+          FORCE="${FORCE_UPDATE_ON_RELEASE:-0}"
+          if [[ "$FORCE" != "1" ]]; then FORCE=0; fi
+
+          BODY=$(jq -n \
+            --arg v "$VERSION_NAME" \
+            --arg apk "$APK_URL" \
+            --arg ios "$IOS_URL" \
+            --arg notes "$NOTES" \
+            --arg force "$FORCE" \
+            '{
+              latest_version: $v,
+              apk_download_url: $apk,
+              ios_download_url: $ios,
+              update_release_notes: $notes,
+              force_update: $force
+            }')
+
+          curl -fsS -X POST "${BASE}/api/ci/publish-release" \
+            -H "Content-Type: application/json" \
+            -H "X-CI-Token: ${CI_PUBLISH_TOKEN}" \
+            -d "$BODY"
+
+          echo
+          echo "Published latest_version=$VERSION_NAME apk=$APK_URL force=$FORCE"
