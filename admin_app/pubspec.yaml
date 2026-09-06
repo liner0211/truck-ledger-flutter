@@ -1,7 +1,7 @@
 name: truck_ledger_admin
 description: 卡车记账管理端（Android / iOS / Windows / Linux）
 publish_to: 'none'
-version: 1.1.1+1
+version: 1.2.0+1
 
 environment:
   sdk: ^3.11.5
@@ -16,6 +16,9 @@ dependencies:
   excel: ^4.0.6
   share_plus: ^10.1.4
   url_launcher: ^6.3.1
+  package_info_plus: ^9.0.1
+  open_filex: ^4.7.0
+  permission_handler: ^11.4.0
   truck_ledger_editor:
     path: ../shared/truck_ledger_editor
   path_provider: ^2.1.5

@@ -19,6 +19,7 @@ final class Config
         self::$cfg['data_dir'] = $root . '/data';
         self::$cfg['db_path'] = $root . '/data/truck_ledger.db';
         self::$cfg['attachments_dir'] = $root . '/data/attachments';
+        self::$cfg['message_attachments_dir'] = $root . '/data/message_attachments';
         return self::$cfg;
     }
 

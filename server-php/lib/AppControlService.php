@@ -138,6 +138,10 @@ final class AppControlService
             'trial_days', 'trial_max_rounds', 'trial_max_attachments', 'expiry_policy',
             'registration_enabled', 'feature_flags',
             'apk_download_url', 'ios_download_url', 'update_release_notes',
+            'admin_latest_version', 'admin_min_version', 'admin_force_update',
+            'admin_apk_download_url', 'admin_ios_download_url',
+            'admin_linux_download_url', 'admin_windows_download_url',
+            'admin_update_release_notes',
         ];
         if (!in_array($key, $allowed, true)) {
             JsonResponse::error('不允许修改该配置', 400);
@@ -145,10 +149,15 @@ final class AppControlService
         if ($key === 'app_status' && !in_array($value, ['ACTIVE', 'MAINTENANCE', 'DISABLED'], true)) {
             JsonResponse::error('应用状态无效', 400);
         }
-        if ($key === 'force_update' && !in_array($value, ['0', '1'], true)) {
+        if (in_array($key, ['force_update', 'admin_force_update'], true) && !in_array($value, ['0', '1'], true)) {
             JsonResponse::error('强制升级值无效', 400);
         }
-        if (in_array($key, ['apk_download_url', 'ios_download_url'], true) && $value !== '') {
+        $urlKeys = [
+            'apk_download_url', 'ios_download_url',
+            'admin_apk_download_url', 'admin_ios_download_url',
+            'admin_linux_download_url', 'admin_windows_download_url',
+        ];
+        if (in_array($key, $urlKeys, true) && $value !== '') {
             if (!filter_var($value, FILTER_VALIDATE_URL) || !preg_match('#^https?://#i', $value)) {
                 JsonResponse::error('下载地址须为 http(s) URL', 400);
             }
@@ -290,6 +299,47 @@ final class AppControlService
             ];
         }
         return $out;
+    }
+
+    /** 管理端 App 版本检查（与司机端字段完全分离） */
+    public static function adminAppCheck(PDO $pdo, string $appVersion): array
+    {
+        $s = self::settings($pdo);
+        $minVersion = trim((string)($s['admin_min_version'] ?? ''));
+        $latestVersion = trim((string)($s['admin_latest_version'] ?? ''));
+        if ($latestVersion === '') {
+            $latestVersion = '0.0.0';
+        }
+        $clientVersion = trim($appVersion);
+        $forceFlag = (($s['admin_force_update'] ?? '0') === '1');
+        $belowMin = $minVersion !== '' && self::versionCompare($clientVersion, $minVersion) < 0;
+        $belowLatest = self::versionCompare($clientVersion, $latestVersion) < 0;
+        $forceUpdateNeeded = $forceFlag && $belowLatest;
+        $updateRequired = $belowMin || $forceUpdateNeeded;
+        $platform = strtolower((string)($_SERVER['HTTP_X_APP_PLATFORM'] ?? 'unknown'));
+        $apk = trim((string)($s['admin_apk_download_url'] ?? ''));
+        $ios = trim((string)($s['admin_ios_download_url'] ?? ''));
+        $linux = trim((string)($s['admin_linux_download_url'] ?? ''));
+        $windows = trim((string)($s['admin_windows_download_url'] ?? ''));
+        $downloadUrl = $apk;
+        if (str_contains($platform, 'ios') || $platform === 'iphone' || $platform === 'ipad') {
+            $downloadUrl = $ios !== '' ? $ios : $apk;
+        } elseif (str_contains($platform, 'linux')) {
+            $downloadUrl = $linux !== '' ? $linux : $apk;
+        } elseif (str_contains($platform, 'windows') || str_contains($platform, 'win')) {
+            $downloadUrl = $windows !== '' ? $windows : $apk;
+        }
+        return [
+            'allowed' => !$updateRequired,
+            'update' => [
+                'available' => $belowLatest && $latestVersion !== '0.0.0',
+                'force' => $updateRequired,
+                'download_url' => $downloadUrl,
+                'release_notes' => trim((string)($s['admin_update_release_notes'] ?? '')),
+                'latest_version' => $latestVersion,
+                'min_version' => $minVersion,
+            ],
+        ];
     }
 
     /** @return list<int> [major, minor, patch, build] */

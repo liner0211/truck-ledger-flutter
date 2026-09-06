@@ -33,7 +33,9 @@
       · rev <?= (int)($ledger['revision'] ?? 0) ?>
       · <?= count($ledger['rounds'] ?? []) ?> 个圈次
     </span>
+    <?php if (!empty($canOps)): ?>
     <a href="/admin/users/<?= (int)$userId ?>/ops">快照与设备</a>
+    <?php endif; ?>
     <?php if (!empty($message)): ?>
       <div class="flash"><?= htmlspecialchars($message, ENT_QUOTES, 'UTF-8') ?></div>
     <?php endif; ?>

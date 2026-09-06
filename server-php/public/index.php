@@ -117,6 +117,41 @@ if (strpos($uri, '/api/') === 0) {
         ]);
     }
 
+    // CI：管理端发版回写（与司机端字段分离）
+    if ($uri === '/api/ci/publish-admin-release' && $method === 'POST') {
+        $expected = trim((string)($cfg['ci_publish_token'] ?? ''));
+        $got = trim(requestHeader('X-CI-Token'));
+        if ($expected === '' || $got === '' || !hash_equals($expected, $got)) {
+            JsonResponse::error('CI 令牌无效', 401);
+        }
+        $body = readJsonBody();
+        $version = trim((string)($body['admin_latest_version'] ?? $body['latest_version'] ?? ''));
+        if ($version === '') {
+            JsonResponse::error('admin_latest_version 不能为空', 400);
+        }
+        AppControlService::setSetting($pdo, 'admin_latest_version', $version, null);
+        $map = [
+            'admin_min_version' => 'admin_min_version',
+            'admin_apk_download_url' => 'admin_apk_download_url',
+            'admin_ios_download_url' => 'admin_ios_download_url',
+            'admin_linux_download_url' => 'admin_linux_download_url',
+            'admin_windows_download_url' => 'admin_windows_download_url',
+            'admin_update_release_notes' => 'admin_update_release_notes',
+        ];
+        foreach ($map as $bodyKey => $settingKey) {
+            if (array_key_exists($bodyKey, $body)) {
+                AppControlService::setSetting($pdo, $settingKey, trim((string)$body[$bodyKey]), null);
+            }
+        }
+        if (array_key_exists('admin_force_update', $body) && in_array((string)$body['admin_force_update'], ['0', '1'], true)) {
+            AppControlService::setSetting($pdo, 'admin_force_update', (string)$body['admin_force_update'], null);
+        }
+        AppControlService::audit($pdo, null, 'CI_PUBLISH_ADMIN_RELEASE', 'app_settings', 'admin_latest_version', [
+            'admin_latest_version' => $version,
+        ]);
+        JsonResponse::send(['ok' => true, 'admin_latest_version' => $version]);
+    }
+
     if ($uri === '/api/auth/register' && $method === 'POST') {
         RateLimitService::assert($cfg, 'register', 10, 3600);
         $body = readJsonBody();
@@ -267,6 +302,15 @@ if (strpos($uri, '/api/') === 0) {
         JsonResponse::send(['ok' => true]);
     }
 
+    if (preg_match('#^/api/messages/(\d+)/attachments/([^/]+)$#', $uri, $m) && $method === 'GET') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        $msgId = (int)$m[1];
+        if (MessageService::findForUser($pdo, (int)$user['id'], $msgId) === null) {
+            JsonResponse::error('消息不存在', 404);
+        }
+        MessageService::downloadAttachment($cfg, $msgId, urldecode($m[2]));
+    }
+
     // ---------- Admin Flutter / PC JSON API（JWT typ=admin）----------
     if ($uri === '/api/admin/login' && $method === 'POST') {
         RateLimitService::assert($cfg, 'admin_login', 20, 600);
@@ -291,6 +335,58 @@ if (strpos($uri, '/api/') === 0) {
             JsonResponse::send(AdminAuthService::publicAdmin($admin));
         }
 
+        if ($uri === '/api/admin/app/check' && ($method === 'GET' || $method === 'POST')) {
+            $body = $method === 'POST' ? readJsonBody() : [];
+            $ver = trim((string)($body['app_version'] ?? ($_GET['app_version'] ?? '')));
+            if ($ver === '') {
+                $ver = trim((string)($_SERVER['HTTP_X_APP_VERSION'] ?? '0.0.0'));
+            }
+            JsonResponse::send(AppControlService::adminAppCheck($pdo, $ver));
+        }
+
+        if (preg_match('#^/api/admin/users/(\d+)/messages$#', $uri, $m) && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'messages.send');
+            $userId = (int)$m[1];
+            if (AdminService::getUser($pdo, $userId) === null) {
+                JsonResponse::error('用户不存在', 404);
+            }
+            $title = trim((string)($_POST['title'] ?? ''));
+            $text = trim((string)($_POST['body'] ?? ''));
+            $tripId = trim((string)($_POST['trip_id'] ?? ''));
+            $tripTitle = trim((string)($_POST['trip_title'] ?? ''));
+            // JSON fallback
+            if ($title === '' && str_contains((string)($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json')) {
+                $body = readJsonBody();
+                $title = trim((string)($body['title'] ?? ''));
+                $text = trim((string)($body['body'] ?? ''));
+                $tripId = trim((string)($body['trip_id'] ?? ''));
+                $tripTitle = trim((string)($body['trip_title'] ?? ''));
+            }
+            if ($title === '' || $text === '') {
+                JsonResponse::error('标题与内容不能为空', 400);
+            }
+            $meta = [
+                'trip_id' => $tripId,
+                'trip_title' => $tripTitle,
+                'images' => [],
+            ];
+            $msgId = MessageService::create($pdo, $userId, $title, $text, 'ops.reconcile', null, $meta);
+            $images = MessageService::saveUploadedImages($cfg, $msgId);
+            if ($images !== []) {
+                $meta['images'] = $images;
+                $pdo->prepare('UPDATE messages SET meta_json=? WHERE id=?')->execute([
+                    json_encode($meta, JSON_UNESCAPED_UNICODE) ?: '{}',
+                    $msgId,
+                ]);
+            }
+            PushService::sendToUser($pdo, $cfg, $userId, $title, $text);
+            AppControlService::audit($pdo, $adminId, 'ADMIN_RECONCILE_MSG', 'user', (string)$userId, [
+                'message_id' => $msgId,
+                'trip_id' => $tripId,
+            ]);
+            JsonResponse::send(['ok' => true, 'message_id' => $msgId, 'images' => $images]);
+        }
+
         if ($uri === '/api/admin/dashboard' && $method === 'GET') {
             AdminAuthService::requirePermission($admin, 'dashboard.read');
             $settings = AppControlService::settings($pdo);
@@ -308,6 +404,14 @@ if (strpos($uri, '/api/') === 0) {
                     'announcement' => $settings['announcement'] ?? '',
                     'maintenance_message' => $settings['maintenance_message'] ?? '',
                     'registration_enabled' => $settings['registration_enabled'] ?? '1',
+                    'admin_latest_version' => $settings['admin_latest_version'] ?? '',
+                    'admin_min_version' => $settings['admin_min_version'] ?? '',
+                    'admin_force_update' => $settings['admin_force_update'] ?? '0',
+                    'admin_apk_download_url' => $settings['admin_apk_download_url'] ?? '',
+                    'admin_ios_download_url' => $settings['admin_ios_download_url'] ?? '',
+                    'admin_linux_download_url' => $settings['admin_linux_download_url'] ?? '',
+                    'admin_windows_download_url' => $settings['admin_windows_download_url'] ?? '',
+                    'admin_update_release_notes' => $settings['admin_update_release_notes'] ?? '',
                 ],
                 'admin' => AdminAuthService::publicAdmin($admin),
             ]);
@@ -991,16 +1095,27 @@ if (preg_match('#^/admin/users/(\d+)/ledger$#', $uri, $m) && $method === 'GET') 
         exit;
     }
     $ledger = AdminService::getUserLedger($pdo, (int)$m[1]) ?? ['rounds' => [], 'updated_at' => 0, 'revision' => 0];
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
     render('admin_user_ledger.php', [
         'user' => $user,
         'userId' => (int)$m[1],
         'ledger' => $ledger,
         'message' => (string)($_GET['msg'] ?? ''),
+        'canOps' => AdminAuthService::can($sessionAdmin, 'devices.write')
+            || AdminAuthService::can($sessionAdmin, 'snapshots.restore'),
     ]);
 }
 
 if (preg_match('#^/admin/users/(\d+)/ops$#', $uri, $m) && $method === 'GET') {
     AdminService::requireLogin();
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
+    if (
+        !AdminAuthService::can($sessionAdmin, 'devices.write')
+        && !AdminAuthService::can($sessionAdmin, 'snapshots.restore')
+    ) {
+        header('Location: /admin/dashboard?msg=' . urlencode('权限不足：快照与设备仅开发者可访问'));
+        exit;
+    }
     $user = AdminService::getUser($pdo, (int)$m[1]);
     if ($user === null) {
         http_response_code(404);
@@ -1014,7 +1129,7 @@ if (preg_match('#^/admin/users/(\d+)/ops$#', $uri, $m) && $method === 'GET') {
         'devices' => AppControlService::listDevices($pdo, (int)$m[1]),
         'csrf' => AdminService::csrfToken(),
         'message' => (string)($_GET['msg'] ?? ''),
-        'admin' => AdminAuthService::publicAdmin(AdminAuthService::currentSessionAdmin($pdo) ?? ['id'=>0,'username'=>'','role'=>'operator','is_enabled'=>1]),
+        'admin' => AdminAuthService::publicAdmin($sessionAdmin ?? ['id'=>0,'username'=>'','role'=>'operator','is_enabled'=>1]),
     ]);
 }
 

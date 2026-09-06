@@ -3,6 +3,27 @@ import 'dart:convert';
 import 'api_http_client.dart';
 import 'auth_api.dart';
 
+class MessageMeta {
+  MessageMeta({
+    this.tripId = '',
+    this.tripTitle = '',
+    this.images = const [],
+  });
+
+  final String tripId;
+  final String tripTitle;
+  final List<String> images;
+
+  factory MessageMeta.fromJson(Map<String, dynamic>? m) {
+    if (m == null) return MessageMeta();
+    return MessageMeta(
+      tripId: '${m['trip_id'] ?? ''}',
+      tripTitle: '${m['trip_title'] ?? ''}',
+      images: (m['images'] as List?)?.map((e) => '$e').toList() ?? const [],
+    );
+  }
+}
+
 class InboxMessage {
   InboxMessage({
     required this.id,
@@ -11,6 +32,7 @@ class InboxMessage {
     required this.type,
     required this.createdAt,
     required this.isRead,
+    this.meta,
   });
 
   final int id;
@@ -19,6 +41,7 @@ class InboxMessage {
   final String type;
   final int createdAt;
   final bool isRead;
+  final MessageMeta? meta;
 
   factory InboxMessage.fromJson(Map<String, dynamic> m) => InboxMessage(
         id: (m['id'] as num).toInt(),
@@ -27,6 +50,9 @@ class InboxMessage {
         type: (m['type'] as String?) ?? '',
         createdAt: (m['created_at'] as num?)?.toInt() ?? 0,
         isRead: m['is_read'] == true,
+        meta: m['meta'] is Map
+            ? MessageMeta.fromJson((m['meta'] as Map).cast<String, dynamic>())
+            : null,
       );
 }
 
@@ -46,6 +72,10 @@ class MessagesApi {
         'Content-Type': 'application/json',
       };
 
+  Map<String, String> get _authOnly => {
+        'Authorization': 'Bearer $token',
+      };
+
   Future<({List<InboxMessage> messages, int unread})> list() async {
     final res = await apiHttpClient
         .get(Uri.parse(_url('/api/messages')), headers: _headers)
@@ -62,6 +92,20 @@ class MessagesApi {
         .map((e) => InboxMessage.fromJson(e.cast<String, dynamic>()))
         .toList();
     return (messages: list, unread: (m['unread'] as num?)?.toInt() ?? 0);
+  }
+
+  Future<List<int>> downloadAttachment(int messageId, String filename) async {
+    final enc = Uri.encodeComponent(filename);
+    final res = await apiHttpClient
+        .get(
+          Uri.parse(_url('/api/messages/$messageId/attachments/$enc')),
+          headers: _authOnly,
+        )
+        .timeout(const Duration(seconds: 60));
+    if (res.statusCode != 200) {
+      throw ApiException('下载消息附件失败（${res.statusCode}）', statusCode: res.statusCode);
+    }
+    return res.bodyBytes;
   }
 
   Future<void> markRead(int id) async {

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -52,6 +53,22 @@ class AdminApi {
         'Content-Type': 'application/json',
         if (token != null && token!.isNotEmpty) 'Authorization': 'Bearer $token',
       };
+
+  Map<String, String> _headersWithPlatform() {
+    final h = Map<String, String>.from(_headers);
+    if (!kIsWeb) {
+      if (Platform.isAndroid) {
+        h['X-App-Platform'] = 'android';
+      } else if (Platform.isIOS) {
+        h['X-App-Platform'] = 'ios';
+      } else if (Platform.isLinux) {
+        h['X-App-Platform'] = 'linux';
+      } else if (Platform.isWindows) {
+        h['X-App-Platform'] = 'windows';
+      }
+    }
+    return h;
+  }
 
   Future<Map<String, dynamic>> _json(
     String method,
@@ -200,6 +217,61 @@ class AdminApi {
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw AdminApiException('上传附件失败（${res.statusCode}）', statusCode: res.statusCode);
     }
+  }
+
+  Future<void> sendReconcileMessage(
+    int userId, {
+    required String title,
+    required String body,
+    String tripId = '',
+    String tripTitle = '',
+    List<({String filename, List<int> bytes})> images = const [],
+  }) async {
+    final req = http.MultipartRequest('POST', _u('/api/admin/users/$userId/messages'));
+    req.headers.addAll(_authOnlyHeaders);
+    req.fields['title'] = title;
+    req.fields['body'] = body;
+    req.fields['trip_id'] = tripId;
+    req.fields['trip_title'] = tripTitle;
+    for (final img in images) {
+      req.files.add(http.MultipartFile.fromBytes('images', img.bytes, filename: img.filename));
+    }
+    final streamed = await req.send().timeout(const Duration(seconds: 90));
+    final res = await http.Response.fromStream(streamed);
+    Map<String, dynamic>? data;
+    try {
+      final decoded = jsonDecode(res.body);
+      if (decoded is Map) data = decoded.cast<String, dynamic>();
+    } catch (_) {}
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw AdminApiException(
+        data?['detail']?.toString() ?? '发送失败（${res.statusCode}）',
+        statusCode: res.statusCode,
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> checkAdminAppUpdate(String appVersion) async {
+    final uri = _u('/api/admin/app/check');
+    final res = await http
+        .post(
+          uri,
+          headers: _headersWithPlatform(),
+          body: jsonEncode({'app_version': appVersion}),
+        )
+        .timeout(const Duration(seconds: 30));
+    Map<String, dynamic>? data;
+    try {
+      final decoded = jsonDecode(res.body);
+      if (decoded is Map) data = decoded.cast<String, dynamic>();
+    } catch (_) {}
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw AdminApiException(
+        data?['detail']?.toString() ?? '检查更新失败（${res.statusCode}）',
+        statusCode: res.statusCode,
+      );
+    }
+    return data ?? {};
   }
 
   static String defaultBaseUrl() {

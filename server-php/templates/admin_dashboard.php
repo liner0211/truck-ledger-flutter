@@ -63,11 +63,20 @@
         </span>
       <?php endif; ?>
       <a href="/app/" target="_blank">用户 Web 账本</a>
+      <?php if (!empty($admin) && in_array('control.write', $admin['permissions'] ?? [], true)): ?>
       <a href="/api/health?deep=1" target="_blank">健康检查</a>
+      <?php endif; ?>
       <a href="/admin/logout">退出</a>
     </nav>
   </header>
   <main>
+    <?php
+      $canControl = !empty($admin) && in_array('control.write', $admin['permissions'] ?? [], true);
+      $canOps = !empty($admin) && (
+        in_array('devices.write', $admin['permissions'] ?? [], true)
+        || in_array('snapshots.restore', $admin['permissions'] ?? [], true)
+      );
+    ?>
     <?php if (!empty($message)): ?>
       <div class="flash"><?= htmlspecialchars($message, ENT_QUOTES, 'UTF-8') ?></div>
     <?php endif; ?>
@@ -81,6 +90,7 @@
       <div class="stat"><div class="label">数据占用</div><div class="value"><?= htmlspecialchars((string)$stats['data_size_mb'], ENT_QUOTES, 'UTF-8') ?> MB</div></div>
     </div>
 
+    <?php if ($canControl): ?>
     <div class="grid2">
       <div class="panel">
         <h2>系统健康</h2>
@@ -124,7 +134,7 @@
     </div>
 
     <div class="panel">
-      <h2>应用控制面</h2>
+      <h2>应用控制面（司机端）</h2>
       <div class="panel-body">
         <?php
           $ctrlFields = [
@@ -142,8 +152,15 @@
             'trial_max_rounds' => ['试用圈次上限(0不限)', 'number', null],
             'trial_max_attachments' => ['试用附件上限(0不限)', 'number', null],
             'expiry_policy' => ['到期策略', 'select', ['readonly'=>'只读','block'=>'禁止登录']],
+            'admin_latest_version' => ['【管理端】最新版本', 'text', null],
+            'admin_min_version' => ['【管理端】最低版本', 'text', null],
+            'admin_force_update' => ['【管理端】强制升级', 'select', ['0'=>'否','1'=>'是']],
+            'admin_apk_download_url' => ['【管理端】Android APK', 'text', null],
+            'admin_ios_download_url' => ['【管理端】iOS IPA', 'text', null],
+            'admin_linux_download_url' => ['【管理端】Linux 包', 'text', null],
+            'admin_windows_download_url' => ['【管理端】Windows 包', 'text', null],
+            'admin_update_release_notes' => ['【管理端】更新说明', 'text', null],
           ];
-          $canControl = !empty($admin) && in_array('control.write', $admin['permissions'] ?? [], true);
           foreach ($ctrlFields as $key => $meta):
             $label = $meta[0]; $type = $meta[1]; $opts = $meta[2];
             $val = (string)($settings[$key] ?? '');
@@ -154,7 +171,6 @@
             <div class="muted"><code><?= htmlspecialchars($key, ENT_QUOTES, 'UTF-8') ?></code>
               当前：<?= htmlspecialchars($val !== '' ? $val : '—', ENT_QUOTES, 'UTF-8') ?></div>
           </div>
-          <?php if ($canControl): ?>
           <form method="post" action="/admin/settings" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
             <input type="hidden" name="key" value="<?= htmlspecialchars($key, ENT_QUOTES, 'UTF-8') ?>">
@@ -171,9 +187,6 @@
             <?php endif; ?>
             <button type="submit" class="btn-primary">保存</button>
           </form>
-          <?php else: ?>
-            <span class="muted">只读（需开发者权限）</span>
-          <?php endif; ?>
         </div>
         <?php endforeach; ?>
         <p class="muted" style="margin-top:12px">说明：开启「强制升级」后，仅当客户端版本 &lt; 最新版本时才会拦截；已达最新版可正常使用。</p>
@@ -200,6 +213,7 @@
         </form>
       </div>
     </div>
+    <?php endif; ?>
 
     <div class="panel">
       <h2>远程通知 / 站内信</h2>
@@ -280,7 +294,9 @@
             <td class="muted"><?= htmlspecialchars($u['updated_at'], ENT_QUOTES, 'UTF-8') ?></td>
             <td class="ops">
               <a class="btn-view" href="/admin/users/<?= (int)$u['id'] ?>/ledger" target="_blank">账本</a>
+              <?php if ($canOps): ?>
               <a class="btn-view" href="/admin/users/<?= (int)$u['id'] ?>/ops" target="_blank">快照/设备</a>
+              <?php endif; ?>
               <form method="post" action="/admin/users/<?= (int)$u['id'] ?>/extend" style="display:inline">
                 <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
                 <input type="hidden" name="days" value="14">
@@ -329,6 +345,7 @@
       <?php endif; ?>
     </div>
 
+    <?php if ($canControl): ?>
     <div class="panel">
       <h2>最近审计</h2>
       <div class="panel-body" style="overflow-x:auto;">
@@ -351,6 +368,7 @@
         <?php endif; ?>
       </div>
     </div>
+    <?php endif; ?>
 
     <?php if (!empty($admin) && in_array('admins.manage', $admin['permissions'] ?? [], true)): ?>
     <div class="panel">

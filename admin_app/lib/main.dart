@@ -1,9 +1,13 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'admin_api.dart';
+import 'admin_updater.dart';
 import 'user_ledger_page.dart';
 
 Future<void> main() async {
@@ -223,6 +227,79 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
+  String? _updateBanner;
+  String? _updateUrl;
+  bool _checkingUpdate = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkUpdate());
+  }
+
+  Future<void> _checkUpdate() async {
+    if (_checkingUpdate) return;
+    setState(() => _checkingUpdate = true);
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final ver = '${info.version}+${info.buildNumber}';
+      final platform = kIsWeb
+          ? 'web'
+          : (Platform.isAndroid
+              ? 'android'
+              : Platform.isIOS
+                  ? 'ios'
+                  : Platform.isLinux
+                      ? 'linux'
+                      : Platform.isWindows
+                          ? 'windows'
+                          : 'unknown');
+      final api = context.read<AdminSession>().api;
+      // platform via header is not set on AdminApi; pass in body is enough for version
+      final raw = await api.checkAdminAppUpdate(ver);
+      // re-call with platform: patch by temporarily using http would be better;
+      // for now version compare is enough; download_url may default to apk
+      final update = (raw['update'] as Map?)?.cast<String, dynamic>();
+      if (update == null) return;
+      final available = update['available'] == true;
+      final url = '${update['download_url'] ?? ''}';
+      final latest = '${update['latest_version'] ?? ''}';
+      if (available && url.isNotEmpty && mounted) {
+        setState(() {
+          _updateBanner = '管理端有新版本 $latest（当前 $ver）';
+          _updateUrl = url;
+        });
+      }
+      // Prefer platform-specific URL from settings if check returned apk for desktop
+      if (available && mounted && (platform == 'linux' || platform == 'windows')) {
+        try {
+          final d = await api.dashboard();
+          final s = (d['settings'] as Map?)?.cast<String, dynamic>() ?? {};
+          final prefer = platform == 'linux'
+              ? '${s['admin_linux_download_url'] ?? ''}'
+              : '${s['admin_windows_download_url'] ?? ''}';
+          if (prefer.isNotEmpty) {
+            setState(() => _updateUrl = prefer);
+          }
+        } catch (_) {}
+      }
+    } catch (_) {
+      // ignore soft check failures
+    } finally {
+      if (mounted) setState(() => _checkingUpdate = false);
+    }
+  }
+
+  Future<void> _installUpdate() async {
+    final url = _updateUrl;
+    if (url == null || url.isEmpty) return;
+    try {
+      await AdminAppUpdater.openOrInstall(url);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -251,22 +328,46 @@ class _HomeShellState extends State<HomeShell> {
         title: Text('管理端 · ${admin.username}（${admin.roleLabel}）'),
         actions: [
           IconButton(
+            tooltip: '检查更新',
+            onPressed: _checkingUpdate ? null : _checkUpdate,
+            icon: const Icon(Icons.system_update_alt),
+          ),
+          IconButton(
             tooltip: '退出',
             onPressed: () => s.logout(),
             icon: const Icon(Icons.logout),
           ),
         ],
       ),
-      body: Row(
+      body: Column(
         children: [
-          NavigationRail(
-            selectedIndex: _index,
-            onDestinationSelected: (i) => setState(() => _index = i),
-            labelType: NavigationRailLabelType.all,
-            destinations: destinations,
+          if (_updateBanner != null)
+            Material(
+              color: Theme.of(context).colorScheme.secondaryContainer,
+              child: ListTile(
+                dense: true,
+                title: Text(_updateBanner!),
+                trailing: FilledButton(
+                  onPressed: _installUpdate,
+                  child: const Text('更新'),
+                ),
+                onTap: _installUpdate,
+              ),
+            ),
+          Expanded(
+            child: Row(
+              children: [
+                NavigationRail(
+                  selectedIndex: _index,
+                  onDestinationSelected: (i) => setState(() => _index = i),
+                  labelType: NavigationRailLabelType.all,
+                  destinations: destinations,
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(child: pages[_index]),
+              ],
+            ),
           ),
-          const VerticalDivider(width: 1),
-          Expanded(child: pages[_index]),
         ],
       ),
     );
@@ -322,14 +423,15 @@ class _DashboardPageState extends State<DashboardPage> {
           ],
         ),
         const SizedBox(height: 16),
-        Card(
-          child: ListTile(
-            title: const Text('应用控制面快照'),
-            subtitle: Text(
-              '状态 ${settings['app_status']} · 最低 ${settings['min_version']} · 最新 ${settings['latest_version']} · 强更 ${settings['force_update']}',
+        if (context.watch<AdminSession>().admin?.can('control.write') == true)
+          Card(
+            child: ListTile(
+              title: const Text('应用控制面快照'),
+              subtitle: Text(
+                '状态 ${settings['app_status']} · 最低 ${settings['min_version']} · 最新 ${settings['latest_version']} · 强更 ${settings['force_update']}',
+              ),
             ),
           ),
-        ),
         TextButton(onPressed: _load, child: const Text('刷新')),
       ],
     );
@@ -361,6 +463,7 @@ class UsersPage extends StatefulWidget {
 class _UsersPageState extends State<UsersPage> {
   List<Map<String, dynamic>> _users = [];
   String? _err;
+  bool _loading = true;
 
   @override
   void initState() {
@@ -369,11 +472,26 @@ class _UsersPageState extends State<UsersPage> {
   }
 
   Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _err = null;
+    });
     try {
       final list = await context.read<AdminSession>().api.users();
-      if (mounted) setState(() { _users = list; _err = null; });
+      if (mounted) {
+        setState(() {
+          _users = list;
+          _err = null;
+          _loading = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() => _err = '$e');
+      if (mounted) {
+        setState(() {
+          _err = '$e';
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -395,6 +513,18 @@ class _UsersPageState extends State<UsersPage> {
   @override
   Widget build(BuildContext context) {
     final canDelete = context.watch<AdminSession>().admin?.can('users.delete') == true;
+    if (_loading) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(width: 200, child: LinearProgressIndicator()),
+            SizedBox(height: 12),
+            Text('加载用户列表…'),
+          ],
+        ),
+      );
+    }
     if (_err != null) return Center(child: Text(_err!));
     return RefreshIndicator(
       onRefresh: _load,
@@ -570,7 +700,14 @@ class _ControlPageState extends State<ControlPage> {
   final _apk = TextEditingController();
   final _ios = TextEditingController();
   final _notes = TextEditingController();
+  final _adminLatest = TextEditingController();
+  final _adminApk = TextEditingController();
+  final _adminIos = TextEditingController();
+  final _adminLinux = TextEditingController();
+  final _adminWin = TextEditingController();
+  final _adminNotes = TextEditingController();
   String _force = '0';
+  String _adminForce = '0';
   String _status = 'ACTIVE';
   bool _loading = true;
 
@@ -591,6 +728,13 @@ class _ControlPageState extends State<ControlPage> {
       _notes.text = '${s['update_release_notes'] ?? ''}';
       _force = '${s['force_update'] ?? '0'}';
       _status = '${s['app_status'] ?? 'ACTIVE'}';
+      _adminLatest.text = '${s['admin_latest_version'] ?? ''}';
+      _adminApk.text = '${s['admin_apk_download_url'] ?? ''}';
+      _adminIos.text = '${s['admin_ios_download_url'] ?? ''}';
+      _adminLinux.text = '${s['admin_linux_download_url'] ?? ''}';
+      _adminWin.text = '${s['admin_windows_download_url'] ?? ''}';
+      _adminNotes.text = '${s['admin_update_release_notes'] ?? ''}';
+      _adminForce = '${s['admin_force_update'] ?? '0'}';
     } catch (_) {}
     if (mounted) setState(() => _loading = false);
   }
@@ -643,9 +787,9 @@ class _ControlPageState extends State<ControlPage> {
             _save('force_update', v);
           },
         ),
-        TextField(controller: _apk, decoration: const InputDecoration(labelText: 'APK 下载地址')),
-        TextField(controller: _ios, decoration: const InputDecoration(labelText: 'iOS IPA 下载地址')),
-        TextField(controller: _notes, decoration: const InputDecoration(labelText: '更新说明'), maxLines: 3),
+        TextField(controller: _apk, decoration: const InputDecoration(labelText: '司机端 APK 下载地址')),
+        TextField(controller: _ios, decoration: const InputDecoration(labelText: '司机端 iOS IPA 下载地址')),
+        TextField(controller: _notes, decoration: const InputDecoration(labelText: '司机端更新说明'), maxLines: 3),
         const SizedBox(height: 12),
         FilledButton(
           onPressed: () async {
@@ -655,7 +799,40 @@ class _ControlPageState extends State<ControlPage> {
             await _save('ios_download_url', _ios.text.trim());
             await _save('update_release_notes', _notes.text.trim());
           },
-          child: const Text('保存版本与下载配置'),
+          child: const Text('保存司机端版本与下载配置'),
+        ),
+        const Divider(height: 32),
+        Text('管理端更新', style: Theme.of(context).textTheme.titleMedium),
+        TextField(controller: _adminLatest, decoration: const InputDecoration(labelText: '管理端最新版本')),
+        DropdownButtonFormField<String>(
+          initialValue: _adminForce,
+          decoration: const InputDecoration(labelText: '管理端强制升级'),
+          items: const [
+            DropdownMenuItem(value: '0', child: Text('否')),
+            DropdownMenuItem(value: '1', child: Text('是')),
+          ],
+          onChanged: (v) {
+            if (v == null) return;
+            setState(() => _adminForce = v);
+            _save('admin_force_update', v);
+          },
+        ),
+        TextField(controller: _adminApk, decoration: const InputDecoration(labelText: '管理端 APK')),
+        TextField(controller: _adminIos, decoration: const InputDecoration(labelText: '管理端 IPA')),
+        TextField(controller: _adminLinux, decoration: const InputDecoration(labelText: '管理端 Linux')),
+        TextField(controller: _adminWin, decoration: const InputDecoration(labelText: '管理端 Windows')),
+        TextField(controller: _adminNotes, decoration: const InputDecoration(labelText: '管理端更新说明'), maxLines: 2),
+        const SizedBox(height: 12),
+        FilledButton.tonal(
+          onPressed: () async {
+            await _save('admin_latest_version', _adminLatest.text.trim());
+            await _save('admin_apk_download_url', _adminApk.text.trim());
+            await _save('admin_ios_download_url', _adminIos.text.trim());
+            await _save('admin_linux_download_url', _adminLinux.text.trim());
+            await _save('admin_windows_download_url', _adminWin.text.trim());
+            await _save('admin_update_release_notes', _adminNotes.text.trim());
+          },
+          child: const Text('保存管理端更新配置'),
         ),
       ],
     );

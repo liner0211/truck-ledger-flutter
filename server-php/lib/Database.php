@@ -74,6 +74,14 @@ final class Database
             'apk_download_url' => '',
             'ios_download_url' => '',
             'update_release_notes' => '',
+            'admin_latest_version' => '',
+            'admin_min_version' => '',
+            'admin_force_update' => '0',
+            'admin_apk_download_url' => '',
+            'admin_ios_download_url' => '',
+            'admin_linux_download_url' => '',
+            'admin_windows_download_url' => '',
+            'admin_update_release_notes' => '',
         ];
         $now = (int)(microtime(true) * 1000);
         $ins = $pdo->prepare('INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES (?,?,?)');
@@ -156,6 +164,11 @@ final class Database
                 expires_at INTEGER
             )'
         );
+        self::ensureColumn($pdo, 'messages', 'meta_json', 'TEXT');
+        $msgAtt = $cfg['message_attachments_dir'] ?? ($cfg['data_dir'] . '/message_attachments');
+        if (!is_dir($msgAtt)) {
+            mkdir($msgAtt, 0755, true);
+        }
         $pdo->exec(
             'CREATE TABLE IF NOT EXISTS message_reads (
                 message_id INTEGER NOT NULL,

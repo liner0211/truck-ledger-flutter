@@ -20,7 +20,11 @@ Future<List<String>> pickAndSaveAttachmentPhotos(BuildContext context) async {
     return [];
   }
 
-  final files = await ImagePicker().pickMultiImage(imageQuality: 85);
+  final files = await ImagePicker().pickMultiImage(
+    imageQuality: 85,
+    maxWidth: 1920,
+    maxHeight: 1920,
+  );
   final names = <String>[];
   for (final x in files) {
     final bytes = await x.readAsBytes();
