@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'ledger_excel.dart';
 import 'main.dart';
@@ -21,16 +22,25 @@ class _UserLedgerPageState extends State<UserLedgerPage> {
   Map<String, dynamic>? _ledger;
   String? _err;
   bool _busy = false;
+  bool _openingWeb = false;
   final _jsonEdit = TextEditingController();
   bool _editMode = false;
+  bool _autoOpened = false;
 
   int get _userId => (widget.user['id'] as num).toInt();
   String get _username => '${widget.user['username'] ?? ''}';
+  String get _ledgerRedirect => '/admin/users/$_userId/ledger';
 
   @override
   void initState() {
     super.initState();
     _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_autoOpened && mounted) {
+        _autoOpened = true;
+        _openFullEditor(silentFail: true);
+      }
+    });
   }
 
   @override
@@ -58,6 +68,29 @@ class _UserLedgerPageState extends State<UserLedgerPage> {
         _err = '$e';
         _busy = false;
       });
+    }
+  }
+
+  Future<void> _openFullEditor({bool silentFail = false}) async {
+    if (_openingWeb) return;
+    setState(() => _openingWeb = true);
+    try {
+      final uri = await context.read<AdminSession>().api.createWebTicketUri(_ledgerRedirect);
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok) throw StateError('无法打开系统浏览器');
+      if (!mounted) return;
+      if (!silentFail) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已打开完整账本编辑器（与网页后台相同）')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      if (!silentFail) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('打开失败：$e')));
+      }
+    } finally {
+      if (mounted) setState(() => _openingWeb = false);
     }
   }
 
@@ -146,11 +179,23 @@ class _UserLedgerPageState extends State<UserLedgerPage> {
     final admin = context.watch<AdminSession>().admin;
     final canWrite = admin?.can('ledger.write') == true;
     final rounds = (_ledger?['rounds'] as List?) ?? const [];
+    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Text('账本 · $_username'),
         actions: [
+          IconButton(
+            tooltip: '打开完整编辑器',
+            onPressed: _openingWeb ? null : () => _openFullEditor(),
+            icon: _openingWeb
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.open_in_browser),
+          ),
           IconButton(
             tooltip: '导出 Excel',
             onPressed: _ledger == null || _busy ? null : _exportExcel,
@@ -163,7 +208,7 @@ class _UserLedgerPageState extends State<UserLedgerPage> {
               icon: Icon(_editMode ? Icons.close : Icons.data_object),
             ),
           IconButton(
-            tooltip: '刷新',
+            tooltip: '刷新摘要',
             onPressed: _busy ? null : _load,
             icon: const Icon(Icons.refresh),
           ),
@@ -204,15 +249,43 @@ class _UserLedgerPageState extends State<UserLedgerPage> {
                   : ListView(
                       padding: const EdgeInsets.all(12),
                       children: [
+                        Card(
+                          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  '完整账本编辑（与网页后台相同）',
+                                  style: theme.textTheme.titleMedium,
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  '会计对账、改错、附件与圈次明细请在网页编辑器中操作。'
+                                  '进入本页会自动打开；也可再次点击下方按钮。',
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                                const SizedBox(height: 12),
+                                FilledButton.icon(
+                                  onPressed: _openingWeb ? null : () => _openFullEditor(),
+                                  icon: const Icon(Icons.edit_note),
+                                  label: Text(_openingWeb ? '正在打开…' : '打开完整账本编辑器'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
                         Text(
                           'revision ${_ledger?['revision'] ?? '—'} · 更新 ${_ledger?['updated_at'] ?? '—'}',
-                          style: Theme.of(context).textTheme.bodySmall,
+                          style: theme.textTheme.bodySmall,
                         ),
-                        const SizedBox(height: 8),
-                        Text('共 ${rounds.length} 个圈次', style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 4),
+                        Text('摘要 · 共 ${rounds.length} 个圈次', style: theme.textTheme.titleMedium),
                         const SizedBox(height: 8),
                         FilledButton.tonalIcon(
-                          onPressed: _exportExcel,
+                          onPressed: _ledger == null ? null : _exportExcel,
                           icon: const Icon(Icons.file_download_outlined),
                           label: const Text('导出 Excel'),
                         ),

@@ -425,6 +425,26 @@ if (strpos($uri, '/api/') === 0) {
             JsonResponse::send(['ok' => true, 'sent' => $r['sent'] ?? 0]);
         }
 
+        // JWT → 网页 Session：管理端打开与后台相同的账本编辑器
+        if ($uri === '/api/admin/web-ticket' && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'dashboard.read');
+            $body = readJsonBody();
+            $redirect = AdminAuthService::sanitizeAdminRedirect(
+                (string)($body['redirect'] ?? '/admin/dashboard')
+            );
+            if (str_contains($redirect, '/ledger')) {
+                AdminAuthService::requirePermission($admin, 'ledger.read');
+            }
+            $ticket = AdminAuthService::createWebTicket($pdo, $adminId, $redirect);
+            $path = '/admin/sso?ticket=' . rawurlencode($ticket);
+            JsonResponse::send([
+                'ok' => true,
+                'ticket' => $ticket,
+                'path' => $path,
+                'redirect' => $redirect,
+            ]);
+        }
+
         if ($uri === '/api/admin/operators' && $method === 'GET') {
             AdminAuthService::requirePermission($admin, 'admins.manage');
             JsonResponse::send(['admins' => AdminAuthService::listAdmins($pdo)]);
@@ -641,6 +661,20 @@ if ($uri === '/' || $uri === '/admin') {
     } else {
         header('Location: /admin/login');
     }
+    exit;
+}
+
+// 管理端 App 一次性票据换 Web Session，再跳转到完整账本/后台页
+if ($uri === '/admin/sso' && $method === 'GET') {
+    $ticket = (string)($_GET['ticket'] ?? '');
+    $consumed = AdminAuthService::consumeWebTicket($pdo, $ticket);
+    if ($consumed === null) {
+        http_response_code(400);
+        echo '登录票据无效或已过期，请在管理端重新打开。';
+        exit;
+    }
+    AdminAuthService::loginSession($consumed['admin']);
+    header('Location: ' . $consumed['redirect']);
     exit;
 }
 
@@ -944,6 +978,12 @@ if (preg_match('#^/admin/operators/(\d+)/delete$#', $uri, $m) && $method === 'PO
 
 if (preg_match('#^/admin/users/(\d+)/ledger$#', $uri, $m) && $method === 'GET') {
     AdminService::requireLogin();
+    $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
+    if (!AdminAuthService::can($sessionAdmin, 'ledger.read')) {
+        http_response_code(403);
+        echo '权限不足：无法查看账本';
+        exit;
+    }
     $user = AdminService::getUser($pdo, (int)$m[1]);
     if ($user === null) {
         http_response_code(404);

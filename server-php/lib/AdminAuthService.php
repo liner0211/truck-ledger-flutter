@@ -262,4 +262,55 @@ final class AdminAuthService
         ]);
         return true;
     }
+
+    /** 仅允许站内 /admin/ 路径，防止开放重定向 */
+    public static function sanitizeAdminRedirect(string $redirect, string $fallback = '/admin/dashboard'): string
+    {
+        $r = trim($redirect);
+        if ($r === '' || !str_starts_with($r, '/admin/') || str_contains($r, '//') || preg_match('/[\r\n]/', $r)) {
+            return $fallback;
+        }
+        return $r;
+    }
+
+    /** 创建一次性 SSO 票据（默认 2 分钟有效） */
+    public static function createWebTicket(PDO $pdo, int $adminId, string $redirect, int $ttlSeconds = 120): string
+    {
+        $redirect = self::sanitizeAdminRedirect($redirect);
+        $now = time();
+        $pdo->exec('DELETE FROM admin_sso_tickets WHERE expires_at < ' . $now);
+        $ticket = bin2hex(random_bytes(32));
+        $pdo->prepare(
+            'INSERT INTO admin_sso_tickets (ticket, admin_id, redirect, expires_at) VALUES (?,?,?,?)'
+        )->execute([$ticket, $adminId, $redirect, $now + max(30, $ttlSeconds)]);
+        return $ticket;
+    }
+
+    /**
+     * 消费票据并返回管理员 + 跳转路径；票据立即作废。
+     * @return array{admin: array, redirect: string}|null
+     */
+    public static function consumeWebTicket(PDO $pdo, string $ticket): ?array
+    {
+        $ticket = trim($ticket);
+        if ($ticket === '' || strlen($ticket) > 128) {
+            return null;
+        }
+        $now = time();
+        $stmt = $pdo->prepare('SELECT * FROM admin_sso_tickets WHERE ticket=?');
+        $stmt->execute([$ticket]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $pdo->prepare('DELETE FROM admin_sso_tickets WHERE ticket=?')->execute([$ticket]);
+        if (!$row || (int)($row['expires_at'] ?? 0) < $now) {
+            return null;
+        }
+        $admin = self::findById($pdo, (int)$row['admin_id']);
+        if ($admin === null || (int)($admin['is_enabled'] ?? 0) !== 1) {
+            return null;
+        }
+        return [
+            'admin' => $admin,
+            'redirect' => self::sanitizeAdminRedirect((string)($row['redirect'] ?? '')),
+        ];
+    }
 }

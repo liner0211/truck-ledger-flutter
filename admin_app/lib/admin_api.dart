@@ -169,6 +169,23 @@ class AdminApi {
     return _json('PUT', '/api/admin/users/$userId/ledger', body: payload);
   }
 
+  /// 用当前 JWT 换一次性网页登录票据，返回站内 path（如 /admin/sso?ticket=…）
+  Future<String> createWebTicketPath(String redirect) async {
+    final m = await _json('POST', '/api/admin/web-ticket', body: {
+      'redirect': redirect,
+    });
+    final path = m['path']?.toString() ?? '';
+    if (path.isEmpty) throw AdminApiException('未返回网页登录地址');
+    return path;
+  }
+
+  /// 完整 URL，供系统浏览器打开与网页后台相同的页面
+  Future<Uri> createWebTicketUri(String redirect) async {
+    final path = await createWebTicketPath(redirect);
+    final root = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    return Uri.parse('$root$path');
+  }
+
   static String defaultBaseUrl() {
     if (kReleaseMode) return 'https://truck.liner0211.online';
     return 'https://truck.liner0211.online';

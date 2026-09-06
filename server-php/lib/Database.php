@@ -95,6 +95,17 @@ final class Database
         );
         self::seedSuperAdmin($pdo, $cfg);
 
+        // 管理端 App JWT → 网页 Session 的一次性票据
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS admin_sso_tickets (
+                ticket TEXT PRIMARY KEY,
+                admin_id INTEGER NOT NULL,
+                redirect TEXT NOT NULL,
+                expires_at INTEGER NOT NULL,
+                FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
+            )'
+        );
+
         $pdo->exec(
             'CREATE TABLE IF NOT EXISTS ledgers (
                 user_id INTEGER PRIMARY KEY,
