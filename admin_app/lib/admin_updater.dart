@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// 管理端应用内更新（逻辑对齐主 App，文件名独立）。
@@ -32,11 +31,6 @@ class AdminAppUpdater {
         fileName: 'truckledger-admin-update.apk',
         mimeType: 'application/vnd.android.package-archive',
         onProgress: onProgress,
-        beforeOpen: () async {
-          if (await Permission.requestInstallPackages.isDenied) {
-            await Permission.requestInstallPackages.request();
-          }
-        },
       );
       return;
     }
@@ -51,7 +45,6 @@ class AdminAppUpdater {
     required String fileName,
     String? mimeType,
     void Function(double progress)? onProgress,
-    Future<void> Function()? beforeOpen,
   }) async {
     final dir = await getTemporaryDirectory();
     final file = File(p.join(dir.path, fileName));
@@ -70,7 +63,6 @@ class AdminAppUpdater {
     }
     await sink.close();
     onProgress?.call(1);
-    await beforeOpen?.call();
     await OpenFilex.open(file.path, type: mimeType);
   }
 }
