@@ -337,15 +337,7 @@ jobs:
           if [[ "$APK" =~ truckledger-admin-([0-9]+\.[0-9]+\.[0-9]+)-([0-9]+) ]]; then
             VER="${BASH_REMATCH[1]}+${BASH_REMATCH[2]}"
           fi
-          export VER BASE
-          BODY=$(python3 -c "import json,os; print(json.dumps({
-  'admin_latest_version': os.environ['VER'],
-  'admin_apk_download_url': os.environ['BASE']+'/downloads/truckledger-admin-latest.apk',
-  'admin_ios_download_url': os.environ['BASE']+'/downloads/truckledger-admin-latest.ipa',
-  'admin_linux_download_url': os.environ['BASE']+'/downloads/truckledger-admin-latest-linux-x64.tar.gz',
-  'admin_windows_download_url': os.environ['BASE']+'/downloads/truckledger-admin-latest-windows-x64.zip',
-  'admin_update_release_notes': '管理端自动发版 '+os.environ['VER'],
-}))")
+          BODY=$(printf '%s' "{\"admin_latest_version\":\"$VER\",\"admin_apk_download_url\":\"$BASE/downloads/truckledger-admin-latest.apk\",\"admin_ios_download_url\":\"$BASE/downloads/truckledger-admin-latest.ipa\",\"admin_linux_download_url\":\"$BASE/downloads/truckledger-admin-latest-linux-x64.tar.gz\",\"admin_windows_download_url\":\"$BASE/downloads/truckledger-admin-latest-windows-x64.zip\",\"admin_update_release_notes\":\"admin release $VER\"}")
           curl -fsS -X POST "$BASE/api/ci/publish-admin-release" \
             -H "Content-Type: application/json" \
             -H "X-CI-Token: $CI_PUBLISH_TOKEN" \
