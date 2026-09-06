@@ -9,6 +9,7 @@ on:
       - master
     paths:
       - "admin_app/**"
+      - "shared/truck_ledger_editor/**"
       - ".github/workflows/release-admin-packages.yml"
       - "scripts/flutter_build_version_env.sh"
 

@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'admin_api.dart';
 import 'user_ledger_page.dart';
@@ -224,26 +223,6 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
-  bool _openingWeb = false;
-
-  Future<void> _openWebAdmin({String redirect = '/admin/dashboard'}) async {
-    if (_openingWeb) return;
-    setState(() => _openingWeb = true);
-    try {
-      final uri = await context.read<AdminSession>().api.createWebTicketUri(redirect);
-      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!ok) throw StateError('无法打开浏览器');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已打开网页管理后台')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('打开失败：$e')));
-    } finally {
-      if (mounted) setState(() => _openingWeb = false);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -271,17 +250,6 @@ class _HomeShellState extends State<HomeShell> {
       appBar: AppBar(
         title: Text('管理端 · ${admin.username}（${admin.roleLabel}）'),
         actions: [
-          IconButton(
-            tooltip: '打开网页后台（完整能力）',
-            onPressed: _openingWeb ? null : () => _openWebAdmin(),
-            icon: _openingWeb
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.language),
-          ),
           IconButton(
             tooltip: '退出',
             onPressed: () => s.logout(),
@@ -516,7 +484,7 @@ class _UsersPageState extends State<UsersPage> {
                   }
                 },
                 itemBuilder: (_) => [
-                  const PopupMenuItem(value: 'ledger', child: Text('完整账本编辑（网页）')),
+                  const PopupMenuItem(value: 'ledger', child: Text('查看/编辑账本')),
                   const PopupMenuItem(value: 'extend', child: Text('延期试用 7 天')),
                   const PopupMenuItem(value: 'convert', child: Text('转正式')),
                   const PopupMenuItem(value: 'kick', child: Text('踢下线')),

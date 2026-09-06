@@ -169,21 +169,37 @@ class AdminApi {
     return _json('PUT', '/api/admin/users/$userId/ledger', body: payload);
   }
 
-  /// 用当前 JWT 换一次性网页登录票据，返回站内 path（如 /admin/sso?ticket=…）
-  Future<String> createWebTicketPath(String redirect) async {
-    final m = await _json('POST', '/api/admin/web-ticket', body: {
-      'redirect': redirect,
-    });
-    final path = m['path']?.toString() ?? '';
-    if (path.isEmpty) throw AdminApiException('未返回网页登录地址');
-    return path;
+  Map<String, String> get _authOnlyHeaders => {
+        if (token != null && token!.isNotEmpty) 'Authorization': 'Bearer $token',
+      };
+
+  Future<List<int>> downloadAttachment(int userId, String filename) async {
+    final enc = Uri.encodeComponent(filename);
+    final res = await http
+        .get(_u('/api/admin/users/$userId/attachments/$enc'), headers: _authOnlyHeaders)
+        .timeout(const Duration(seconds: 60));
+    if (res.statusCode == 404) {
+      throw AdminApiException('附件不存在：$filename', statusCode: 404);
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw AdminApiException('下载附件失败（${res.statusCode}）', statusCode: res.statusCode);
+    }
+    return res.bodyBytes;
   }
 
-  /// 完整 URL，供系统浏览器打开与网页后台相同的页面
-  Future<Uri> createWebTicketUri(String redirect) async {
-    final path = await createWebTicketPath(redirect);
-    final root = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
-    return Uri.parse('$root$path');
+  Future<void> uploadAttachment(int userId, String filename, List<int> bytes) async {
+    final enc = Uri.encodeComponent(filename);
+    final req = http.MultipartRequest(
+      'POST',
+      _u('/api/admin/users/$userId/attachments/$enc'),
+    );
+    req.headers.addAll(_authOnlyHeaders);
+    req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+    final streamed = await req.send().timeout(const Duration(seconds: 60));
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw AdminApiException('上传附件失败（${res.statusCode}）', statusCode: res.statusCode);
+    }
   }
 
   static String defaultBaseUrl() {

@@ -9,6 +9,7 @@ on:
       - master
     paths:
       - "lib/**"
+      - "shared/truck_ledger_editor/**"
       - "android/**"
       - "ios/**"
       - "pubspec.yaml"
