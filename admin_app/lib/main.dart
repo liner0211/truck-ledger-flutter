@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'admin_api.dart';
 import 'admin_updater.dart';
+import 'theme_controller.dart';
 import 'user_ledger_page.dart';
 
 Future<void> main() async {
@@ -22,15 +23,19 @@ class AdminRoot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => AdminSession(prefs)..restore(),
-      child: MaterialApp(
-        title: '卡车记账管理端',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1B5E20)),
-          useMaterial3: true,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ThemeController(prefs)),
+        ChangeNotifierProvider(create: (_) => AdminSession(prefs)..restore()),
+      ],
+      child: Consumer<ThemeController>(
+        builder: (context, theme, _) => MaterialApp(
+          title: '卡车记账管理端',
+          theme: ThemeController.lightTheme(),
+          darkTheme: ThemeController.darkTheme(),
+          themeMode: theme.mode,
+          home: const _Gate(),
         ),
-        home: const _Gate(),
       ),
     );
   }
@@ -150,6 +155,21 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     final s = context.watch<AdminSession>();
     return Scaffold(
+      appBar: AppBar(
+        actions: [
+          PopupMenuButton<ThemeMode>(
+            tooltip: '外观',
+            icon: const Icon(Icons.brightness_6_outlined),
+            initialValue: context.watch<ThemeController>().mode,
+            onSelected: (mode) => context.read<ThemeController>().setMode(mode),
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: ThemeMode.system, child: Text('跟随系统')),
+              PopupMenuItem(value: ThemeMode.light, child: Text('浅色')),
+              PopupMenuItem(value: ThemeMode.dark, child: Text('深色')),
+            ],
+          ),
+        ],
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
@@ -327,6 +347,17 @@ class _HomeShellState extends State<HomeShell> {
       appBar: AppBar(
         title: Text('管理端 · ${admin.username}（${admin.roleLabel}）'),
         actions: [
+          PopupMenuButton<ThemeMode>(
+            tooltip: '外观',
+            icon: const Icon(Icons.brightness_6_outlined),
+            initialValue: context.watch<ThemeController>().mode,
+            onSelected: (mode) => context.read<ThemeController>().setMode(mode),
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: ThemeMode.system, child: Text('跟随系统')),
+              PopupMenuItem(value: ThemeMode.light, child: Text('浅色')),
+              PopupMenuItem(value: ThemeMode.dark, child: Text('深色')),
+            ],
+          ),
           IconButton(
             tooltip: '检查更新',
             onPressed: _checkingUpdate ? null : _checkUpdate,

@@ -6,6 +6,7 @@ import '../services/auth_api.dart';
 import '../services/sync_service.dart';
 import '../state/auth_controller.dart';
 import '../state/ledger_controller.dart';
+import '../state/theme_controller.dart';
 import 'devices_screen.dart';
 import 'change_password_screen.dart';
 import 'messages_screen.dart';
@@ -145,6 +146,44 @@ class _AccountScreenState extends State<AccountScreen> {
                   ],
                   if (ledger.syncError != null)
                     Text(ledger.syncError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('外观', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  SegmentedButton<ThemeMode>(
+                    segments: const [
+                      ButtonSegment(
+                        value: ThemeMode.system,
+                        icon: Icon(Icons.brightness_auto, size: 18),
+                        label: Text('系统'),
+                      ),
+                      ButtonSegment(
+                        value: ThemeMode.light,
+                        icon: Icon(Icons.light_mode_outlined, size: 18),
+                        label: Text('浅色'),
+                      ),
+                      ButtonSegment(
+                        value: ThemeMode.dark,
+                        icon: Icon(Icons.dark_mode_outlined, size: 18),
+                        label: Text('深色'),
+                      ),
+                    ],
+                    selected: {context.watch<ThemeController>().mode},
+                    onSelectionChanged: (set) {
+                      if (set.isNotEmpty) {
+                        context.read<ThemeController>().setMode(set.first);
+                      }
+                    },
+                  ),
                 ],
               ),
             ),

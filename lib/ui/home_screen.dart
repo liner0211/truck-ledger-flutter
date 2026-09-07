@@ -167,11 +167,14 @@ class HomeScreen extends StatelessWidget {
               ),
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Text(
               '每圈简写信息（点开查看详情）',
-              style: TextStyle(fontSize: 13, color: Colors.black54),
+              style: TextStyle(
+                fontSize: 13,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
           Expanded(
@@ -190,11 +193,16 @@ class HomeScreen extends StatelessWidget {
                       return Dismissible(
                         key: ValueKey(round.id),
                         direction: DismissDirection.endToStart,
-                        background: Container(
-                          color: Colors.red.shade700,
-                          alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.only(right: 20),
-                          child: const Icon(Icons.delete, color: Colors.white),
+                        background: Builder(
+                          builder: (ctx) {
+                            final cs = Theme.of(ctx).colorScheme;
+                            return Container(
+                              color: cs.error,
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20),
+                              child: Icon(Icons.delete, color: cs.onError),
+                            );
+                          },
                         ),
                         confirmDismiss: (_) async {
                           final shouldDelete = await showDialog<bool>(
@@ -598,29 +606,36 @@ class _SyncStatusBar extends StatelessWidget {
         return const SizedBox.shrink();
       }
     }
+    final cs = Theme.of(context).colorScheme;
     Color bg;
+    Color fg;
     String text;
     switch (status) {
       case SyncStatus.dirty:
-        bg = Colors.orange.shade100;
+        bg = cs.tertiaryContainer;
+        fg = cs.onTertiaryContainer;
         text = '有未上传修改';
         break;
       case SyncStatus.pending:
-        bg = Colors.blue.shade100;
+        bg = cs.primaryContainer;
+        fg = cs.onPrimaryContainer;
         text = ctrl.syncProgressMessage.isNotEmpty
             ? ctrl.syncProgressMessage
             : '正在同步…';
         break;
       case SyncStatus.conflict:
-        bg = Colors.red.shade100;
+        bg = cs.errorContainer;
+        fg = cs.onErrorContainer;
         text = '同步冲突 — 请到「账号与同步」处理';
         break;
       case SyncStatus.error:
-        bg = Colors.red.shade50;
+        bg = cs.errorContainer;
+        fg = cs.onErrorContainer;
         text = ctrl.syncError ?? '同步失败';
         break;
       case SyncStatus.synced:
-        bg = Colors.green.shade50;
+        bg = cs.secondaryContainer;
+        fg = cs.onSecondaryContainer;
         text = '已同步';
         break;
       case SyncStatus.idle:
@@ -643,10 +658,10 @@ class _SyncStatusBar extends StatelessWidget {
               Row(
                 children: [
                   if (status == SyncStatus.pending)
-                    const SizedBox(
+                    SizedBox(
                       width: 14,
                       height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: fg),
                     )
                   else
                     Icon(
@@ -654,19 +669,20 @@ class _SyncStatusBar extends StatelessWidget {
                           ? Icons.warning_amber
                           : Icons.cloud_done_outlined,
                       size: 16,
+                      color: fg,
                     ),
                   const SizedBox(width: 8),
-                  Expanded(child: Text(text, style: const TextStyle(fontSize: 13))),
+                  Expanded(child: Text(text, style: TextStyle(fontSize: 13, color: fg))),
                   if (status == SyncStatus.pending && ctrl.syncProgress != null)
                     Text(
                       '${(ctrl.syncProgress! * 100).toStringAsFixed(0)}%',
-                      style: const TextStyle(fontSize: 12),
+                      style: TextStyle(fontSize: 12, color: fg),
                     ),
                 ],
               ),
               if (status == SyncStatus.pending) ...[
                 const SizedBox(height: 6),
-                LinearProgressIndicator(value: ctrl.syncProgress),
+                LinearProgressIndicator(value: ctrl.syncProgress, color: fg),
               ],
             ],
           ),

@@ -4,15 +4,19 @@ import 'package:provider/provider.dart';
 import 'services/api_http_client.dart';
 import 'state/auth_controller.dart';
 import 'state/ledger_controller.dart';
+import 'state/theme_controller.dart';
 import 'ui/auth_gate.dart';
 import 'ui/permission_bootstrap_gate.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   initApiHttpClient();
+  final theme = ThemeController();
+  await theme.load();
   runApp(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider.value(value: theme),
         ChangeNotifierProvider(create: (_) => AuthController()..load()),
         ChangeNotifierProxyProvider<AuthController, LedgerController>(
           create: (_) => LedgerController(),
@@ -36,12 +40,12 @@ class TruckLedgerApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = context.watch<ThemeController>();
     return MaterialApp(
       title: '卡车记账',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1B5E20)),
-        useMaterial3: true,
-      ),
+      theme: ThemeController.lightTheme(),
+      darkTheme: ThemeController.darkTheme(),
+      themeMode: theme.mode,
       home: const PermissionBootstrapGate(child: AuthGate()),
     );
   }
