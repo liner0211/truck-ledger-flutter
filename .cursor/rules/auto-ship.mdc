@@ -1,0 +1,13 @@
+---
+description: 功能完成后自动 commit/push，勿再询问
+alwaysApply: true
+---
+
+# 发版与提交
+
+完成功能、修复或用户要求的改动后：
+
+1. 直接 `git commit`（中文 concise message）并 `git push origin` 当前分支（通常 `main`），触发 CI「Release Packages」。
+2. **不要询问**「要不要提交 / 推送 / 发版」。
+3. 例外：改动含密钥/`dev/machine.env`、破坏性 git 操作、或用户明确只要本地改不动远端时，先停并说明。
+4. 若改动了 `server-php/` 且可部署，完成后跑 `./one_click_server_deploy.sh`。

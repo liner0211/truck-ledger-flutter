@@ -6,6 +6,11 @@
 
 Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`，当前版本见 `pubspec.yaml`（如 **1.0.4**）。数据为本地 JSON + 附件；iOS 越狱侧通过 **deb** 安装到 `/Applications`。生产后端为 **`server-php/`**。
 
+## AI 协作约定
+
+- 功能/修复完成后 **直接 `git commit` + `git push origin main`** 触发 CI 发版，**不要再询问**是否提交或推送（除非改动含密钥、破坏性操作，或用户明确只要本地改）。
+- 涉及 `server-php/` 可部署变更时，完成后执行 `./one_click_server_deploy.sh`（或说明无法部署的原因）。
+
 ## 发行版产品约定（重要）
 
 - **最终用户不看到 API 域名**：Release 构建下，登录页 / 账号页 / 关于页 **不展示、不编辑** 服务器地址；内置默认云端入口，错误文案只说「云服务 / 网络」。
