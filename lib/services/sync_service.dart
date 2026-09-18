@@ -174,8 +174,7 @@ class SyncService {
     if (res.statusCode != 200) {
       throw ApiException('下载附件 $filename 失败（${res.statusCode}）');
     }
-    final dest = await AttachmentStore.fileFor(filename);
-    await dest.writeAsBytes(res.bodyBytes, flush: true);
+    await AttachmentStore.saveDownloadedJpeg(filename, res.bodyBytes);
   }
 
   Future<int> uploadMissingAttachments(
@@ -264,6 +263,11 @@ class SyncService {
     await uploadMissingAttachments(book, onProgress: onProgress);
     onProgress?.call(const SyncProgress(fraction: 0.75, message: '上传账本…'));
     final result = await push(book, baseRevision: baseRevision, force: force);
+    try {
+      await AttachmentStore.deleteOrphans(
+        LedgerBackupExporter.collectAttachmentNames(book),
+      );
+    } catch (_) {}
     onProgress?.call(const SyncProgress(fraction: 1, message: '上传完成'));
     return result;
   }
@@ -275,6 +279,11 @@ class SyncService {
     final remote = await pull();
     onProgress?.call(const SyncProgress(fraction: 0.35, message: '下载附件…'));
     await downloadMissingAttachments(remote.book, onProgress: onProgress);
+    try {
+      await AttachmentStore.deleteOrphans(
+        LedgerBackupExporter.collectAttachmentNames(remote.book),
+      );
+    } catch (_) {}
     onProgress?.call(const SyncProgress(fraction: 1, message: '拉取完成'));
     return remote;
   }

@@ -94,6 +94,17 @@ final class LedgerService
                revision = excluded.revision'
         )->execute([$userId, $json, $updatedAt, $newRev]);
 
+        // 删除未被账本引用的附件，避免试用配额与磁盘膨胀
+        try {
+            $attDir = Config::get('attachments_dir');
+            if (is_string($attDir) && $attDir !== '') {
+                $refs = AttachmentService::collectReferencedNames($rounds);
+                AttachmentService::gcOrphans(['attachments_dir' => $attDir], $userId, $refs);
+            }
+        } catch (Throwable $e) {
+            // GC 失败不影响账本保存
+        }
+
         return ['updated_at' => $updatedAt, 'revision' => $newRev];
     }
 }

@@ -9,6 +9,8 @@ import 'advance_editor_page.dart';
 import 'expense_editor_page.dart';
 import 'route_editor_page.dart';
 import 'trip_meta_editor.dart';
+import 'widgets/attachment_thumb_strip.dart';
+import 'widgets/ledger_stat_charts.dart';
 
 class TripDetailScreen extends StatefulWidget {
   const TripDetailScreen({
@@ -16,11 +18,14 @@ class TripDetailScreen extends StatefulWidget {
     required this.initial,
     required this.onReplace,
     required this.money,
+    this.allRounds = const [],
   });
 
   final TripLedger initial;
   final Future<void> Function(TripLedger trip) onReplace;
   final String Function(double v) money;
+  /// 全书圈次，用于地点/高速费联想。
+  final List<TripLedger> allRounds;
 
   @override
   State<TripDetailScreen> createState() => _TripDetailScreenState();
@@ -169,6 +174,54 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     }
   }
 
+  Future<void> _shareReconcileSummary() async {
+    final sum = ProfitCalculator.calculate(_trip);
+    final text = '''
+【交账摘要】${_trip.title}
+运费：${widget.money(sum.totalFreight)}
+费用总：${widget.money(sum.totalExpense)}
+利润：${widget.money(sum.netProfit)}
+司机分成：${widget.money(sum.driverShare)}　老板分成：${widget.money(sum.ownerShare)}
+司机应发：${widget.money(sum.driverWagePayable)}
+出车费差额：${_reconcileText(sum.travelCashReconcile)}
+交账净额：${_reconcileText(sum.cashNetSettlement)}
+${sum.etcTollReconcileFee > 0.000001 ? 'ETC手续费(0.35%)：${widget.money(sum.etcTollReconcileFee)}\n' : ''}状态：${_trip.isReconciled ? '已交账' : '未交账'} / ${_trip.isSalarySettled ? '已发工资' : '未发工资'}
+'''.trim();
+    await Share.share(text, subject: '交账摘要 · ${_trip.title}');
+  }
+
+  Widget _itemWithThumbs({
+    required String title,
+    required String subtitle,
+    required List<String> attachments,
+    required VoidCallback onTap,
+    required VoidCallback onDelete,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ListTile(
+          title: Text(title),
+          subtitle: Text(subtitle),
+          trailing: IconButton(
+            icon: const Icon(Icons.delete_outline),
+            onPressed: onDelete,
+          ),
+          onTap: onTap,
+        ),
+        if (attachments.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: AttachmentThumbStrip(
+              names: attachments,
+              compact: true,
+              maxVisible: 3,
+            ),
+          ),
+      ],
+    );
+  }
+
   void _showAddSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -220,7 +273,13 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   Future<void> _openRouteEditor(int? legIndex) async {
     final updated = await Navigator.push<TripLedger>(
       context,
-      MaterialPageRoute(builder: (_) => RouteEditorPage(trip: _trip, legIndex: legIndex)),
+      MaterialPageRoute(
+        builder: (_) => RouteEditorPage(
+          trip: _trip,
+          legIndex: legIndex,
+          allRounds: widget.allRounds,
+        ),
+      ),
     );
     if (updated != null) {
       setState(() => _trip = updated);
@@ -240,6 +299,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
           trip: _trip,
           category: cat,
           indexInCategory: indexInCategory,
+          allRounds: widget.allRounds,
+          money: widget.money,
         ),
       ),
     );
@@ -282,14 +343,21 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       appBar: AppBar(
         title: Text(_trip.title),
         actions: [
+          IconButton(
+            tooltip: '分享交账摘要',
+            icon: const Icon(Icons.share_outlined),
+            onPressed: _shareReconcileSummary,
+          ),
           IconButton(icon: const Icon(Icons.add), onPressed: _showAddSheet),
           PopupMenuButton<String>(
             onSelected: (v) {
               if (v == 'meta') _editMeta();
               if (v == 'export') _export();
+              if (v == 'share') _shareReconcileSummary();
             },
             itemBuilder: (context) => const [
               PopupMenuItem(value: 'meta', child: Text('编辑圈次')),
+              PopupMenuItem(value: 'share', child: Text('分享交账摘要')),
               PopupMenuItem(value: 'export', child: Text('导出 Excel')),
             ],
           ),
@@ -309,6 +377,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               ),
             ),
           ),
+          TripStatCharts(summary: sum, money: widget.money),
           _sectionTitle('交账与工资状态'),
           SwitchListTile(
             title: const Text('是否已交账'),
@@ -337,16 +406,13 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               final freightLabel = leg.freightExpression.isNotEmpty
                   ? '运费 ${widget.money(leg.freight)}（${leg.freightExpression}）'
                   : '运费 ${widget.money(leg.freight)}';
-              return ListTile(
-                title: Text('${i + 1}. ${leg.loadPlace} -> ${leg.unloadPlace}'),
-                subtitle: Text(
-                  '$freightLabel  信息费 ${widget.money(leg.infoFee)} · ${leg.infoFeePaymentSource.label}',
-                ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _deleteRoute(i),
-                ),
+              return _itemWithThumbs(
+                title: '${i + 1}. ${leg.loadPlace} -> ${leg.unloadPlace}',
+                subtitle:
+                    '$freightLabel  信息费 ${widget.money(leg.infoFee)} · ${leg.infoFeePaymentSource.label}',
+                attachments: leg.attachments,
                 onTap: () => _openRouteEditor(i),
+                onDelete: () => _deleteRoute(i),
               );
             }),
           _sectionTitle('油费'),
@@ -357,14 +423,12 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               final gi = me.value;
               final ii = me.key;
               final item = _trip.expenses[gi];
-              return ListTile(
-                title: Text(item.title),
-                subtitle: Text(_fuelSubtitle(item)),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _deleteExpenseGlobal(gi),
-                ),
+              return _itemWithThumbs(
+                title: item.title,
+                subtitle: _fuelSubtitle(item),
+                attachments: item.attachments,
                 onTap: () => _openExpense(ExpenseCategory.fuel, ii),
+                onDelete: () => _deleteExpenseGlobal(gi),
               );
             }),
           _sectionTitle('高速费'),
@@ -375,14 +439,12 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               final gi = me.value;
               final ii = me.key;
               final item = _trip.expenses[gi];
-              return ListTile(
-                title: Text(item.title),
-                subtitle: Text(_tollSubtitle(item)),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _deleteExpenseGlobal(gi),
-                ),
+              return _itemWithThumbs(
+                title: item.title,
+                subtitle: _tollSubtitle(item),
+                attachments: item.attachments,
                 onTap: () => _openExpense(ExpenseCategory.toll, ii),
+                onDelete: () => _deleteExpenseGlobal(gi),
               );
             }),
           _sectionTitle('其他费用'),
@@ -394,14 +456,13 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               final ii = me.key;
               final item = _trip.expenses[gi];
               final reimb = item.isReimbursable ? ' · 可报销' : '';
-              return ListTile(
-                title: Text(item.title),
-                subtitle: Text('${widget.money(item.amount)} · ${item.paymentSource.label}$reimb'),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _deleteExpenseGlobal(gi),
-                ),
+              return _itemWithThumbs(
+                title: item.title,
+                subtitle:
+                    '${widget.money(item.amount)} · ${item.paymentSource.label}$reimb',
+                attachments: item.attachments,
                 onTap: () => _openExpense(ExpenseCategory.other, ii),
+                onDelete: () => _deleteExpenseGlobal(gi),
               );
             }),
           _sectionTitle('现金支取'),
@@ -410,14 +471,12 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
           else
             ...List.generate(_trip.cashAdvances.length, (i) {
               final a = _trip.cashAdvances[i];
-              return ListTile(
-                title: Text(a.title),
-                subtitle: Text(widget.money(a.amount)),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _deleteAdvance(i),
-                ),
+              return _itemWithThumbs(
+                title: a.title,
+                subtitle: widget.money(a.amount),
+                attachments: a.attachments,
                 onTap: () => _openAdvance(i),
+                onDelete: () => _deleteAdvance(i),
               );
             }),
         ],

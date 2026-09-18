@@ -5,7 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'app_permission_service.dart';
 import 'attachment_store.dart';
 
-/// 选图前确保相册权限，返回保存后的附件文件名列表。
+/// 选图前确保相册权限，返回压缩保存后的附件文件名列表。
 Future<List<String>> pickAndSaveAttachmentPhotos(BuildContext context) async {
   final report = await AppPermissionService.requestAllRuntimePermissions();
   if (!report.photosOk) {
@@ -21,9 +21,9 @@ Future<List<String>> pickAndSaveAttachmentPhotos(BuildContext context) async {
   }
 
   final files = await ImagePicker().pickMultiImage(
-    imageQuality: 85,
-    maxWidth: 1920,
-    maxHeight: 1920,
+    imageQuality: 90,
+    maxWidth: 2048,
+    maxHeight: 2048,
   );
   final names = <String>[];
   for (final x in files) {

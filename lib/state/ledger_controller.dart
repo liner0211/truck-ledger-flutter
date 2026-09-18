@@ -337,6 +337,37 @@ class LedgerController extends ChangeNotifier {
     await _persist();
   }
 
+  /// 复制最近一圈的路线结构（新 ID、清空凭证、重置交账/工资）。
+  Future<TripLedger?> copyLatestRoundTemplate() async {
+    final err = await _guardWrite();
+    if (err != null) return null;
+    if (_book.rounds.isEmpty) return null;
+    final sorted = List<TripLedger>.from(_book.rounds)
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final src = sorted.first;
+    final clone = _cloneTripWithFreshIds(src, _uuid.v4());
+    clone.isReconciled = false;
+    clone.isSalarySettled = false;
+    clone.createdAt = DateTime.now();
+    for (final leg in clone.routeLegs) {
+      leg.attachments = [];
+    }
+    for (final e in clone.expenses) {
+      e.attachments = [];
+    }
+    for (final a in clone.cashAdvances) {
+      a.attachments = [];
+    }
+    // 只保留路线；费用与支取清空，避免误把上一圈金额带过来（常走线主要复用装卸地）
+    clone.expenses = [];
+    clone.cashAdvances = [];
+    clone.title = makeTripTitle(clone.startPlace, clone.endPlace);
+    _book.rounds.add(clone);
+    _sortRounds();
+    await _persist();
+    return clone;
+  }
+
   Future<void> replaceTrip(TripLedger updated) async {
     final err = await _guardWrite();
     if (err != null) return;

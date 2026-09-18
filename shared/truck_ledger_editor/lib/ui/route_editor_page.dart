@@ -3,15 +3,22 @@ import 'package:uuid/uuid.dart';
 
 import '../models/trip_models.dart';
 import '../services/attachment_store.dart';
+import '../services/history_suggest.dart';
 import '../services/photo_picker_helper.dart';
 import 'formatters.dart';
-import 'image_viewer_page.dart';
+import 'widgets/attachment_thumb_strip.dart';
 
 class RouteEditorPage extends StatefulWidget {
-  const RouteEditorPage({super.key, required this.trip, this.legIndex});
+  const RouteEditorPage({
+    super.key,
+    required this.trip,
+    this.legIndex,
+    this.allRounds = const [],
+  });
 
   final TripLedger trip;
   final int? legIndex;
+  final List<TripLedger> allRounds;
 
   @override
   State<RouteEditorPage> createState() => _RouteEditorPageState();
@@ -75,15 +82,6 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
     final names = await pickAndSaveAttachmentPhotos(context);
     if (names.isEmpty) return;
     setState(() => _attachments.addAll(names));
-  }
-
-  Future<void> _openImage(String name) async {
-    final f = await AttachmentStore.fileFor(name);
-    if (!mounted) return;
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute<void>(builder: (_) => ImageViewerPage(path: f.path)),
-    );
   }
 
   void _save() {
@@ -151,6 +149,54 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
     );
   }
 
+  Widget _placeField({
+    required TextEditingController controller,
+    required String label,
+    required bool loadPlaces,
+  }) {
+    final options = HistorySuggest.placeSuggestions(
+      widget.allRounds.isEmpty ? [_trip] : widget.allRounds,
+      loadPlaces: loadPlaces,
+    );
+    final q = HistorySuggest.normalizePlace(controller.text);
+    final filtered = q.isEmpty
+        ? options.take(6).toList()
+        : options
+            .where((o) => HistorySuggest.normalizePlace(o).contains(q))
+            .take(6)
+            .toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: controller,
+          decoration: InputDecoration(labelText: label),
+          onChanged: (_) => setState(() {}),
+        ),
+        if (filtered.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              for (final p in filtered)
+                ActionChip(
+                  label: Text(p),
+                  onPressed: () {
+                    controller.text = p;
+                    controller.selection =
+                        TextSelection.collapsed(offset: p.length);
+                    setState(() {});
+                  },
+                ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final freightPreview = parseAmountOrExpression(_freight.text);
@@ -166,14 +212,8 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          TextField(
-            controller: _load,
-            decoration: const InputDecoration(labelText: '装货地'),
-          ),
-          TextField(
-            controller: _unload,
-            decoration: const InputDecoration(labelText: '卸货地'),
-          ),
+          _placeField(controller: _load, label: '装货地', loadPlaces: true),
+          _placeField(controller: _unload, label: '卸货地', loadPlaces: false),
           TextField(
             controller: _freight,
             decoration: InputDecoration(
@@ -212,29 +252,15 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
           ),
           const SizedBox(height: 24),
           const Text('凭证图片', style: TextStyle(fontWeight: FontWeight.w600)),
-          ListTile(
-            leading: const Icon(Icons.add_photo_alternate),
-            title: const Text('从相册添加'),
-            onTap: _addPhotos,
+          const SizedBox(height: 8),
+          AttachmentThumbStrip(
+            names: _attachments,
+            onAdd: _addPhotos,
+            onRemove: (name) async {
+              await AttachmentStore.deleteFile(name);
+              setState(() => _attachments.remove(name));
+            },
           ),
-          for (var i = 0; i < _attachments.length; i++)
-            ListTile(
-              title: Text('图片 ${i + 1}'),
-              subtitle: Text(
-                _attachments[i],
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: IconButton(
-                icon: const Icon(Icons.delete_outline),
-                onPressed: () async {
-                  final name = _attachments[i];
-                  await AttachmentStore.deleteFile(name);
-                  setState(() => _attachments.remove(name));
-                },
-              ),
-              onTap: () => _openImage(_attachments[i]),
-            ),
         ],
       ),
     );

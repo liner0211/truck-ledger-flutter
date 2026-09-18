@@ -5,7 +5,7 @@ import '../models/trip_models.dart';
 import '../services/attachment_store.dart';
 import '../services/photo_picker_helper.dart';
 import 'formatters.dart';
-import 'image_viewer_page.dart';
+import 'widgets/attachment_thumb_strip.dart';
 
 class AdvanceEditorPage extends StatefulWidget {
   const AdvanceEditorPage({super.key, required this.trip, this.advanceIndex});
@@ -51,15 +51,6 @@ class _AdvanceEditorPageState extends State<AdvanceEditorPage> {
     final names = await pickAndSaveAttachmentPhotos(context);
     if (names.isEmpty) return;
     setState(() => _attachments.addAll(names));
-  }
-
-  Future<void> _openImage(String name) async {
-    final f = await AttachmentStore.fileFor(name);
-    if (!mounted) return;
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute<void>(builder: (_) => ImageViewerPage(path: f.path)),
-    );
   }
 
   void _err(String m) {
@@ -118,25 +109,15 @@ class _AdvanceEditorPageState extends State<AdvanceEditorPage> {
           ),
           const SizedBox(height: 16),
           const Text('凭证图片', style: TextStyle(fontWeight: FontWeight.w600)),
-          ListTile(
-            leading: const Icon(Icons.add_photo_alternate),
-            title: const Text('从相册添加'),
-            onTap: _addPhotos,
+          const SizedBox(height: 8),
+          AttachmentThumbStrip(
+            names: _attachments,
+            onAdd: _addPhotos,
+            onRemove: (name) async {
+              await AttachmentStore.deleteFile(name);
+              setState(() => _attachments.remove(name));
+            },
           ),
-          for (var i = 0; i < _attachments.length; i++)
-            ListTile(
-              title: Text('图片 ${i + 1}'),
-              subtitle: Text(_attachments[i], maxLines: 1, overflow: TextOverflow.ellipsis),
-              trailing: IconButton(
-                icon: const Icon(Icons.delete_outline),
-                onPressed: () async {
-                  final name = _attachments[i];
-                  await AttachmentStore.deleteFile(name);
-                  setState(() => _attachments.remove(name));
-                },
-              ),
-              onTap: () => _openImage(_attachments[i]),
-            ),
         ],
       ),
     );

@@ -4,9 +4,10 @@ import 'package:uuid/uuid.dart';
 
 import '../models/trip_models.dart';
 import '../services/attachment_store.dart';
+import '../services/history_suggest.dart';
 import '../services/photo_picker_helper.dart';
 import 'formatters.dart';
-import 'image_viewer_page.dart';
+import 'widgets/attachment_thumb_strip.dart';
 
 enum _FuelField { amount, kg, price }
 
@@ -16,11 +17,17 @@ class ExpenseEditorPage extends StatefulWidget {
     required this.trip,
     required this.category,
     this.indexInCategory,
+    this.allRounds = const [],
+    this.money = _defaultMoney,
   });
 
   final TripLedger trip;
   final ExpenseCategory category;
   final int? indexInCategory;
+  final List<TripLedger> allRounds;
+  final String Function(double v) money;
+
+  static String _defaultMoney(double v) => '¥${v.toStringAsFixed(2)}';
 
   @override
   State<ExpenseEditorPage> createState() => _ExpenseEditorPageState();
@@ -202,13 +209,19 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
     setState(() => _attachments.addAll(names));
   }
 
-  Future<void> _openImage(String name) async {
-    final f = await AttachmentStore.fileFor(name);
-    if (!mounted) return;
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute<void>(builder: (_) => ImageViewerPage(path: f.path)),
-    );
+  void _applyTollHint(TollHistoryHint hint) {
+    setState(() {
+      _amount.text = hint.amount == hint.amount.roundToDouble()
+          ? hint.amount.toInt().toString()
+          : hint.amount.toStringAsFixed(2);
+      _pay = hint.paymentSource;
+      // 若历史为混合拆分后的单条，支付方式已是现金或 ETC
+      if (hint.tollCashAmount > 0.000001 && hint.tollEtcAmount < 0.000001) {
+        _pay = PaymentSource.cash;
+      } else if (hint.tollEtcAmount > 0.000001 && hint.tollCashAmount < 0.000001) {
+        _pay = PaymentSource.etc;
+      }
+    });
   }
 
   void _err(String m) {
@@ -321,6 +334,44 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
                 ? (v) => _syncFuelFrom(_FuelField.amount, v)
                 : null,
           ),
+          if (cat == ExpenseCategory.toll) ...[
+            Builder(
+              builder: (context) {
+                final hints = HistorySuggest.tollHintsForTrip(
+                  _trip,
+                  widget.allRounds,
+                );
+                if (hints.isEmpty) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '历史同线高速费（点选填入）',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final h in hints)
+                            ActionChip(
+                              label: Text(h.chipLabel(widget.money)),
+                              onPressed: () => _applyTollHint(h),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
           if (cat == ExpenseCategory.fuel) ...[
             TextField(
               controller: _fuelKg,
@@ -405,25 +456,15 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
           ],
           const SizedBox(height: 16),
           const Text('凭证图片', style: TextStyle(fontWeight: FontWeight.w600)),
-          ListTile(
-            leading: const Icon(Icons.add_photo_alternate),
-            title: const Text('从相册添加'),
-            onTap: _addPhotos,
+          const SizedBox(height: 8),
+          AttachmentThumbStrip(
+            names: _attachments,
+            onAdd: _addPhotos,
+            onRemove: (name) async {
+              await AttachmentStore.deleteFile(name);
+              setState(() => _attachments.remove(name));
+            },
           ),
-          for (var i = 0; i < _attachments.length; i++)
-            ListTile(
-              title: Text('图片 ${i + 1}'),
-              subtitle: Text(_attachments[i], maxLines: 1, overflow: TextOverflow.ellipsis),
-              trailing: IconButton(
-                icon: const Icon(Icons.delete_outline),
-                onPressed: () async {
-                  final name = _attachments[i];
-                  await AttachmentStore.deleteFile(name);
-                  setState(() => _attachments.remove(name));
-                },
-              ),
-              onTap: () => _openImage(_attachments[i]),
-            ),
         ],
       ),
     );

@@ -3,12 +3,12 @@ import 'package:image_picker/image_picker.dart';
 
 import 'attachment_store.dart';
 
-/// 选图并保存为附件文件名列表（权限由宿主 App 在启动时申请）。
+/// 选图并压缩保存为附件文件名列表（权限由宿主 App 在启动时申请）。
 Future<List<String>> pickAndSaveAttachmentPhotos(BuildContext context) async {
   final files = await ImagePicker().pickMultiImage(
-    imageQuality: 85,
-    maxWidth: 1920,
-    maxHeight: 1920,
+    imageQuality: 90,
+    maxWidth: 2048,
+    maxHeight: 2048,
   );
   final names = <String>[];
   for (final x in files) {

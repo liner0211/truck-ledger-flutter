@@ -118,8 +118,14 @@ final class EntitlementService
         if ($max <= 0) {
             return;
         }
-        $dir = AttachmentService::userDir($cfg, (int)$user['id']);
-        $count = count(glob($dir . '/*.jpg') ?: []);
+        // 优先按账本引用计数；无账本时回退目录文件数
+        $ledger = LedgerService::get($pdo, (int)$user['id']);
+        $rounds = is_array($ledger['rounds'] ?? null) ? $ledger['rounds'] : [];
+        $refs = AttachmentService::collectReferencedNames($rounds);
+        $count = count($refs);
+        if ($count === 0) {
+            $count = AttachmentService::countFiles($cfg, (int)$user['id']);
+        }
         if ($count >= $max) {
             JsonResponse::error("试用版附件上限 {$max} 张，请联系管理员升级", 403);
         }

@@ -227,6 +227,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
         builder: (_) => TripDetailScreen(
           initial: found!.copy(),
           money: ctrl.money,
+          allRounds: ctrl.book.rounds,
           onReplace: (updated) => ctrl.replaceTrip(updated),
         ),
       ),

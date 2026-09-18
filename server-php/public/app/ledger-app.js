@@ -188,10 +188,9 @@ ${wageLine}`;
   }
 
   async function fileToJpegBlob(file) {
-    if (file.type === 'image/jpeg') return file;
     const bmp = await createImageBitmap(file);
     const canvas = document.createElement('canvas');
-    const max = 2400;
+    const max = 1600;
     let w = bmp.width;
     let h = bmp.height;
     if (w > max || h > max) {
@@ -204,7 +203,7 @@ ${wageLine}`;
     canvas.getContext('2d').drawImage(bmp, 0, 0, w, h);
     bmp.close();
     return new Promise((resolve, reject) => {
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('图片转换失败'))), 'image/jpeg', 0.9);
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('图片转换失败'))), 'image/jpeg', 0.75);
     });
   }
 

@@ -307,6 +307,7 @@ class _UserLedgerPageState extends State<UserLedgerPage> {
         builder: (_) => TripDetailScreen(
           initial: round.copy(),
           money: _money,
+          allRounds: _book?.rounds ?? const [],
           onReplace: _canWrite
               ? _replaceTrip
               : (updated) async {

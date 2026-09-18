@@ -1,6 +1,7 @@
 export 'models/trip_models.dart';
 export 'services/attachment_store.dart';
 export 'services/expression_eval.dart';
+export 'services/history_suggest.dart';
 export 'services/json_date.dart';
 export 'services/photo_picker_helper.dart';
 export 'services/profit_calculator.dart';
@@ -12,3 +13,5 @@ export 'ui/image_viewer_page.dart';
 export 'ui/route_editor_page.dart';
 export 'ui/trip_detail_screen.dart';
 export 'ui/trip_meta_editor.dart';
+export 'ui/widgets/attachment_thumb_strip.dart';
+export 'ui/widgets/ledger_stat_charts.dart';

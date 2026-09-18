@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:truck_ledger_editor/truck_ledger_editor.dart' show WageShareBar;
 
 import '../models/trip_models.dart';
 import '../services/ledger_backup_exporter.dart';
@@ -16,8 +17,17 @@ import 'messages_screen.dart';
 import 'trip_detail_screen.dart';
 import 'trip_meta_editor.dart';
 
-class HomeScreen extends StatelessWidget {
+enum _RoundFilter { all, unreconciled, unpaidSalary }
+
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  _RoundFilter _filter = _RoundFilter.all;
 
   @override
   Widget build(BuildContext context) {
@@ -32,22 +42,22 @@ class HomeScreen extends StatelessWidget {
     }
 
     final book = ctrl.book;
+    double totalWageDue = 0;
+    double totalWagePaid = 0;
+    double unpaid = 0;
     String headerText;
     if (book.rounds.isEmpty) {
       headerText = '工资汇总：暂无圈次';
     } else {
       final summaries = book.rounds.map(ProfitCalculator.calculate).toList();
-      final totalWageDue =
+      totalWageDue =
           summaries.fold<double>(0, (a, s) => a + s.driverWagePayable);
-      var totalWagePaid = 0.0;
-      var unpaid = 0.0;
       for (var i = 0; i < book.rounds.length; i++) {
         final round = book.rounds[i];
         final due = summaries[i].driverWagePayable;
         if (round.isSalarySettled) {
           totalWagePaid += due;
         }
-        // 未发仅统计已交账且尚未工资结算的圈次
         if (round.isReconciled && !round.isSalarySettled) {
           unpaid += due;
         }
@@ -55,6 +65,17 @@ class HomeScreen extends StatelessWidget {
       headerText =
           '工资汇总（所有圈次）\n应得 ${ctrl.money(totalWageDue)} ｜ 已发 ${ctrl.money(totalWagePaid)} ｜ 未发 ${ctrl.money(unpaid)}（仅已交账）';
     }
+
+    final filteredRounds = book.rounds.where((r) {
+      switch (_filter) {
+        case _RoundFilter.all:
+          return true;
+        case _RoundFilter.unreconciled:
+          return !r.isReconciled;
+        case _RoundFilter.unpaidSalary:
+          return r.isReconciled && !r.isSalarySettled;
+      }
+    }).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -157,18 +178,42 @@ class HomeScreen extends StatelessWidget {
               color: Theme.of(context).colorScheme.surfaceContainerHighest,
               child: Padding(
                 padding: const EdgeInsets.all(14),
-                child: Text(
-                  headerText,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        height: 1.35,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      headerText,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                          ),
+                    ),
+                    if (book.rounds.isNotEmpty)
+                      WageShareBar(
+                        totalDue: totalWageDue,
+                        paid: totalWagePaid,
+                        unpaidReconciled: unpaid,
+                        money: ctrl.money,
                       ),
+                  ],
                 ),
               ),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: SegmentedButton<_RoundFilter>(
+              segments: const [
+                ButtonSegment(value: _RoundFilter.all, label: Text('全部')),
+                ButtonSegment(value: _RoundFilter.unreconciled, label: Text('未交账')),
+                ButtonSegment(value: _RoundFilter.unpaidSalary, label: Text('待发工资')),
+              ],
+              selected: {_filter},
+              onSelectionChanged: (s) => setState(() => _filter = s.first),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Text(
               '每圈简写信息（点开查看详情）',
               style: TextStyle(
@@ -178,13 +223,17 @@ class HomeScreen extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: book.rounds.isEmpty
-                ? const Center(child: Text('暂无圈次，点击右上角新建'))
+            child: filteredRounds.isEmpty
+                ? Center(
+                    child: Text(
+                      book.rounds.isEmpty ? '暂无圈次，点击右上角新建' : '当前筛选下无圈次',
+                    ),
+                  )
                 : ListView.builder(
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                    itemCount: book.rounds.length,
+                    itemCount: filteredRounds.length,
                     itemBuilder: (context, index) {
-                      final round = book.rounds[index];
+                      final round = filteredRounds[index];
                       final sum = ProfitCalculator.calculate(round);
                       final reconcileText =
                           round.isReconciled ? '已交账' : '未交账';
@@ -352,6 +401,38 @@ class HomeScreen extends StatelessWidget {
   }
 
   Future<void> _addRound(BuildContext context) async {
+    final ctrl = context.read<LedgerController>();
+    if (ctrl.book.rounds.isNotEmpty) {
+      final choice = await showModalBottomSheet<String>(
+        context: context,
+        builder: (ctx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.note_add_outlined),
+                title: const Text('新建空白圈次'),
+                onTap: () => Navigator.pop(ctx, 'blank'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.copy_outlined),
+                title: const Text('复制上一圈路线'),
+                subtitle: const Text('带装卸地与运费结构，清空费用与凭证'),
+                onTap: () => Navigator.pop(ctx, 'copy'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (!context.mounted) return;
+      if (choice == 'copy') {
+        final trip = await ctrl.copyLatestRoundTemplate();
+        if (!context.mounted) return;
+        if (trip != null) await _openDetail(context, trip, ctrl);
+        return;
+      }
+      if (choice != 'blank') return;
+    }
     final r = await Navigator.push<TripMetaResult>(
       context,
       MaterialPageRoute(
@@ -373,6 +454,7 @@ class HomeScreen extends StatelessWidget {
         builder: (_) => TripDetailScreen(
           initial: round.copy(),
           money: ctrl.money,
+          allRounds: ctrl.book.rounds,
           onReplace: (updated) => ctrl.replaceTrip(updated),
         ),
       ),
