@@ -211,6 +211,10 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
 
   void _applyTollHint(TollHistoryHint hint) {
     setState(() {
+      if (hint.title.isNotEmpty) {
+        _title.text = hint.title;
+        _title.selection = TextSelection.collapsed(offset: hint.title.length);
+      }
       _amount.text = hint.amount == hint.amount.roundToDouble()
           ? hint.amount.toInt().toString()
           : hint.amount.toStringAsFixed(2);
@@ -348,7 +352,7 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '历史同线高速费（点选填入）',
+                        '历史同线高速费（含出入口标题，点选填入）',
                         style: TextStyle(
                           fontSize: 12,
                           color: Theme.of(context).colorScheme.outline,

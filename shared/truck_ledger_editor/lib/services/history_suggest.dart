@@ -7,6 +7,9 @@ class HistorySuggest {
   static String normalizePlace(String raw) =>
       raw.trim().replaceAll(RegExp(r'\s+'), '');
 
+  static String normalizeTitle(String raw) =>
+      raw.trim().replaceAll(RegExp(r'\s+'), ' ');
+
   static List<String> placeSuggestions(
     Iterable<TripLedger> rounds, {
     required bool loadPlaces,
@@ -50,7 +53,7 @@ class HistorySuggest {
     final keys = routePairKeys(current);
     if (keys.isEmpty) return const [];
 
-    // amountKey -> aggregate
+    // title+amount+pay -> aggregate（出入口标题不同则分开提示）
     final map = <String, _TollAgg>{};
     for (final trip in allRounds) {
       if (trip.id == current.id) continue;
@@ -63,11 +66,13 @@ class HistorySuggest {
       for (final e in trip.expenses) {
         if (e.category != ExpenseCategory.toll) continue;
         if (e.amount <= 0.000001) continue;
+        final title = normalizeTitle(e.title);
         final k =
-            '${e.amount.toStringAsFixed(2)}|${e.tollCashAmount.toStringAsFixed(2)}|${e.tollEtcAmount.toStringAsFixed(2)}|${e.paymentSource.name}';
+            '$title|${e.amount.toStringAsFixed(2)}|${e.tollCashAmount.toStringAsFixed(2)}|${e.tollEtcAmount.toStringAsFixed(2)}|${e.paymentSource.name}';
         final agg = map.putIfAbsent(
           k,
           () => _TollAgg(
+            title: title,
             amount: e.amount,
             tollCash: e.tollCashAmount,
             tollEtc: e.tollEtcAmount,
@@ -78,7 +83,12 @@ class HistorySuggest {
         );
         agg.count += 1;
         if (score > agg.score) agg.score = score;
-        if (e.createdAt.isAfter(agg.createdAt)) agg.createdAt = e.createdAt;
+        if (e.createdAt.isAfter(agg.createdAt)) {
+          agg.createdAt = e.createdAt;
+          // 保留最近一次的原始标题写法
+          final t = normalizeTitle(e.title);
+          if (t.isNotEmpty) agg.title = t;
+        }
       }
     }
 
@@ -95,6 +105,7 @@ class HistorySuggest {
         .take(limit)
         .map(
           (a) => TollHistoryHint(
+            title: a.title,
             amount: a.amount,
             tollCashAmount: a.tollCash,
             tollEtcAmount: a.tollEtc,
@@ -109,6 +120,7 @@ class HistorySuggest {
 
 class TollHistoryHint {
   const TollHistoryHint({
+    required this.title,
     required this.amount,
     required this.tollCashAmount,
     required this.tollEtcAmount,
@@ -117,6 +129,8 @@ class TollHistoryHint {
     required this.fullRouteMatch,
   });
 
+  /// 高速出入口等标题（费用条目 title）。
+  final String title;
   final double amount;
   final double tollCashAmount;
   final double tollEtcAmount;
@@ -125,7 +139,11 @@ class TollHistoryHint {
   final bool fullRouteMatch;
 
   String chipLabel(String Function(double) money) {
-    final parts = <String>[money(amount)];
+    final parts = <String>[];
+    if (title.isNotEmpty) {
+      parts.add(title);
+    }
+    parts.add(money(amount));
     if (tollCashAmount > 0.000001 && tollEtcAmount > 0.000001) {
       parts.add('现${money(tollCashAmount)}+ETC${money(tollEtcAmount)}');
     } else {
@@ -139,6 +157,7 @@ class TollHistoryHint {
 
 class _TollAgg {
   _TollAgg({
+    required this.title,
     required this.amount,
     required this.tollCash,
     required this.tollEtc,
@@ -147,6 +166,7 @@ class _TollAgg {
     required this.score,
   });
 
+  String title;
   final double amount;
   final double tollCash;
   final double tollEtc;
