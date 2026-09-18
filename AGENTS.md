@@ -8,8 +8,9 @@ Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`，当前版�
 
 ## AI 协作约定
 
-- 功能/修复完成后 **直接 `git commit` + `git push origin main`** 触发 CI 发版，**不要再询问**是否提交或推送（除非改动含密钥、破坏性操作，或用户明确只要本地改）。
-- 涉及 `server-php/` 可部署变更时，完成后执行 `./one_click_server_deploy.sh`（或说明无法部署的原因）。
+- 功能/修复完成后优先跑 **`./one_click_ship.sh`**（已 commit 则直接 push → 等 CI 编译上传 downloads / 更新控制面 → 有 `server-php` 变更则本机 rsync + 等 Deploy）；不要只 push 就结束。
+- 也可：`-m "说明"` 顺带提交；`--install-apk` / `--install-deb` 等 CI 成功后装到设备。
+- 例外：改动含密钥、破坏性操作、或用户明确只要本地改时，先停并说明。
 
 ## 发行版产品约定（重要）
 
@@ -36,12 +37,13 @@ Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`，当前版�
 
 | 脚本 | 作用 |
 |------|------|
+| **`./one_click_ship.sh`** | **总控**：push → 等 CI（编译/上传 downloads/控制面/部署后端）→ 可选装 APK/DEB/IPA |
 | `./one_click_ipa.sh` | 从 GitHub Release 拉 IPA → `ipa-out/Runner.ipa` |
 | `./one_click_deb_install.sh` | 从生产 downloads / Release 拉 deb → SSH `dpkg -i` |
 | `./one_click_apk_install.sh` | 从生产 downloads / Release 拉 APK → `adb install -r` |
 | `./one_click_find_android.sh` | 仅扫描/连接 Android（打印 serial） |
 | `./one_click_server_deploy.sh` | rsync 部署 `server-php/`（保留远端 config.php / data） |
-| `make ipa-one` / `make deb-install-one` / `make apk-install-one` / `make server-deploy` | 同上 |
+| `make ship` / `make ipa-one` / … | 同上 |
 
 **CI「Release Packages」**（push `main` 且改动 lib/android/ios/pubspec 时自动跑）：产出 Android APK、iOS IPA、越狱 DEB、Runner.app.zip，发布到 GitHub **Releases**，并上传 APK/DEB 到服务器 downloads + 更新控制面版本。说明见 `docs/CI_AUTO_RELEASE.md`。
 

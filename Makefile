@@ -1,7 +1,11 @@
 # 与 TheosUIApp/TruckLedger 一致：供 deploy.sh / debug.sh 读取默认设备 IP。
 THEOS_DEVICE_IP ?= 192.168.0.129
 
-.PHONY: ipa-one deb-install-one apk-install-one machine-env-example server-deploy
+.PHONY: ship ipa-one deb-install-one apk-install-one machine-env-example server-deploy
+
+# 一键总控：push → 等 CI 编译/上传/部署 → 可选装包（见 ./one_click_ship.sh -h）
+ship:
+	./one_click_ship.sh
 
 # 一键：从 CI / 生产下载 IPA（禁止本机编译）
 ipa-one:

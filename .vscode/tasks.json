@@ -2,6 +2,22 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "一键：发版总控（push → 等 CI 编译上传部署）",
+      "type": "shell",
+      "command": "./scripts/with_project_env.sh ./one_click_ship.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "一键：发版总控 + 安装 APK",
+      "type": "shell",
+      "command": "./scripts/with_project_env.sh ./one_click_ship.sh --install-apk",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
       "label": "一键：Android 安装 CI APK 到设备（adb）",
       "type": "shell",
       "command": "./scripts/with_project_env.sh ./one_click_apk_install.sh",
