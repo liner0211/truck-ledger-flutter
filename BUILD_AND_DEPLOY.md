@@ -15,6 +15,7 @@
 | 数据 | 本地 JSON（`ledger_book.json` + `attachments/`） |
 | iOS 越狱安装 | 安装到 `/Applications` 的 **deb**（非 App Store 流程） |
 | 发版 | `docs/CI_AUTO_RELEASE.md` |
+| **迁移配置清单** | **`docs/MIGRATION.md`**（本机 / Secrets / 服务器 / 签名） |
 
 ---
 

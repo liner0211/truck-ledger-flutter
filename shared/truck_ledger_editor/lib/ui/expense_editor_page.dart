@@ -320,8 +320,9 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
             controller: _title,
             decoration: InputDecoration(
               labelText: '标题',
-              hintText: cat.label,
+              hintText: cat == ExpenseCategory.toll ? '出入口名称，输入以联想' : cat.label,
             ),
+            onChanged: cat == ExpenseCategory.toll ? (_) => setState(() {}) : null,
           ),
           TextField(
             controller: _amount,
@@ -336,14 +337,19 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
             inputFormatters: cat == ExpenseCategory.fuel ? [_decimalFilter] : null,
             onChanged: cat == ExpenseCategory.fuel
                 ? (v) => _syncFuelFrom(_FuelField.amount, v)
-                : null,
+                : (cat == ExpenseCategory.toll ? (_) => setState(() {}) : null),
           ),
           if (cat == ExpenseCategory.toll) ...[
             Builder(
               builder: (context) {
-                final hints = HistorySuggest.tollHintsForTrip(
+                final all = HistorySuggest.tollHintsForTrip(
                   _trip,
                   widget.allRounds,
+                );
+                final hints = HistorySuggest.filterTollHints(
+                  all,
+                  titleQuery: _title.text,
+                  amountQuery: _amount.text,
                 );
                 if (hints.isEmpty) return const SizedBox.shrink();
                 return Padding(
@@ -352,7 +358,7 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '历史同线高速费（含出入口标题，点选填入）',
+                        '输入出入口标题或金额以联想同线历史（点选填入）',
                         style: TextStyle(
                           fontSize: 12,
                           color: Theme.of(context).colorScheme.outline,

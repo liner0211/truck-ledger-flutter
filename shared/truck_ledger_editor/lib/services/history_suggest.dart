@@ -116,6 +116,29 @@ class HistorySuggest {
         )
         .toList();
   }
+
+  /// 按标题 / 金额输入过滤高速费联想：都空则空列表。
+  static List<TollHistoryHint> filterTollHints(
+    List<TollHistoryHint> hints, {
+    required String titleQuery,
+    required String amountQuery,
+  }) {
+    final tq = normalizeTitle(titleQuery);
+    final aq = amountQuery.trim();
+    if (tq.isEmpty && aq.isEmpty) return const [];
+    return hints.where((h) {
+      if (tq.isNotEmpty) {
+        return normalizeTitle(h.title).contains(tq);
+      }
+      // 仅金额：匹配金额数字串
+      final amt = h.amount == h.amount.roundToDouble()
+          ? h.amount.toInt().toString()
+          : h.amount.toStringAsFixed(2);
+      return amt.contains(aq) ||
+          h.tollCashAmount.toString().contains(aq) ||
+          h.tollEtcAmount.toString().contains(aq);
+    }).toList();
+  }
 }
 
 class TollHistoryHint {

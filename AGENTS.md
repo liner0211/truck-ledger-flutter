@@ -1,6 +1,7 @@
 # 给 AI 助手 / 新对话的快速上下文
 
-在新 Cursor 窗口接手本项目时，先读 **`BUILD_AND_DEPLOY.md`**（全流程），再读本文件（索引）。
+在新 Cursor 窗口接手本项目时，先读 **`BUILD_AND_DEPLOY.md`**（全流程），再读本文件（索引）。  
+**迁代码 / 迁服务器 / Secrets 对照表：** [`docs/MIGRATION.md`](docs/MIGRATION.md)（模板见 `dev/machine.env.example`）。
 
 ## 项目目的
 

@@ -159,8 +159,9 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
       loadPlaces: loadPlaces,
     );
     final q = HistorySuggest.normalizePlace(controller.text);
+    // 空输入不展示常用列表；有字才按 contains 过滤
     final filtered = q.isEmpty
-        ? options.take(6).toList()
+        ? const <String>[]
         : options
             .where((o) => HistorySuggest.normalizePlace(o).contains(q))
             .take(6)
