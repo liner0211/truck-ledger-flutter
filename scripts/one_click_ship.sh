@@ -79,6 +79,7 @@ need_cmd() {
 
 need_cmd git
 need_cmd gh
+need_cmd jq
 
 if ! gh auth status >/dev/null 2>&1; then
   echo "ERROR: gh 未登录。请先: gh auth login" >&2
@@ -282,7 +283,7 @@ if [[ "$DO_WAIT" != "1" ]]; then
 fi
 
 # --- 7) 等待 CI ---
-# workflow_dispatch 的 run 挂在 branch HEAD；用「刚派发后最新 in_progress/queued」更稳
+# 兼容旧版 gh（如 Ubuntu 2.4）：无 --commit/--branch，改用 list + jq 按 headSha 过滤
 wait_workflow() {
   local name="$1"
   local optional="${2:-0}"
@@ -293,18 +294,25 @@ wait_workflow() {
   local started_after
   started_after="$(date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-10M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
   while (( SECONDS < deadline )); do
-    # 优先：本 commit 上的 run；其次：本分支最近一次该 workflow（手动派发）
-    run_id="$(
-      gh run list --commit "$SHA" --workflow "$name" --limit 5 \
-        --json databaseId,status,conclusion,createdAt \
-        --jq 'sort_by(.createdAt) | reverse | .[0].databaseId // empty' 2>/dev/null || true
+    local runs_json
+    runs_json="$(
+      gh run list -w "$name" -L 30 \
+        --json databaseId,status,conclusion,createdAt,headSha 2>/dev/null || true
     )"
-    if [[ -z "$run_id" ]]; then
+    run_id=""
+    if [[ -n "$runs_json" && "$runs_json" != "[]" ]]; then
+      # 优先本 SHA；否则（手动派发后）取最近一条
       run_id="$(
-        gh run list --branch "$BRANCH" --workflow "$name" --limit 3 \
-          --json databaseId,status,conclusion,createdAt \
-          --jq 'sort_by(.createdAt) | reverse | .[0].databaseId // empty' 2>/dev/null || true
+        jq -r --arg sha "$SHA" \
+          '[.[] | select(.headSha == $sha)] | sort_by(.createdAt) | reverse | .[0].databaseId // empty' \
+          <<<"$runs_json" 2>/dev/null || true
       )"
+      if [[ -z "$run_id" && "$FORCE_DISPATCH" == "1" ]]; then
+        run_id="$(
+          jq -r 'sort_by(.createdAt) | reverse | .[0].databaseId // empty' \
+            <<<"$runs_json" 2>/dev/null || true
+        )"
+      fi
     fi
     if [[ -z "$run_id" ]]; then
       if [[ "$optional" == "1" ]]; then
