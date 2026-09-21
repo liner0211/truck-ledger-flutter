@@ -92,10 +92,36 @@ set_repo_visibility() {
   local vis="private"
   [[ "$private_bool" == "false" ]] && vis="public"
   echo "==> 仓库可见性 → $vis ($REPO_SLUG)"
-  gh api -X PATCH "repos/$REPO_SLUG" \
-    -f "private=$private_bool" \
-    -f "visibility=$vis" \
-    --jq '{private,visibility}' >/dev/null
+  local attempt err
+  for attempt in 1 2 3 4 5 6 7 8; do
+    err="$(
+      gh api -X PATCH "repos/$REPO_SLUG" \
+        -f "private=$private_bool" \
+        -f "visibility=$vis" \
+        --jq '{private,visibility}' 2>&1
+    )" && {
+      echo "    $err"
+      # GitHub 可见性变更可能异步，稍等再确认
+      sleep 2
+      local now
+      now="$(gh api "repos/$REPO_SLUG" --jq .private)"
+      if [[ "$private_bool" == "true" && "$now" == "true" ]]; then
+        return 0
+      fi
+      if [[ "$private_bool" == "false" && "$now" == "false" ]]; then
+        return 0
+      fi
+      echo "    …API 已返回但状态尚未同步（private=$now），重试"
+    } || {
+      echo "    尝试 $attempt 失败: $err"
+      if ! grep -qi 'still in progress\|422' <<<"$err"; then
+        return 1
+      fi
+    }
+    sleep $((attempt * 3))
+  done
+  echo "ERROR: 无法将仓库设为 $vis" >&2
+  return 1
 }
 
 restore_repo_private_if_needed() {
