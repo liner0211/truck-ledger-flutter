@@ -1,6 +1,6 @@
 import '../models/trip_models.dart';
 
-/// 地点与高速费历史联想（常走路线）。
+/// 高速费历史联想（按出入口名称匹配，同线路优先）。
 class HistorySuggest {
   HistorySuggest._();
 
@@ -9,29 +9,6 @@ class HistorySuggest {
 
   static String normalizeTitle(String raw) =>
       raw.trim().replaceAll(RegExp(r'\s+'), ' ');
-
-  static List<String> placeSuggestions(
-    Iterable<TripLedger> rounds, {
-    required bool loadPlaces,
-    int limit = 12,
-  }) {
-    final counts = <String, int>{};
-    for (final trip in rounds) {
-      for (final leg in trip.routeLegs) {
-        final p = loadPlaces ? leg.loadPlace : leg.unloadPlace;
-        final key = normalizePlace(p);
-        if (key.isEmpty) continue;
-        counts[key] = (counts[key] ?? 0) + 1;
-      }
-    }
-    final sorted = counts.entries.toList()
-      ..sort((a, b) {
-        final c = b.value.compareTo(a.value);
-        if (c != 0) return c;
-        return a.key.compareTo(b.key);
-      });
-    return sorted.take(limit).map((e) => e.key).toList();
-  }
 
   /// 本圈路线装卸地对集合（规范化）。
   static Set<String> routePairKeys(TripLedger trip) {
@@ -45,30 +22,34 @@ class HistorySuggest {
     return out;
   }
 
+  /// 汇总历史高速费；同线路加分，按最近/频次排序。
   static List<TollHistoryHint> tollHintsForTrip(
     TripLedger current,
     Iterable<TripLedger> allRounds, {
-    int limit = 5,
+    int limit = 40,
   }) {
     final keys = routePairKeys(current);
-    if (keys.isEmpty) return const [];
-
-    // title+amount+pay -> aggregate（出入口标题不同则分开提示）
     final map = <String, _TollAgg>{};
-    for (final trip in allRounds) {
-      if (trip.id == current.id) continue;
+    final rounds = allRounds.isEmpty ? <TripLedger>[current] : allRounds;
+
+    for (final trip in rounds) {
       final tripKeys = routePairKeys(trip);
-      if (tripKeys.isEmpty) continue;
-      final fullMatch = keys.length == tripKeys.length && keys.containsAll(tripKeys);
-      final partial = keys.any(tripKeys.contains);
-      if (!fullMatch && !partial) continue;
-      final score = fullMatch ? 2 : 1;
+      final fullMatch =
+          keys.isNotEmpty && keys.length == tripKeys.length && keys.containsAll(tripKeys);
+      final partial = keys.isNotEmpty && keys.any(tripKeys.contains);
+      final score = fullMatch ? 2 : (partial ? 1 : 0);
+
       for (final e in trip.expenses) {
         if (e.category != ExpenseCategory.toll) continue;
         if (e.amount <= 0.000001) continue;
         final title = normalizeTitle(e.title);
+        if (title.isEmpty) continue;
+        // 跳过默认占位标题
+        if (title == ExpenseCategory.toll.label) continue;
+
         final k =
             '$title|${e.amount.toStringAsFixed(2)}|${e.tollCashAmount.toStringAsFixed(2)}|${e.tollEtcAmount.toStringAsFixed(2)}|${e.paymentSource.name}';
+        final isNew = !map.containsKey(k);
         final agg = map.putIfAbsent(
           k,
           () => _TollAgg(
@@ -81,13 +62,11 @@ class HistorySuggest {
             score: score,
           ),
         );
-        agg.count += 1;
+        if (!isNew) agg.count += 1;
         if (score > agg.score) agg.score = score;
         if (e.createdAt.isAfter(agg.createdAt)) {
           agg.createdAt = e.createdAt;
-          // 保留最近一次的原始标题写法
-          final t = normalizeTitle(e.title);
-          if (t.isNotEmpty) agg.title = t;
+          agg.title = title;
         }
       }
     }
@@ -117,27 +96,27 @@ class HistorySuggest {
         .toList();
   }
 
-  /// 按标题 / 金额输入过滤高速费联想：都空则空列表。
-  static List<TollHistoryHint> filterTollHints(
+  /// 按出入口名称过滤；空输入不展示。
+  static List<TollHistoryHint> filterTollHintsByName(
     List<TollHistoryHint> hints, {
     required String titleQuery,
-    required String amountQuery,
+    int limit = 8,
   }) {
     final tq = normalizeTitle(titleQuery);
-    final aq = amountQuery.trim();
-    if (tq.isEmpty && aq.isEmpty) return const [];
-    return hints.where((h) {
-      if (tq.isNotEmpty) {
-        return normalizeTitle(h.title).contains(tq);
-      }
-      // 仅金额：匹配金额数字串
-      final amt = h.amount == h.amount.roundToDouble()
-          ? h.amount.toInt().toString()
-          : h.amount.toStringAsFixed(2);
-      return amt.contains(aq) ||
-          h.tollCashAmount.toString().contains(aq) ||
-          h.tollEtcAmount.toString().contains(aq);
-    }).toList();
+    if (tq.isEmpty) return const [];
+    final matched = hints.where((h) => normalizeTitle(h.title).contains(tq)).toList();
+    // 前缀匹配优先
+    matched.sort((a, b) {
+      final at = normalizeTitle(a.title);
+      final bt = normalizeTitle(b.title);
+      final ap = at.startsWith(tq) ? 0 : 1;
+      final bp = bt.startsWith(tq) ? 0 : 1;
+      if (ap != bp) return ap.compareTo(bp);
+      final s = (b.fullRouteMatch ? 1 : 0).compareTo(a.fullRouteMatch ? 1 : 0);
+      if (s != 0) return s;
+      return b.count.compareTo(a.count);
+    });
+    return matched.take(limit).toList();
   }
 }
 
@@ -161,20 +140,14 @@ class TollHistoryHint {
   final int count;
   final bool fullRouteMatch;
 
-  String chipLabel(String Function(double) money) {
-    final parts = <String>[];
-    if (title.isNotEmpty) {
-      parts.add(title);
-    }
-    parts.add(money(amount));
-    if (tollCashAmount > 0.000001 && tollEtcAmount > 0.000001) {
-      parts.add('现${money(tollCashAmount)}+ETC${money(tollEtcAmount)}');
-    } else {
-      parts.add(paymentSource.label);
-    }
-    if (count > 1) parts.add('×$count');
-    if (fullRouteMatch) parts.add('同线');
-    return parts.join(' · ');
+  String dropdownLabel(String Function(double) money) {
+    final pay = (tollCashAmount > 0.000001 && tollEtcAmount > 0.000001)
+        ? '现${money(tollCashAmount)}+ETC${money(tollEtcAmount)}'
+        : paymentSource.label;
+    final bits = <String>[title, money(amount), pay];
+    if (count > 1) bits.add('×$count');
+    if (fullRouteMatch) bits.add('同线');
+    return bits.join(' · ');
   }
 }
 

@@ -24,7 +24,7 @@ class TripDetailScreen extends StatefulWidget {
   final TripLedger initial;
   final Future<void> Function(TripLedger trip) onReplace;
   final String Function(double v) money;
-  /// 全书圈次，用于地点/高速费联想。
+  /// 全书圈次，用于高速费出入口名称联想。
   final List<TripLedger> allRounds;
 
   @override
@@ -277,7 +277,6 @@ ${sum.etcTollReconcileFee > 0.000001 ? 'ETC手续费(0.35%)：${widget.money(sum
         builder: (_) => RouteEditorPage(
           trip: _trip,
           legIndex: legIndex,
-          allRounds: widget.allRounds,
         ),
       ),
     );

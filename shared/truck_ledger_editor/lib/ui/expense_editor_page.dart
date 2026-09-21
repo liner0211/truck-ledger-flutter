@@ -40,10 +40,12 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
   late TextEditingController _amount;
   late TextEditingController _fuelKg;
   late TextEditingController _fuelPrice;
+  final FocusNode _titleFocus = FocusNode();
   PaymentSource _pay = PaymentSource.cash;
   bool _reimbursable = false;
   List<String> _attachments = [];
   bool _fuelSyncing = false;
+  List<TollHistoryHint>? _tollHintsCache;
 
   /// 用户亲手改过的字段：自动推算时不得覆盖；清空后解除锁定。
   final Set<_FuelField> _fuelManual = {};
@@ -200,7 +202,15 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
     _amount.dispose();
     _fuelKg.dispose();
     _fuelPrice.dispose();
+    _titleFocus.dispose();
     super.dispose();
+  }
+
+  List<TollHistoryHint> _tollHintsAll() {
+    return _tollHintsCache ??= HistorySuggest.tollHintsForTrip(
+      _trip,
+      widget.allRounds,
+    );
   }
 
   Future<void> _addPhotos() async {
@@ -316,14 +326,103 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          TextField(
-            controller: _title,
-            decoration: InputDecoration(
-              labelText: '标题',
-              hintText: cat == ExpenseCategory.toll ? '出入口名称，输入以联想' : cat.label,
+          if (cat == ExpenseCategory.toll)
+            RawAutocomplete<TollHistoryHint>(
+              textEditingController: _title,
+              focusNode: _titleFocus,
+              optionsBuilder: (TextEditingValue tev) {
+                return HistorySuggest.filterTollHintsByName(
+                  _tollHintsAll(),
+                  titleQuery: tev.text,
+                );
+              },
+              displayStringForOption: (h) => h.title,
+              onSelected: _applyTollHint,
+              fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                return TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  decoration: const InputDecoration(
+                    labelText: '出入口',
+                    hintText: '输入名称联想历史出入口与费用',
+                  ),
+                  onSubmitted: (_) => onFieldSubmitted(),
+                );
+              },
+              optionsViewBuilder: (context, onSelected, options) {
+                final opts = options.toList();
+                final fieldWidth = MediaQuery.sizeOf(context).width - 32;
+                return Align(
+                  alignment: Alignment.topLeft,
+                  child: Material(
+                    elevation: 4,
+                    borderRadius: BorderRadius.circular(8),
+                    clipBehavior: Clip.antiAlias,
+                    child: SizedBox(
+                      width: fieldWidth,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 240),
+                        child: ListView.separated(
+                          padding: EdgeInsets.zero,
+                          shrinkWrap: true,
+                          itemCount: opts.length,
+                          separatorBuilder: (context, index) => const Divider(height: 1),
+                          itemBuilder: (context, i) {
+                            final h = opts[i];
+                            final payBit = h.paymentSource.label;
+                            final amt = widget.money(h.amount);
+                            return InkWell(
+                              onTap: () => onSelected(h),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      h.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontWeight: FontWeight.w600),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      [
+                                        amt,
+                                        payBit,
+                                        if (h.count > 1) '×${h.count}',
+                                        if (h.fullRouteMatch) '同线',
+                                      ].join(' · '),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Theme.of(context).colorScheme.outline,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            )
+          else
+            TextField(
+              controller: _title,
+              focusNode: _titleFocus,
+              decoration: InputDecoration(
+                labelText: '标题',
+                hintText: cat.label,
+              ),
             ),
-            onChanged: cat == ExpenseCategory.toll ? (_) => setState(() {}) : null,
-          ),
           TextField(
             controller: _amount,
             decoration: InputDecoration(
@@ -337,51 +436,8 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
             inputFormatters: cat == ExpenseCategory.fuel ? [_decimalFilter] : null,
             onChanged: cat == ExpenseCategory.fuel
                 ? (v) => _syncFuelFrom(_FuelField.amount, v)
-                : (cat == ExpenseCategory.toll ? (_) => setState(() {}) : null),
+                : null,
           ),
-          if (cat == ExpenseCategory.toll) ...[
-            Builder(
-              builder: (context) {
-                final all = HistorySuggest.tollHintsForTrip(
-                  _trip,
-                  widget.allRounds,
-                );
-                final hints = HistorySuggest.filterTollHints(
-                  all,
-                  titleQuery: _title.text,
-                  amountQuery: _amount.text,
-                );
-                if (hints.isEmpty) return const SizedBox.shrink();
-                return Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '输入出入口标题或金额以联想同线历史（点选填入）',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          for (final h in hints)
-                            ActionChip(
-                              label: Text(h.chipLabel(widget.money)),
-                              onPressed: () => _applyTollHint(h),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ],
           if (cat == ExpenseCategory.fuel) ...[
             TextField(
               controller: _fuelKg,

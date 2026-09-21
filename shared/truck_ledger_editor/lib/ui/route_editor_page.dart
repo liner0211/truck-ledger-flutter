@@ -3,7 +3,6 @@ import 'package:uuid/uuid.dart';
 
 import '../models/trip_models.dart';
 import '../services/attachment_store.dart';
-import '../services/history_suggest.dart';
 import '../services/photo_picker_helper.dart';
 import 'formatters.dart';
 import 'widgets/attachment_thumb_strip.dart';
@@ -13,12 +12,10 @@ class RouteEditorPage extends StatefulWidget {
     super.key,
     required this.trip,
     this.legIndex,
-    this.allRounds = const [],
   });
 
   final TripLedger trip;
   final int? legIndex;
-  final List<TripLedger> allRounds;
 
   @override
   State<RouteEditorPage> createState() => _RouteEditorPageState();
@@ -149,55 +146,6 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
     );
   }
 
-  Widget _placeField({
-    required TextEditingController controller,
-    required String label,
-    required bool loadPlaces,
-  }) {
-    final options = HistorySuggest.placeSuggestions(
-      widget.allRounds.isEmpty ? [_trip] : widget.allRounds,
-      loadPlaces: loadPlaces,
-    );
-    final q = HistorySuggest.normalizePlace(controller.text);
-    // 空输入不展示常用列表；有字才按 contains 过滤
-    final filtered = q.isEmpty
-        ? const <String>[]
-        : options
-            .where((o) => HistorySuggest.normalizePlace(o).contains(q))
-            .take(6)
-            .toList();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        TextField(
-          controller: controller,
-          decoration: InputDecoration(labelText: label),
-          onChanged: (_) => setState(() {}),
-        ),
-        if (filtered.isNotEmpty) ...[
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            runSpacing: 4,
-            children: [
-              for (final p in filtered)
-                ActionChip(
-                  label: Text(p),
-                  onPressed: () {
-                    controller.text = p;
-                    controller.selection =
-                        TextSelection.collapsed(offset: p.length);
-                    setState(() {});
-                  },
-                ),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final freightPreview = parseAmountOrExpression(_freight.text);
@@ -213,8 +161,14 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _placeField(controller: _load, label: '装货地', loadPlaces: true),
-          _placeField(controller: _unload, label: '卸货地', loadPlaces: false),
+          TextField(
+            controller: _load,
+            decoration: const InputDecoration(labelText: '装货地'),
+          ),
+          TextField(
+            controller: _unload,
+            decoration: const InputDecoration(labelText: '卸货地'),
+          ),
           TextField(
             controller: _freight,
             decoration: InputDecoration(
