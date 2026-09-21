@@ -185,19 +185,36 @@ while IFS= read -r f; do
   esac
 done <<< "$CHANGED"
 
-if [[ "$need_app$need_server$need_admin" == "000" ]]; then
-  echo "==> 路径未命中发版规则，将等待本 SHA 上实际出现的 Actions"
+PATH_MISS=0
+[[ "$need_app$need_server$need_admin" == "000" ]] && PATH_MISS=1
+WAIT_ONLY_EXISTING=0
+echo "==> 路径扫描: App=$need_app 后端=$need_server 管理端=$need_admin"
+
+# --- 2) 是否已有待 push 的 commit ---
+AHEAD=0
+REMOTE_OK=0
+if git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
+  REMOTE_OK=1
+  AHEAD="$(git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)"
+fi
+
+# 无路径命中：用户跑 ship 即为发版 → 手动派发主 App 包（不误触后端/管理端）
+if [[ "$PATH_MISS" == "1" ]]; then
+  echo "==> 路径不触发自动 CI → 将手动派发「Release Packages」"
   need_app=1
-  need_server=1
-  need_admin=1
-  WAIT_ONLY_EXISTING=1
-else
-  WAIT_ONLY_EXISTING=0
 fi
 
 echo "==> 触发预期: App编译上传=$need_app  后端部署=$need_server  管理端=$need_admin"
 
-# --- 2) 临时公开（须在 push 之前，使本次 CI 按公开库额度跑）---
+# 无新 push、或 push 不会自动触发时，手动 workflow_dispatch
+FORCE_DISPATCH=0
+if [[ "$REMOTE_OK" == "1" && "$AHEAD" == "0" ]]; then
+  FORCE_DISPATCH=1
+elif [[ "$PATH_MISS" == "1" ]]; then
+  FORCE_DISPATCH=1
+fi
+
+# --- 3) 临时公开（须在 push / 派发之前）---
 if [[ "$DO_WAIT" == "1" && "$TEMP_PUBLIC" == "1" ]]; then
   priv="$(gh api "repos/$REPO_SLUG" --jq .private)"
   if [[ "$priv" == "true" ]]; then
@@ -209,25 +226,46 @@ if [[ "$DO_WAIT" == "1" && "$TEMP_PUBLIC" == "1" ]]; then
   fi
 fi
 
-# --- 3) push ---
-AHEAD=0
-REMOTE_OK=0
-if git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
-  REMOTE_OK=1
-  AHEAD="$(git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)"
-fi
-
+# --- 4) push ---
+DID_PUSH=0
 if [[ "$REMOTE_OK" == "1" && "$AHEAD" == "0" ]]; then
-  echo "==> 已与远端同步，无新 commit 可 push"
+  echo "==> 已与远端同步，无新 commit 可 push（将改用手动触发 CI）"
   SHA="$(git rev-parse HEAD)"
 else
   echo "==> git push origin HEAD"
   git push -u origin HEAD
+  DID_PUSH=1
   SHA="$(git rev-parse HEAD)"
 fi
 echo "    SHA=$SHA"
 
-# --- 4) 本机可先部署后端（与 CI 并行）---
+# --- 5) 手动派发 workflow（无新 push 或 push 不会自动触发时）---
+dispatch_workflow() {
+  local name="$1"
+  echo "==> 手动触发 workflow: $name （ref=$BRANCH）"
+  gh workflow run "$name" --ref "$BRANCH"
+}
+
+if [[ "$DO_WAIT" == "1" && "$FORCE_DISPATCH" == "1" ]]; then
+  echo "==> 手动派发 CI（否则不会自动跑）"
+  if [[ "$need_app" == "1" ]]; then
+    dispatch_workflow "Release Packages"
+  fi
+  if [[ "$need_server" == "1" ]]; then
+    dispatch_workflow "Deploy Server PHP"
+  fi
+  if [[ "$need_admin" == "1" ]]; then
+    dispatch_workflow "Release Admin Packages"
+  fi
+  echo "    等待 Actions 注册 run…"
+  sleep 8
+  # 已派发则必须等成功，不能「找不到就跳过」
+  WAIT_ONLY_EXISTING=0
+elif [[ "$DID_PUSH" == "1" ]]; then
+  echo "==> 已 push，依赖 path 过滤器自动触发 CI（不重复派发）"
+fi
+
+# --- 6) 本机可先部署后端（与 CI 并行）---
 if [[ "$need_server" == "1" && "$LOCAL_SERVER" == "1" ]]; then
   if [[ -n "${SERVER_HOST:-}" ]]; then
     echo "==> 本机并行部署 server-php（rsync）"
@@ -239,10 +277,12 @@ fi
 
 if [[ "$DO_WAIT" != "1" ]]; then
   echo "完成（--no-wait）。请在 GitHub Actions 查看编译与上传。"
+  echo "注意：--no-wait 不会临时公开仓库；若需公开跑 CI 请去掉该参数。"
   exit 0
 fi
 
-# --- 5) 等待 CI ---
+# --- 7) 等待 CI ---
+# workflow_dispatch 的 run 挂在 branch HEAD；用「刚派发后最新 in_progress/queued」更稳
 wait_workflow() {
   local name="$1"
   local optional="${2:-0}"
@@ -250,12 +290,22 @@ wait_workflow() {
   echo "==> 等待 workflow: $name （最长 ${TIMEOUT_MIN} 分钟）"
   local run_id=""
   local seen=0
+  local started_after
+  started_after="$(date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-10M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
   while (( SECONDS < deadline )); do
+    # 优先：本 commit 上的 run；其次：本分支最近一次该 workflow（手动派发）
     run_id="$(
       gh run list --commit "$SHA" --workflow "$name" --limit 5 \
         --json databaseId,status,conclusion,createdAt \
         --jq 'sort_by(.createdAt) | reverse | .[0].databaseId // empty' 2>/dev/null || true
     )"
+    if [[ -z "$run_id" ]]; then
+      run_id="$(
+        gh run list --branch "$BRANCH" --workflow "$name" --limit 3 \
+          --json databaseId,status,conclusion,createdAt \
+          --jq 'sort_by(.createdAt) | reverse | .[0].databaseId // empty' 2>/dev/null || true
+      )"
+    fi
     if [[ -z "$run_id" ]]; then
       if [[ "$optional" == "1" ]]; then
         if (( seen == 0 && SECONDS > 120 )); then
@@ -268,9 +318,18 @@ wait_workflow() {
       continue
     fi
     seen=1
-    local status conclusion
+    local status conclusion created
     status="$(gh run view "$run_id" --json status --jq .status)"
     conclusion="$(gh run view "$run_id" --json conclusion --jq '(.conclusion // "")')"
+    created="$(gh run view "$run_id" --json createdAt --jq .createdAt)"
+    # 若是很久以前的成功记录且我们刚派发，继续等更新的 run
+    if [[ "$FORCE_DISPATCH" == "1" && "$status" == "completed" && -n "$started_after" ]]; then
+      if [[ "$created" < "$started_after" ]]; then
+        echo "    run=$run_id 过旧（$created），继续等新 run…"
+        sleep "$POLL_SEC"
+        continue
+      fi
+    fi
     echo "    run=$run_id status=$status conclusion=${conclusion:-—}"
     if [[ "$status" == "completed" ]]; then
       if [[ "$conclusion" == "success" ]]; then
@@ -309,7 +368,7 @@ fi
 
 echo "==> CI 全部成功。生产 downloads / 控制面应由「Release Packages」写回；后端应由 Deploy 或本机 rsync 更新。"
 
-# --- 6) 可选安装 ---
+# --- 8) 可选安装 ---
 if [[ "$INSTALL_APK" == "1" ]]; then
   echo "==> 安装 APK"
   "$ROOT/one_click_apk_install.sh"
