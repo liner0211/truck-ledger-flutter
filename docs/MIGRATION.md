@@ -60,6 +60,8 @@
 
 本机总控：`./one_click_ship.sh`（push → 等上述 CI → 可选装包；有 `server-php` 时可本机并行 rsync）。
 
+**临时公开：** 默认在等 CI 前把仓库改为 **public**（避免私有库 Actions 额度/账单拦截），CI 结束或脚本中断后 **自动改回 private**。可用 `--keep-private` 或 `SHIP_TEMP_PUBLIC=0` 关闭。公开窗口内源码可被克隆，请知悉风险。
+
 **约定：** 禁止本机 `flutter build` 出发布包。
 
 ---

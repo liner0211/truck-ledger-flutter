@@ -10,6 +10,7 @@ Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`，当前版�
 ## AI 协作约定
 
 - 功能/修复完成后优先跑 **`./one_click_ship.sh`**（已 commit 则直接 push → 等 CI 编译上传 downloads / 更新控制面 → 有 `server-php` 变更则本机 rsync + 等 Deploy）；不要只 push 就结束。
+- 等 CI 时脚本默认 **临时公开仓库、结束后改回私有**（规避私有 Actions 额度问题）；不需要时加 `--keep-private`。
 - 也可：`-m "说明"` 顺带提交；`--install-apk` / `--install-deb` 等 CI 成功后装到设备。
 - 例外：改动含密钥、破坏性操作、或用户明确只要本地改时，先停并说明。
 

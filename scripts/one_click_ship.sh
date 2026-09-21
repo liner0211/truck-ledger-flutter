@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 一键发版总控：提交(可选) → push → 等 CI 编译/上传 downloads/更新控制面/部署后端 → 可选装到本机设备。
+# 一键发版总控：提交(可选) →（可选临时公开）→ push → 等 CI → 改回私有 → 可选装包。
 #
 # 用法:
 #   ./one_click_ship.sh
@@ -14,6 +14,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 # shellcheck disable=SC1091
 source "$ROOT/scripts/project_env.sh"
+# shellcheck disable=SC1091
+source "$ROOT/scripts/github_repo.sh"
 
 COMMIT_MSG="${SHIP_COMMIT_MSG:-}"
 DO_WAIT=1
@@ -21,8 +23,13 @@ INSTALL_APK="${SHIP_INSTALL_APK:-0}"
 INSTALL_DEB="${SHIP_INSTALL_DEB:-0}"
 INSTALL_IPA="${SHIP_INSTALL_IPA:-0}"
 LOCAL_SERVER="${SHIP_LOCAL_SERVER:-1}"
+# 等 CI 期间临时公开仓库（规避私有库 Actions 额度/账单拦截）；结束后改回私有
+TEMP_PUBLIC="${SHIP_TEMP_PUBLIC:-1}"
 POLL_SEC="${SHIP_POLL_SEC:-20}"
 TIMEOUT_MIN="${SHIP_TIMEOUT_MIN:-90}"
+
+REPO_SLUG=""
+MADE_PUBLIC=0
 
 usage() {
   cat <<'EOF'
@@ -32,7 +39,8 @@ usage() {
 
 选项:
   -m, --message MSG   有未提交改动时自动 git commit（MSG 为说明）
-  --no-wait           只 push，不等 CI
+  --no-wait           只 push，不等 CI（也不临时公开）
+  --keep-private      等 CI 时保持私有（不临时公开；可能撞上 Actions 额度）
   --no-local-server   有 server-php 变更时也不本机 rsync（只靠 CI Deploy）
   --install-apk       CI 成功后 adb 安装最新 APK
   --install-deb       CI 成功后安装越狱 deb
@@ -41,7 +49,9 @@ usage() {
   -h, --help          帮助
 
 环境变量（同名覆盖）: SHIP_COMMIT_MSG, SHIP_INSTALL_APK/DEB/IPA=1,
-  SHIP_LOCAL_SERVER=0, SHIP_POLL_SEC, SHIP_TIMEOUT_MIN
+  SHIP_LOCAL_SERVER=0, SHIP_TEMP_PUBLIC=0, SHIP_POLL_SEC, SHIP_TIMEOUT_MIN
+
+默认：等待 CI 时会临时把仓库改为 public，结束后（成功/失败/中断）改回 private。
 EOF
 }
 
@@ -49,6 +59,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -m|--message) COMMIT_MSG="${2:-}"; shift 2 ;;
     --no-wait) DO_WAIT=0; shift ;;
+    --keep-private) TEMP_PUBLIC=0; shift ;;
     --no-local-server) LOCAL_SERVER=0; shift ;;
     --install-apk) INSTALL_APK=1; shift ;;
     --install-deb) INSTALL_DEB=1; shift ;;
@@ -73,6 +84,33 @@ if ! gh auth status >/dev/null 2>&1; then
   echo "ERROR: gh 未登录。请先: gh auth login" >&2
   exit 1
 fi
+
+REPO_SLUG="$(resolve_github_repo)" || exit 1
+
+set_repo_visibility() {
+  local private_bool="$1" # true|false
+  local vis="private"
+  [[ "$private_bool" == "false" ]] && vis="public"
+  echo "==> 仓库可见性 → $vis ($REPO_SLUG)"
+  gh api -X PATCH "repos/$REPO_SLUG" \
+    -f "private=$private_bool" \
+    -f "visibility=$vis" \
+    --jq '{private,visibility}' >/dev/null
+}
+
+restore_repo_private_if_needed() {
+  if [[ "$MADE_PUBLIC" != "1" ]]; then
+    return 0
+  fi
+  echo "==> CI 结束：改回私有仓库"
+  if set_repo_visibility true; then
+    MADE_PUBLIC=0
+  else
+    echo "ERROR: 改回私有失败，请手动: gh api -X PATCH repos/$REPO_SLUG -f private=true -f visibility=private" >&2
+  fi
+}
+
+trap restore_repo_private_if_needed EXIT INT TERM
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 if [[ "$BRANCH" != "main" && "$BRANCH" != "master" ]]; then
@@ -122,7 +160,6 @@ while IFS= read -r f; do
 done <<< "$CHANGED"
 
 if [[ "$need_app$need_server$need_admin" == "000" ]]; then
-  # 无路径命中时：若有待 push 的 commit，仍等三类中实际出现的 run
   echo "==> 路径未命中发版规则，将等待本 SHA 上实际出现的 Actions"
   need_app=1
   need_server=1
@@ -134,7 +171,19 @@ fi
 
 echo "==> 触发预期: App编译上传=$need_app  后端部署=$need_server  管理端=$need_admin"
 
-# --- 2) push ---
+# --- 2) 临时公开（须在 push 之前，使本次 CI 按公开库额度跑）---
+if [[ "$DO_WAIT" == "1" && "$TEMP_PUBLIC" == "1" ]]; then
+  priv="$(gh api "repos/$REPO_SLUG" --jq .private)"
+  if [[ "$priv" == "true" ]]; then
+    set_repo_visibility false
+    MADE_PUBLIC=1
+    echo "    （跑完 CI 后会自动改回私有；中断脚本也会尝试改回）"
+  else
+    echo "==> 仓库已是公开，跳过临时公开"
+  fi
+fi
+
+# --- 3) push ---
 AHEAD=0
 REMOTE_OK=0
 if git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
@@ -152,7 +201,7 @@ else
 fi
 echo "    SHA=$SHA"
 
-# --- 3) 本机可先部署后端（与 CI 并行，加快可用）---
+# --- 4) 本机可先部署后端（与 CI 并行）---
 if [[ "$need_server" == "1" && "$LOCAL_SERVER" == "1" ]]; then
   if [[ -n "${SERVER_HOST:-}" ]]; then
     echo "==> 本机并行部署 server-php（rsync）"
@@ -167,7 +216,7 @@ if [[ "$DO_WAIT" != "1" ]]; then
   exit 0
 fi
 
-# --- 4) 等待 CI ---
+# --- 5) 等待 CI ---
 wait_workflow() {
   local name="$1"
   local optional="${2:-0}"
@@ -183,7 +232,6 @@ wait_workflow() {
     )"
     if [[ -z "$run_id" ]]; then
       if [[ "$optional" == "1" ]]; then
-        # 可选：一段时间仍无 run 则跳过
         if (( seen == 0 && SECONDS > 120 )); then
           echo "    未触发 $name，跳过"
           return 0
@@ -225,6 +273,9 @@ if [[ "$need_admin" == "1" ]]; then
   wait_workflow "Release Admin Packages" "$OPT" || FAILED=1
 fi
 
+# 先改回私有，再决定成败退出（trap 也会再保一次）
+restore_repo_private_if_needed
+
 if [[ "$FAILED" != "0" ]]; then
   echo "ERROR: 部分 CI 未成功，中止安装步骤。" >&2
   exit 1
@@ -232,7 +283,7 @@ fi
 
 echo "==> CI 全部成功。生产 downloads / 控制面应由「Release Packages」写回；后端应由 Deploy 或本机 rsync 更新。"
 
-# --- 5) 可选安装 ---
+# --- 6) 可选安装 ---
 if [[ "$INSTALL_APK" == "1" ]]; then
   echo "==> 安装 APK"
   "$ROOT/one_click_apk_install.sh"
