@@ -92,7 +92,7 @@
 | CI | Secrets 四件套写出 jks |
 | 管理端 | 与主 App **共用**同一套 |
 
-说明见 `android/SIGNING.md`。iOS CI 为 `--no-codesign`；越狱靠 deb。
+说明见 `android/SIGNING.md`。iOS CI 为标准 Flutter/`ios/` 工程 `flutter build ios --no-codesign`（无 Theos）；主交付 IPA，可选 DEB（`dpkg-deb`）供越狱。
 
 ---
 

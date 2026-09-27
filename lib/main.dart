@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'services/api_http_client.dart';
@@ -43,6 +44,16 @@ class TruckLedgerApp extends StatelessWidget {
     final theme = context.watch<ThemeController>();
     return MaterialApp(
       title: '卡车记账',
+      locale: const Locale('zh', 'CN'),
+      supportedLocales: const [
+        Locale('zh', 'CN'),
+        Locale('en', 'US'),
+      ],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       theme: ThemeController.lightTheme(),
       darkTheme: ThemeController.darkTheme(),
       themeMode: theme.mode,

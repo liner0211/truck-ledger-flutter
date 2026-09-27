@@ -22,7 +22,10 @@ DEVICE_IP="${DEVICE_IP:-}"
 DEVICE_USER="${DEVICE_USER:-mobile}"
 DEVICE_PASS="${DEVICE_PASS:-}"
 SUDO_PASS="${SUDO_PASS:-$DEVICE_PASS}"
-MAKEFILE_DEFAULT_IP="$(awk -F'=' '/^THEOS_DEVICE_IP[[:space:]]*\?=/{gsub(/[[:space:]]/,"",$2); print $2; exit}' Makefile 2>/dev/null || true)"
+MAKEFILE_DEFAULT_IP="$(awk -F'=' '/^DEVICE_IP_DEFAULT[[:space:]]*\?=/{gsub(/[[:space:]]/,"",$2); print $2; exit}' Makefile 2>/dev/null || true)"
+if [[ -z "$MAKEFILE_DEFAULT_IP" ]]; then
+  MAKEFILE_DEFAULT_IP="$(awk -F'=' '/^THEOS_DEVICE_IP[[:space:]]*\?=/{gsub(/[[:space:]]/,"",$2); print $2; exit}' Makefile 2>/dev/null || true)"
+fi
 
 if [[ -z "$DEVICE_PASS" ]]; then
   echo "Error: DEVICE_PASS is required."

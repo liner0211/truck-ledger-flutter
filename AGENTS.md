@@ -5,7 +5,7 @@
 
 ## 项目目的
 
-Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`，当前版本见 `pubspec.yaml`（如 **1.0.4**）。数据为本地 JSON + 附件；iOS 越狱侧通过 **deb** 安装到 `/Applications`。生产后端为 **`server-php/`**。
+Flutter 版「卡车记账」，包名 `com.liner0211.truckledger`，当前版本见 `pubspec.yaml`（如 **1.0.4**）。数据为本地 JSON + 附件。iOS 用标准 `ios/` + CI `flutter build ios`（非 Theos）：**IPA** 为应用内更新主包；可选 **DEB**（`dpkg-deb`）供越狱装到 `/Applications`。生产后端为 **`server-php/`**。
 
 ## AI 协作约定
 

@@ -76,7 +76,11 @@
 
 ## 5. iOS / 越狱：CI 产物
 
-- 主流程：`.github/workflows/release-packages.yml`（APK + IPA + DEB + 上传 downloads + 控制面版本）
+iOS **只**用标准 Flutter 工程 `ios/Runner.xcodeproj`：CI 跑 `flutter build ios --release --no-codesign`（见 `scripts/flutter_build_ios_release.sh`）。**不使用 Theos**，也不在本机编 Release。
+
+- 主交付：**IPA**（`package_ipa.sh` 组装 Payload，应用内更新用）
+- 可选：**DEB**（`package_deb.sh` 用 `dpkg-deb` 装到 `/Applications`，仅越狱；不是 Theos 产物）
+- 主流程：`.github/workflows/release-packages.yml`（APK + IPA + 可选 DEB + 上传 downloads + 控制面版本）
 - 手动单平台仍可用：`iOS Runner.app Build` / `Android APK Release`（workflow_dispatch）
 - 本机安装：
 

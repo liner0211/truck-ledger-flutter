@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 与 TheosUIApp/TruckLedger/debug.sh 相同：SSH 上查包、打开应用、列崩溃日志。
+# 越狱设备调试：SSH 上查包、打开应用、列崩溃日志。
 # 依赖: python3、paramiko
 #
 # Usage:
@@ -32,6 +32,9 @@ if [[ -z "$DEVICE_IP" && -f ".last_device_ip" ]]; then
   DEVICE_IP="$(cat .last_device_ip)"
 fi
 
+if [[ -z "$DEVICE_IP" ]]; then
+  DEVICE_IP="$(awk -F'=' '/^DEVICE_IP_DEFAULT[[:space:]]*\?=/{gsub(/[[:space:]]/,"",$2); print $2; exit}' Makefile 2>/dev/null || true)"
+fi
 if [[ -z "$DEVICE_IP" ]]; then
   DEVICE_IP="$(awk -F'=' '/^THEOS_DEVICE_IP[[:space:]]*\?=/{gsub(/[[:space:]]/,"",$2); print $2; exit}' Makefile 2>/dev/null || true)"
 fi

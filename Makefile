@@ -1,5 +1,6 @@
-# 与 TheosUIApp/TruckLedger 一致：供 deploy.sh / debug.sh 读取默认设备 IP。
-THEOS_DEVICE_IP ?= 192.168.0.129
+# 越狱 SSH 设备默认 IP（供 deploy.sh / debug.sh 读取；兼容旧变量 THEOS_DEVICE_IP）。
+DEVICE_IP_DEFAULT ?= 192.168.0.129
+THEOS_DEVICE_IP ?= $(DEVICE_IP_DEFAULT)
 
 .PHONY: ship ipa-one deb-install-one apk-install-one machine-env-example server-deploy
 

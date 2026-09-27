@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:intl/intl.dart' show DateFormat;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
@@ -7,6 +6,7 @@ import '../models/trip_models.dart';
 import '../services/auth_api.dart';
 import '../services/ledger_store.dart';
 import '../services/sync_service.dart';
+import '../services/trip_date.dart';
 import '../state/auth_controller.dart';
 
 /// 与 `RootViewController` 行为对齐：总览列表、排序、持久化。
@@ -17,7 +17,6 @@ class LedgerController extends ChangeNotifier {
 
   final LedgerStore _store;
   final _uuid = const Uuid();
-  final _startFmt = DateFormat('yyyy-MM-dd HH:mm');
 
   AuthController? _auth;
   bool _cloudPushPending = false;
@@ -298,19 +297,10 @@ class LedgerController extends ChangeNotifier {
     await _persist();
   }
 
-  DateTime _sortDate(TripLedger trip) {
-    final s = trip.startPlace.trim();
-    try {
-      return _startFmt.parse(s);
-    } catch (_) {
-      return trip.createdAt;
-    }
-  }
-
   void _sortRounds() {
     _book.rounds.sort((a, b) {
-      final da = _sortDate(a);
-      final db = _sortDate(b);
+      final da = TripDate.sortDate(a);
+      final db = TripDate.sortDate(b);
       final cmp = da.compareTo(db);
       if (cmp != 0) {
         return _sortAscending ? cmp : -cmp;

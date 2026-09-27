@@ -47,8 +47,10 @@ class _TripMetaEditorPageState extends State<TripMetaEditorPage> {
   }
 
   static Future<DateTime?> _pickDateTime(BuildContext context, DateTime initial) async {
+    const zh = Locale('zh', 'CN');
     final d = await showDatePicker(
       context: context,
+      locale: zh,
       initialDate: initial,
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
@@ -57,6 +59,16 @@ class _TripMetaEditorPageState extends State<TripMetaEditorPage> {
     final t = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(initial),
+      builder: (ctx, child) {
+        return Localizations.override(
+          context: ctx,
+          locale: zh,
+          child: MediaQuery(
+            data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
+            child: child ?? const SizedBox.shrink(),
+          ),
+        );
+      },
     );
     if (!context.mounted || t == null) return null;
     return DateTime(d.year, d.month, d.day, t.hour, t.minute);

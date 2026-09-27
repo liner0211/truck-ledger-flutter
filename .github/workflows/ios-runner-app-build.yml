@@ -1,6 +1,7 @@
 name: iOS Runner.app Build
 
-# 单平台手动构建，产物写入 GitHub Releases（日常请用 Release Packages）。
+# Standard Flutter iOS (Xcode)，no Theos。
+# 单平台手动构建：flutter build ios → IPA（主）+ 可选 DEB；日常请用 Release Packages。
 on:
   workflow_dispatch:
 
@@ -38,10 +39,11 @@ jobs:
       - name: Pub Get
         run: flutter pub get
 
+      # Standard Flutter iOS (Xcode)，no Theos
       - name: Build iOS Runner.app (no codesign)
         run: ./scripts/flutter_build_ios_release.sh
 
-      - name: Package IPA + DEB + Runner.zip
+      - name: Package IPA + optional DEB + Runner.zip
         run: |
           set -euo pipefail
           source ./scripts/flutter_build_version_env.sh

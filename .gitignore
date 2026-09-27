@@ -33,7 +33,7 @@ migrate_working_dir/
 /build/
 /coverage/
 
-# iOS 越狱打包产物（与 TheosUIApp/TruckLedger 习惯一致）
+# iOS 越狱打包产物（CI package_deb.sh 输出）
 packages/
 ipa-out/
 .last_device_ip

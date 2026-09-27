@@ -1,6 +1,8 @@
 name: Release Packages
 
-# 统一构建 Android APK + iOS（Runner.app / ipa / deb），并写入 GitHub Releases。
+# 统一构建 Android APK + iOS（Standard Flutter / Xcode，no Theos）：
+# ios/Runner.xcodeproj → flutter build ios --release --no-codesign
+# → package_ipa.sh（主交付）+ 可选 package_deb.sh（越狱 dpkg-deb，非 Theos）。
 on:
   workflow_dispatch:
   push:
@@ -127,10 +129,11 @@ jobs:
       - name: Pub Get
         run: flutter pub get
 
+      # Standard Flutter iOS (Xcode)，no Theos
       - name: Build iOS Runner.app (no codesign)
         run: ./scripts/flutter_build_ios_release.sh
 
-      - name: Package IPA + DEB + Runner.zip
+      - name: Package IPA + optional DEB + Runner.zip
         run: |
           set -euo pipefail
           source ./scripts/flutter_build_version_env.sh

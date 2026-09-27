@@ -1,5 +1,6 @@
 export 'models/trip_models.dart';
 export 'services/attachment_store.dart';
+export 'services/editor_draft_store.dart';
 export 'services/expression_eval.dart';
 export 'services/history_suggest.dart';
 export 'services/json_date.dart';

@@ -4,6 +4,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../state/auth_controller.dart';
+import 'user_manual_screen.dart';
 import 'widgets/update_progress_dialog.dart';
 
 class AboutScreen extends StatefulWidget {
@@ -134,6 +135,21 @@ class _AboutScreenState extends State<AboutScreen> {
               ),
             ),
           ],
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.menu_book_outlined),
+              title: const Text('使用手册'),
+              subtitle: const Text('圈次、费用、同步、备份等完整说明'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.push<void>(
+                  context,
+                  MaterialPageRoute<void>(builder: (_) => const UserManualScreen()),
+                );
+              },
+            ),
+          ),
           const SizedBox(height: 12),
           Card(
             child: Column(

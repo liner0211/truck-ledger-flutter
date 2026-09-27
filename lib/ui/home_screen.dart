@@ -14,8 +14,10 @@ import '../state/auth_controller.dart';
 import 'about_screen.dart';
 import 'account_screen.dart';
 import 'messages_screen.dart';
+import 'monthly_summary_screen.dart';
 import 'trip_detail_screen.dart';
 import 'trip_meta_editor.dart';
+import 'user_manual_screen.dart';
 
 enum _RoundFilter { all, unreconciled, unpaidSalary }
 
@@ -28,6 +30,15 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   _RoundFilter _filter = _RoundFilter.all;
+  final _searchCtrl = TextEditingController();
+  bool _searchOpen = false;
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,15 +77,23 @@ class _HomeScreenState extends State<HomeScreen> {
           '工资汇总（所有圈次）\n应得 ${ctrl.money(totalWageDue)} ｜ 已发 ${ctrl.money(totalWagePaid)} ｜ 未发 ${ctrl.money(unpaid)}（仅已交账）';
     }
 
+    final q = _query.trim().toLowerCase();
     final filteredRounds = book.rounds.where((r) {
-      switch (_filter) {
-        case _RoundFilter.all:
-          return true;
-        case _RoundFilter.unreconciled:
-          return !r.isReconciled;
-        case _RoundFilter.unpaidSalary:
-          return r.isReconciled && !r.isSalarySettled;
-      }
+      final passFilter = switch (_filter) {
+        _RoundFilter.all => true,
+        _RoundFilter.unreconciled => !r.isReconciled,
+        _RoundFilter.unpaidSalary => r.isReconciled && !r.isSalarySettled,
+      };
+      if (!passFilter) return false;
+      if (q.isEmpty) return true;
+      final hay = [
+        r.title,
+        r.startPlace,
+        r.endPlace,
+        _routePreview(r),
+        for (final leg in r.routeLegs) ...[leg.loadPlace, leg.unloadPlace],
+      ].join(' ').toLowerCase();
+      return hay.contains(q);
     }).toList();
 
     return Scaffold(
@@ -87,6 +106,19 @@ class _HomeScreenState extends State<HomeScreen> {
           onPressed: () => context.read<LedgerController>().toggleSortOrder(),
         ),
         actions: [
+          IconButton(
+            tooltip: _searchOpen ? '关闭搜索' : '搜索圈次',
+            icon: Icon(_searchOpen ? Icons.search_off : Icons.search),
+            onPressed: () {
+              setState(() {
+                _searchOpen = !_searchOpen;
+                if (!_searchOpen) {
+                  _searchCtrl.clear();
+                  _query = '';
+                }
+              });
+            },
+          ),
           PopupMenuButton<String>(
             tooltip: '更多',
             onSelected: (v) async {
@@ -112,6 +144,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   MaterialPageRoute<void>(builder: (_) => const MessagesScreen()),
                 );
               }
+              if (v == 'monthly') {
+                if (!context.mounted) return;
+                Navigator.push<void>(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const MonthlySummaryScreen(),
+                  ),
+                );
+              }
+              if (v == 'manual') {
+                if (!context.mounted) return;
+                Navigator.push<void>(
+                  context,
+                  MaterialPageRoute<void>(builder: (_) => const UserManualScreen()),
+                );
+              }
               if (v == 'about') {
                 if (!context.mounted) return;
                 Navigator.push<void>(
@@ -123,6 +171,8 @@ class _HomeScreenState extends State<HomeScreen> {
             itemBuilder: (context) {
               final items = <PopupMenuEntry<String>>[
                 const PopupMenuItem(value: 'account', child: Text('账号与同步…')),
+                const PopupMenuItem(value: 'monthly', child: Text('按月汇总…')),
+                const PopupMenuItem(value: 'manual', child: Text('使用手册…')),
               ];
               if (flags.messages) {
                 items.add(PopupMenuItem(
@@ -212,6 +262,30 @@ class _HomeScreenState extends State<HomeScreen> {
               onSelectionChanged: (s) => setState(() => _filter = s.first),
             ),
           ),
+          if (_searchOpen)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              child: TextField(
+                controller: _searchCtrl,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: '搜索标题、装卸地、路线…',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() => _query = '');
+                          },
+                        ),
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+                onChanged: (v) => setState(() => _query = v),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Text(
@@ -226,7 +300,11 @@ class _HomeScreenState extends State<HomeScreen> {
             child: filteredRounds.isEmpty
                 ? Center(
                     child: Text(
-                      book.rounds.isEmpty ? '暂无圈次，点击右上角新建' : '当前筛选下无圈次',
+                      book.rounds.isEmpty
+                          ? '暂无圈次，点击右上角新建'
+                          : (q.isNotEmpty
+                              ? '无匹配圈次'
+                              : '当前筛选下无圈次'),
                     ),
                   )
                 : ListView.builder(
@@ -643,28 +721,73 @@ Widget _statusChip(
   );
 }
 
-class _SyncStatusBar extends StatelessWidget {
+class _SyncStatusBar extends StatefulWidget {
   const _SyncStatusBar({required this.ctrl});
 
   final LedgerController ctrl;
 
   @override
-  Widget build(BuildContext context) {
-    final status = ctrl.syncStatus;
-    if (status == SyncStatus.idle || status == SyncStatus.synced) {
-      if (ctrl.syncError == null && status != SyncStatus.synced) {
-        return const SizedBox.shrink();
+  State<_SyncStatusBar> createState() => _SyncStatusBarState();
+}
+
+class _SyncStatusBarState extends State<_SyncStatusBar> {
+  bool _hideSynced = false;
+  SyncStatus? _lastStatus;
+
+  @override
+  void didUpdateWidget(covariant _SyncStatusBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final status = widget.ctrl.syncStatus;
+    if (status != _lastStatus) {
+      _lastStatus = status;
+      if (status == SyncStatus.synced) {
+        _hideSynced = false;
+        Future<void>.delayed(const Duration(seconds: 3), () {
+          if (!mounted) return;
+          if (widget.ctrl.syncStatus == SyncStatus.synced) {
+            setState(() => _hideSynced = true);
+          }
+        });
+      } else {
+        _hideSynced = false;
       }
+    }
+  }
+
+  Future<void> _retrySync() async {
+    final msg = await widget.ctrl.syncWithCloud();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  void _openAccount() {
+    Navigator.push<void>(
+      context,
+      MaterialPageRoute<void>(builder: (_) => const AccountScreen()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ctrl = widget.ctrl;
+    final status = ctrl.syncStatus;
+    if (status == SyncStatus.idle) {
+      return const SizedBox.shrink();
+    }
+    if (status == SyncStatus.synced && _hideSynced) {
+      return const SizedBox.shrink();
     }
     final cs = Theme.of(context).colorScheme;
     Color bg;
     Color fg;
     String text;
+    VoidCallback? onTap;
     switch (status) {
       case SyncStatus.dirty:
         bg = cs.tertiaryContainer;
         fg = cs.onTertiaryContainer;
-        text = '有未上传修改';
+        text = '有未上传修改 · 点此同步';
+        onTap = _retrySync;
         break;
       case SyncStatus.pending:
         bg = cs.primaryContainer;
@@ -672,21 +795,25 @@ class _SyncStatusBar extends StatelessWidget {
         text = ctrl.syncProgressMessage.isNotEmpty
             ? ctrl.syncProgressMessage
             : '正在同步…';
+        onTap = null;
         break;
       case SyncStatus.conflict:
         bg = cs.errorContainer;
         fg = cs.onErrorContainer;
         text = '同步冲突 — 请到「账号与同步」处理';
+        onTap = _openAccount;
         break;
       case SyncStatus.error:
         bg = cs.errorContainer;
         fg = cs.onErrorContainer;
-        text = ctrl.syncError ?? '同步失败';
+        text = '同步失败 · 点此重试';
+        onTap = _retrySync;
         break;
       case SyncStatus.synced:
         bg = cs.secondaryContainer;
         fg = cs.onSecondaryContainer;
         text = '已同步';
+        onTap = _openAccount;
         break;
       case SyncStatus.idle:
         return const SizedBox.shrink();
@@ -694,12 +821,7 @@ class _SyncStatusBar extends StatelessWidget {
     return Material(
       color: bg,
       child: InkWell(
-        onTap: () {
-          Navigator.push<void>(
-            context,
-            MaterialPageRoute<void>(builder: (_) => const AccountScreen()),
-          );
-        },
+        onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Column(
@@ -717,7 +839,9 @@ class _SyncStatusBar extends StatelessWidget {
                     Icon(
                       status == SyncStatus.conflict || status == SyncStatus.error
                           ? Icons.warning_amber
-                          : Icons.cloud_done_outlined,
+                          : status == SyncStatus.dirty
+                              ? Icons.cloud_upload_outlined
+                              : Icons.cloud_done_outlined,
                       size: 16,
                       color: fg,
                     ),
@@ -727,6 +851,15 @@ class _SyncStatusBar extends StatelessWidget {
                     Text(
                       '${(ctrl.syncProgress! * 100).toStringAsFixed(0)}%',
                       style: TextStyle(fontSize: 12, color: fg),
+                    )
+                  else if (status == SyncStatus.dirty || status == SyncStatus.error)
+                    IconButton(
+                      tooltip: '账号与同步',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                      icon: Icon(Icons.manage_accounts_outlined, size: 18, color: fg),
+                      onPressed: _openAccount,
                     ),
                 ],
               ),

@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../models/trip_models.dart';
 import '../services/attachment_store.dart';
+import '../services/editor_draft_store.dart';
 import '../services/history_suggest.dart';
 import '../services/photo_picker_helper.dart';
 import 'formatters.dart';
@@ -33,7 +34,8 @@ class ExpenseEditorPage extends StatefulWidget {
   State<ExpenseEditorPage> createState() => _ExpenseEditorPageState();
 }
 
-class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
+class _ExpenseEditorPageState extends State<ExpenseEditorPage>
+    with WidgetsBindingObserver, EditorDraftMixin {
   final _uuid = const Uuid();
   late TripLedger _trip;
   late TextEditingController _title;
@@ -45,12 +47,64 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
   bool _reimbursable = false;
   List<String> _attachments = [];
   bool _fuelSyncing = false;
+  bool _saved = false;
   List<TollHistoryHint>? _tollHintsCache;
 
   /// 用户亲手改过的字段：自动推算时不得覆盖；清空后解除锁定。
   final Set<_FuelField> _fuelManual = {};
 
   static final _decimalFilter = FilteringTextInputFormatter.allow(RegExp(r'[0-9.]*'));
+
+  String get _expenseKind {
+    switch (widget.category) {
+      case ExpenseCategory.fuel:
+        return 'expense_fuel';
+      case ExpenseCategory.toll:
+        return 'expense_toll';
+      case ExpenseCategory.other:
+        return 'expense_other';
+    }
+  }
+
+  @override
+  String get draftKey => EditorDraftStore.key(
+        tripId: widget.trip.id,
+        kind: _expenseKind,
+        slot: widget.indexInCategory?.toString(),
+      );
+
+  @override
+  Map<String, dynamic> captureDraft() => {
+        'title': _title.text,
+        'amount': _amount.text,
+        'fuelKg': _fuelKg.text,
+        'fuelPrice': _fuelPrice.text,
+        'pay': _pay.name,
+        'reimbursable': _reimbursable,
+        'attachments': _attachments,
+      };
+
+  @override
+  void applyDraft(Map<String, dynamic> data) {
+    _title.text = '${data['title'] ?? ''}';
+    _amount.text = '${data['amount'] ?? ''}';
+    _fuelKg.text = '${data['fuelKg'] ?? ''}';
+    _fuelPrice.text = '${data['fuelPrice'] ?? ''}';
+    final payName = '${data['pay'] ?? ''}';
+    _pay = PaymentSource.values.firstWhere(
+      (e) => e.name == payName,
+      orElse: () => _pay,
+    );
+    _reimbursable = data['reimbursable'] == true;
+    final att = data['attachments'];
+    if (att is List) {
+      _attachments = att.map((e) => '$e').toList();
+    }
+    _fuelManual.clear();
+    if (_amount.text.isNotEmpty) _fuelManual.add(_FuelField.amount);
+    if (_fuelKg.text.isNotEmpty) _fuelManual.add(_FuelField.kg);
+    if (_fuelPrice.text.isNotEmpty) _fuelManual.add(_FuelField.price);
+  }
 
   List<int> _indicesForCategory() {
     final out = <int>[];
@@ -151,6 +205,7 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _trip = widget.trip.copy();
     final indices = _indicesForCategory();
     final idxInCat = widget.indexInCategory;
@@ -197,10 +252,18 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
       _fuelKg = TextEditingController();
       _fuelPrice = TextEditingController();
     }
+    for (final c in [_title, _amount, _fuelKg, _fuelPrice]) {
+      c.addListener(scheduleDraftSave);
+    }
+    initDraftBanner();
   }
 
   @override
   void dispose() {
+    if (!_saved) {
+      flushDraft();
+    }
+    disposeDraft();
     _title.dispose();
     _amount.dispose();
     _fuelKg.dispose();
@@ -220,6 +283,7 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
     final names = await pickAndSaveAttachmentPhotos(context);
     if (names.isEmpty) return;
     setState(() => _attachments.addAll(names));
+    scheduleDraftSave();
   }
 
   void _applyTollHint(TollHistoryHint hint) {
@@ -239,6 +303,7 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
         _pay = PaymentSource.etc;
       }
     });
+    scheduleDraftSave();
   }
 
   void _err(String m) {
@@ -250,7 +315,7 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
     );
   }
 
-  void _save() {
+  Future<void> _save() async {
     final cat = widget.category;
     var title = _title.text.trim();
     if (title.isEmpty) title = cat.label;
@@ -327,18 +392,26 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
     } else {
       _trip.expenses.add(item);
     }
+    _saved = true;
+    await clearDraft();
+    if (!mounted) return;
     Navigator.pop(context, _trip);
   }
 
   @override
   Widget build(BuildContext context) {
     final cat = widget.category;
+    final banner = buildDraftBanner();
     return Scaffold(
       appBar: AppBar(
         title: Text(cat.label),
         actions: [TextButton(onPressed: _save, child: const Text('保存'))],
       ),
-      body: ListView(
+      body: Column(
+        children: [
+          ?banner,
+          Expanded(
+            child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           if (cat == ExpenseCategory.toll)
@@ -508,7 +581,10 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
                 ButtonSegment(value: PaymentSource.etc, label: Text('ETC')),
               ],
               selected: {_pay},
-              onSelectionChanged: (s) => setState(() => _pay = s.first),
+              onSelectionChanged: (s) {
+                setState(() => _pay = s.first);
+                scheduleDraftSave();
+              },
             )
           else
             SegmentedButton<PaymentSource>(
@@ -524,6 +600,7 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
                     _reimbursable = false;
                   }
                 });
+                scheduleDraftSave();
               },
             ),
           if (cat == ExpenseCategory.toll) ...[
@@ -548,6 +625,7 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
                         _reimbursable = v;
                         if (v) _pay = PaymentSource.cash;
                       });
+                      scheduleDraftSave();
                     }
                   : null,
             ),
@@ -561,7 +639,11 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
             onRemove: (name) async {
               await AttachmentStore.deleteFile(name);
               setState(() => _attachments.remove(name));
+              scheduleDraftSave();
             },
+          ),
+        ],
+            ),
           ),
         ],
       ),
