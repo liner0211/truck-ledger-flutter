@@ -6,9 +6,9 @@ double? parseAmount(String? raw) {
 }
 
 /// 解析金额或算术表达式（见 [ExpressionEval]）。
-double? parseAmountOrExpression(String? raw) {
+double? parseAmountOrExpression(String? raw, {int decimals = 2}) {
   if (raw == null || raw.trim().isEmpty) return null;
   final plain = parseAmount(raw);
   if (plain != null) return plain;
-  return ExpressionEval.tryEval(raw);
+  return ExpressionEval.tryEval(raw, decimals: decimals);
 }

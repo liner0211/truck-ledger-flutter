@@ -684,6 +684,12 @@ if (strpos($uri, '/api/') === 0) {
             JsonResponse::send($result);
         }
 
+        if ($uri === '/api/admin/audits' && $method === 'GET') {
+            AdminAuthService::requirePermission($admin, 'dashboard.read');
+            $limit = max(1, min(100, (int)($_GET['limit'] ?? 30)));
+            JsonResponse::send(['audits' => AppControlService::recentAudits($pdo, $limit)]);
+        }
+
         JsonResponse::error('Not Found', 404);
     }
 

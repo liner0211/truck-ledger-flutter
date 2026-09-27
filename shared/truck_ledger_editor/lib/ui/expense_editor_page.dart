@@ -94,7 +94,8 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
 
     final a = parseAmount(_amount.text);
     final k = parseAmount(_fuelKg.text);
-    final p = parseAmount(_fuelPrice.text);
+    // 单价支持运算式（如 5.2*0.95 优惠）
+    final p = parseAmountOrExpression(_fuelPrice.text, decimals: 4);
 
     double? autoA;
     double? autoK;
@@ -280,7 +281,15 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
     double fuelPrice = 0;
     if (cat == ExpenseCategory.fuel) {
       fuelKg = parseAmount(_fuelKg.text) ?? 0;
-      fuelPrice = parseAmount(_fuelPrice.text) ?? 0;
+      final rawPrice = _fuelPrice.text.trim();
+      if (rawPrice.isNotEmpty) {
+        final parsed = parseAmountOrExpression(rawPrice, decimals: 4);
+        if (parsed == null) {
+          _err('单价请输入数字或运算式（如 5.2*0.95、5.2-0.3）');
+          return;
+        }
+        fuelPrice = parsed;
+      }
       if (fuelKg < 0 || fuelPrice < 0) {
         _err('公斤数与单价不能为负数');
         return;
@@ -450,20 +459,37 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
               inputFormatters: [_decimalFilter],
               onChanged: (v) => _syncFuelFrom(_FuelField.kg, v),
             ),
-            TextField(
-              controller: _fuelPrice,
-              decoration: const InputDecoration(
-                labelText: '单价',
-                hintText: '可自动算出',
-                suffixText: '元/kg',
-              ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [_decimalFilter],
-              onChanged: (v) => _syncFuelFrom(_FuelField.price, v),
+            Builder(
+              builder: (context) {
+                final raw = _fuelPrice.text.trim();
+                final preview = parseAmountOrExpression(raw, decimals: 4);
+                final showPreview = raw.isNotEmpty &&
+                    parseAmount(raw) == null &&
+                    preview != null;
+                return TextField(
+                  controller: _fuelPrice,
+                  decoration: InputDecoration(
+                    labelText: '单价',
+                    hintText: '数字，或 5.2*0.95（优惠）',
+                    suffixText: '元/kg',
+                    helperText: showPreview
+                        ? '计算结果：${_fmtNum(preview, maxFrac: 4)}'
+                        : '支持 + - * / ( ) 与 %；任意两项可推算第三项',
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                    signed: true,
+                  ),
+                  onChanged: (v) {
+                    setState(() {});
+                    _syncFuelFrom(_FuelField.price, v);
+                  },
+                );
+              },
             ),
             const SizedBox(height: 4),
             Text(
-              '任意填写其中两项，仅自动填充未手动填写的那一项（金额 = 公斤数 × 单价）。',
+              '任意填写其中两项，仅自动填充未手动填写的那一项（金额 = 公斤数 × 单价）。单价可用运算式算优惠。',
               style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline),
             ),
           ],

@@ -4,7 +4,8 @@ class ExpressionEval {
   ExpressionEval._();
 
   /// 成功返回数值；失败返回 null。
-  static double? tryEval(String? raw) {
+  /// [decimals] 为四舍五入小数位（运费默认 2，油费单价可用 4）。
+  static double? tryEval(String? raw, {int decimals = 2}) {
     if (raw == null) return null;
     final s = raw.trim().replaceAll(',', '.').replaceAll(' ', '');
     if (s.isEmpty) return null;
@@ -15,10 +16,19 @@ class ExpressionEval {
       if (tokens.isEmpty) return null;
       final result = _Parser(tokens).parse();
       if (result.isNaN || result.isInfinite) return null;
-      return (result * 100).roundToDouble() / 100;
+      final factor = _pow10(decimals.clamp(0, 8));
+      return (result * factor).roundToDouble() / factor;
     } catch (_) {
       return null;
     }
+  }
+
+  static double _pow10(int n) {
+    var v = 1.0;
+    for (var i = 0; i < n; i++) {
+      v *= 10;
+    }
+    return v;
   }
 
   static List<String> _tokenize(String s) {

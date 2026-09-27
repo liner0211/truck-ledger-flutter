@@ -401,38 +401,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _addRound(BuildContext context) async {
-    final ctrl = context.read<LedgerController>();
-    if (ctrl.book.rounds.isNotEmpty) {
-      final choice = await showModalBottomSheet<String>(
-        context: context,
-        builder: (ctx) => SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.note_add_outlined),
-                title: const Text('新建空白圈次'),
-                onTap: () => Navigator.pop(ctx, 'blank'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.copy_outlined),
-                title: const Text('复制上一圈路线'),
-                subtitle: const Text('带装卸地与运费结构，清空费用与凭证'),
-                onTap: () => Navigator.pop(ctx, 'copy'),
-              ),
-            ],
-          ),
-        ),
-      );
-      if (!context.mounted) return;
-      if (choice == 'copy') {
-        final trip = await ctrl.copyLatestRoundTemplate();
-        if (!context.mounted) return;
-        if (trip != null) await _openDetail(context, trip, ctrl);
-        return;
-      }
-      if (choice != 'blank') return;
-    }
     final r = await Navigator.push<TripMetaResult>(
       context,
       MaterialPageRoute(

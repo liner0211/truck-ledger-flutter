@@ -5,10 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
-import '../services/app_updater.dart';
 import '../services/auth_api.dart';
 import '../state/auth_controller.dart';
 import '../state/ledger_controller.dart';
+import 'widgets/update_progress_dialog.dart';
 
 /// 登录后：控制面检查 → 权益 → 进入子树。
 class ControlGate extends StatefulWidget {
@@ -28,7 +28,6 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
   String? _banner;
   String? _updateUrl;
   bool _updating = false;
-  double _updateProgress = 0;
 
   @override
   void initState() {
@@ -121,7 +120,7 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
       final profile = result.account ?? auth.profile;
       String? banner;
       if (result.update.available && result.update.downloadUrl.isNotEmpty) {
-        banner = '发现新版本 ${result.latestVersion}，可在关于页更新';
+        banner = '发现新版本 ${result.latestVersion}，点「更新」安装';
       } else if (result.announcement.trim().isNotEmpty) {
         banner = result.announcement.trim();
       } else if (profile != null && profile.isTrial && profile.daysLeft != null) {
@@ -199,17 +198,9 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
       );
       return;
     }
-    setState(() {
-      _updating = true;
-      _updateProgress = 0;
-    });
+    setState(() => _updating = true);
     try {
-      await AppUpdater.openOrInstall(
-        url,
-        onProgress: (p) {
-          if (mounted) setState(() => _updateProgress = p);
-        },
-      );
+      await runAppUpdateWithProgress(context, url);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -246,22 +237,6 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 12),
                 Text(_blockBody ?? '', textAlign: TextAlign.center),
-                if (_updating) ...[
-                  const SizedBox(height: 16),
-                  LinearProgressIndicator(
-                    value: _updateProgress > 0 && _updateProgress < 1
-                        ? _updateProgress
-                        : (_updateProgress >= 1 ? 1 : null),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _updateProgress <= 0
-                        ? '准备下载…'
-                        : _updateProgress >= 1
-                            ? '下载完成，正在打开安装包…'
-                            : '下载中… ${(_updateProgress * 100).toStringAsFixed(0)}%',
-                  ),
-                ],
                 const SizedBox(height: 24),
                 if (canUpdate)
                   FilledButton(
@@ -326,23 +301,6 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
                         ),
                       ],
                     ),
-                    if (_updating) ...[
-                      const SizedBox(height: 6),
-                      LinearProgressIndicator(
-                        value: _updateProgress > 0 && _updateProgress < 1
-                            ? _updateProgress
-                            : (_updateProgress >= 1 ? 1 : null),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _updateProgress <= 0
-                            ? '准备下载…'
-                            : _updateProgress >= 1
-                                ? '下载完成…'
-                                : '下载 ${(_updateProgress * 100).toStringAsFixed(0)}%',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ],
                   ],
                 ),
               ),

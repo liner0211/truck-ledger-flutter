@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
-import '../services/app_updater.dart';
 import '../state/auth_controller.dart';
+import 'widgets/update_progress_dialog.dart';
 
 class AboutScreen extends StatefulWidget {
   const AboutScreen({super.key});
@@ -15,20 +15,11 @@ class AboutScreen extends StatefulWidget {
 
 class _AboutScreenState extends State<AboutScreen> {
   bool _updating = false;
-  double _progress = 0;
 
   Future<void> _update(String url) async {
-    setState(() {
-      _updating = true;
-      _progress = 0;
-    });
+    setState(() => _updating = true);
     try {
-      await AppUpdater.openOrInstall(
-        url,
-        onProgress: (p) {
-          if (mounted) setState(() => _progress = p);
-        },
-      );
+      await runAppUpdateWithProgress(context, url);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
@@ -93,21 +84,6 @@ class _AboutScreenState extends State<AboutScreen> {
                   ),
                   if (canUpdate) ...[
                     const SizedBox(height: 12),
-                    if (_updating) ...[
-                      LinearProgressIndicator(
-                        value: _progress > 0 && _progress < 1 ? _progress : (_progress >= 1 ? 1 : null),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _progress <= 0
-                            ? '准备下载…'
-                            : _progress >= 1
-                                ? '下载完成，正在打开安装包…'
-                                : '下载中 ${(_progress * 100).toStringAsFixed(0)}%',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      const SizedBox(height: 8),
-                    ],
                     FilledButton.icon(
                       onPressed: _updating ? null : () => _update(update.downloadUrl),
                       icon: const Icon(Icons.system_update),

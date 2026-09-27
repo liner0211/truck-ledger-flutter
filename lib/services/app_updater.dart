@@ -80,7 +80,10 @@ class AppUpdater {
 
   static bool _looksLikeApk(String url) {
     final lower = url.toLowerCase();
-    return lower.contains('.apk');
+    // 生产 downloads 常见无扩展名的 latest 链接，也按 APK 处理
+    return lower.contains('.apk') ||
+        lower.contains('truckledger-latest') ||
+        (lower.contains('/downloads/') && lower.contains('truckledger'));
   }
 
   static bool _looksLikeIpa(String url) {

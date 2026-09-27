@@ -121,6 +121,17 @@ class AdminApi {
 
   Future<Map<String, dynamic>> dashboard() => _json('GET', '/api/admin/dashboard');
 
+  Future<Map<String, dynamic>> allSettings() async {
+    final m = await _json('GET', '/api/admin/settings');
+    return (m['settings'] as Map?)?.cast<String, dynamic>() ?? {};
+  }
+
+  Future<List<Map<String, dynamic>>> audits({int limit = 30}) async {
+    final m = await _json('GET', '/api/admin/audits?limit=$limit');
+    final list = m['audits'] as List? ?? [];
+    return list.map((e) => (e as Map).cast<String, dynamic>()).toList();
+  }
+
   Future<List<Map<String, dynamic>>> users() async {
     final m = await _json('GET', '/api/admin/users');
     final list = m['users'] as List? ?? [];
@@ -130,6 +141,27 @@ class AdminApi {
   Future<void> setSetting(String key, String value) async {
     await _json('POST', '/api/admin/settings', body: {'key': key, 'value': value});
   }
+
+  Future<List<Map<String, dynamic>>> userDevices(int userId) async {
+    final m = await _json('GET', '/api/admin/users/$userId/devices');
+    final list = m['devices'] as List? ?? [];
+    return list.map((e) => (e as Map).cast<String, dynamic>()).toList();
+  }
+
+  Future<String> revokeUserDevice(int userId, String deviceId) async {
+    final enc = Uri.encodeComponent(deviceId);
+    final m = await _json('POST', '/api/admin/users/$userId/devices/$enc/revoke');
+    return m['detail']?.toString() ?? '已吊销';
+  }
+
+  Future<List<Map<String, dynamic>>> userSnapshots(int userId) async {
+    final m = await _json('GET', '/api/admin/users/$userId/snapshots');
+    final list = m['snapshots'] as List? ?? [];
+    return list.map((e) => (e as Map).cast<String, dynamic>()).toList();
+  }
+
+  Future<Map<String, dynamic>> restoreUserSnapshot(int userId, int snapshotId) =>
+      _json('POST', '/api/admin/users/$userId/snapshots/$snapshotId/restore');
 
   Future<String> userAction(int id, String action, {Map<String, dynamic>? body}) async {
     final m = await _json('POST', '/api/admin/users/$id/$action', body: body);
