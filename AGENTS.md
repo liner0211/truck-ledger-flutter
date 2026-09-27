@@ -5,7 +5,7 @@
 
 ## 项目目的
 
-Flutter「卡车记账」，包名 `com.liner0211.truckledger`，版本见 `pubspec.yaml`。本地 JSON + 附件；后端 **`server-php/`**。iOS 为标准 `ios/` + CI `flutter build ios`：**IPA** 主交付，可选 DEB 越狱安装（见 BUILD §iOS）。
+Flutter「卡车记账」，包名 `com.liner0211.truckledger`，版本见 `pubspec.yaml`。本地 JSON + 附件；后端 **`server-php/`**。iOS 为标准 `ios/` + CI `flutter build ios`：**IPA** 主交付，可选 DEB（CI 组装）。客户端安装/升级走**云端更新**，无本机装包脚本。
 
 ## AI 协作约定
 
@@ -21,47 +21,46 @@ Flutter「卡车记账」，包名 `com.liner0211.truckledger`，版本见 `pubs
 
 ## 配置
 
-- **`dev/machine.env`**（gitignore）：由 `scripts/project_env.sh` 加载。
+- **`dev/machine.env`**（gitignore）：由 `scripts/project_env.sh` 加载（GitHub / Flutter / `SERVER_*`）。
 - **`.device.env`**：若存在，在其后加载并覆盖。
 
-一键脚本表、新机器 checklist、装包步骤 → **[`BUILD_AND_DEPLOY.md`](BUILD_AND_DEPLOY.md)**。  
-Secrets / 换服对照 → **[`docs/MIGRATION.md`](docs/MIGRATION.md)**。  
-CI 触发与 downloads 命名 → **[`docs/CI_AUTO_RELEASE.md`](docs/CI_AUTO_RELEASE.md)**。
+云端发版与部署 → **[`BUILD_AND_DEPLOY.md`](BUILD_AND_DEPLOY.md)**。  
+Secrets / 换服 → **[`docs/MIGRATION.md`](docs/MIGRATION.md)**。  
+CI 触发与 downloads → **[`docs/CI_AUTO_RELEASE.md`](docs/CI_AUTO_RELEASE.md)**。
 
-**约定：** 发布包（APK / IPA / DEB）只由 CI 编译；本机一键只下载安装。
+**约定：** 发布包只由 CI 编译并上传；本机可 `flutter run` 调试，禁止本机编 Release。
 
 ## 关键文件
 
 | 路径 | 说明 |
 |------|------|
-| `BUILD_AND_DEPLOY.md` | 编译 / 装包 / 一键权威 |
+| `BUILD_AND_DEPLOY.md` | 云端发版 / 部署权威 |
 | `docs/MIGRATION.md` | 迁机 / Secrets / 换服 |
 | `docs/CI_AUTO_RELEASE.md` | CI 与控制面回写 |
 | `dev/machine.env.example` | 本机配置模板 |
-| `scripts/project_env.sh` / `with_project_env.sh` | 加载 env；任务包装 |
-| `scripts/fetch_ci_release_asset.sh` | 拉取 apk/deb/ipa |
+| `one_click_ship.sh` | 发版总控 |
+| `one_click_server_deploy.sh` | rsync `server-php/` |
 | `package_deb.sh` / `package_ipa.sh` | **仅 CI** 组装 |
-| `deploy.sh` / `debug.sh` | 越狱装 deb / SSH 调试 |
+| `scripts/flutter_build_*.sh` | **仅 CI** 构建号 / iOS |
 | `.github/workflows/release-packages.yml` | 统一发版 |
 | `lib/state/auth_controller.dart` | 内置默认云端 URL |
-| `lib/ui/login_screen.dart` 等 | Release 隐藏域名 |
 
 ## 业务常量
 
-- ETC 对账手续费：**0.35%**（`etcTollReconcileRate = 0.0035`，`profit_calculator.dart`）。
+- ETC 对账手续费：**0.35%**（`etcTollReconcileRate = 0.0035`）。
 
 ## 云端能力（摘要）
 
-控制面、`revision` 同步与冲突、试用/到期、站内信、可选 FCM、功能开关、审计与健康深检。详情与 API 表见 [`server-php/README.md`](server-php/README.md)。部署：`./one_click_server_deploy.sh`；App CI：`Release Packages`；管理端：`Release Admin Packages`。
+控制面、`revision` 同步与冲突、试用/到期、站内信、可选 FCM、功能开关。详情见 [`server-php/README.md`](server-php/README.md)。部署：`./one_click_server_deploy.sh`；App CI：`Release Packages`；管理端：`Release Admin Packages`。
 
 ## 版本号
 
-- 关于页：`package_info_plus`（CI 注入 `--build-name` / `--build-number`）。
-- 营销版本改 `pubspec.yaml` 的 `version:` 行；构建号由 `scripts/flutter_build_version_env.sh` 注入。
+- 关于页：`package_info_plus`（CI 注入构建号）。
+- 营销版本改 `pubspec.yaml` 的 `version:` 行。
 
 ## 备份
 
-- 导出 ZIP（`ledger_book.json` + 附件）；导入支持 `.zip` / `.json`，合并或覆盖。实现：`ledger_backup_exporter.dart` / `ledger_backup_importer.dart`。
+导出 ZIP / 导入 `.zip`·`.json`（合并或覆盖）。实现：`ledger_backup_*.dart`。
 
 ## 不要提交
 

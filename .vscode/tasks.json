@@ -7,58 +7,16 @@
       "command": "./scripts/with_project_env.sh ./one_click_ship.sh",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
-      "presentation": { "reveal": "always", "panel": "dedicated" }
-    },
-    {
-      "label": "一键：发版总控 + 安装 APK",
-      "type": "shell",
-      "command": "./scripts/with_project_env.sh ./one_click_ship.sh --install-apk",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": [],
-      "presentation": { "reveal": "always", "panel": "dedicated" }
-    },
-    {
-      "label": "一键：Android 安装 CI APK 到设备（adb）",
-      "type": "shell",
-      "command": "./scripts/with_project_env.sh ./one_click_apk_install.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" },
       "group": { "kind": "build", "isDefault": true }
     },
     {
-      "label": "一键：拉取 CI IPA",
+      "label": "一键：部署 PHP 后端（rsync server-php）",
       "type": "shell",
-      "command": "./scripts/with_project_env.sh ./one_click_ipa.sh",
+      "command": "./scripts/with_project_env.sh ./one_click_server_deploy.sh",
       "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    },
-    {
-      "label": "一键：拉取 CI deb 并安装越狱机（machine.env）",
-      "type": "shell",
-      "command": "./scripts/with_project_env.sh ./one_click_deb_install.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    },
-    {
-      "label": "一键：拉取 CI deb 并安装越狱机（任务里输入 SSH 密码）",
-      "type": "shell",
-      "command": "DEVICE_PASS=${input:devicePass} ./scripts/with_project_env.sh ./one_click_deb_install.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    },
-    {
-      "label": "仅安装：deploy.sh（packages/ 已有 CI deb）",
-      "type": "shell",
-      "command": "DEVICE_PASS=${input:devicePass} ./scripts/with_project_env.sh ./deploy.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    },
-    {
-      "label": "TruckLedger Flutter: Debug device (debug.sh)",
-      "type": "shell",
-      "command": "DEVICE_PASS=${input:devicePass} ./scripts/with_project_env.sh ./debug.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
     },
     {
       "label": "本机：应用 Git 配置（dev/machine.env 中 GIT_*）",
@@ -66,28 +24,6 @@
       "command": "./dev/apply_git_config.sh",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
-    },
-    {
-      "label": "一键：部署 PHP 后端（rsync server-php）",
-      "type": "shell",
-      "command": "./scripts/with_project_env.sh ./one_click_server_deploy.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    },
-    {
-      "label": "仅扫描：发现 Android 设备",
-      "type": "shell",
-      "command": "./scripts/with_project_env.sh ./one_click_find_android.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    }
-  ],
-  "inputs": [
-    {
-      "id": "devicePass",
-      "type": "promptString",
-      "description": "iPhone SSH 密码（DEVICE_PASS）；若已写入 dev/machine.env 可随意填占位",
-      "password": true
     }
   ]
 }

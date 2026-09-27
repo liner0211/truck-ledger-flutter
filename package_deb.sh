@@ -13,7 +13,7 @@ if [[ "${GITHUB_ACTIONS:-}" == "true" && "${SKIP_BUILD:-0}" != "1" ]]; then
   echo "[package_deb] CI 内构建 Runner.app…"
   "$ROOT_DIR/scripts/flutter_build_ios_release.sh"
 elif [[ "${SKIP_BUILD:-0}" != "1" ]]; then
-  echo "ERROR: 禁止本机编译发布包。请 push 触发 Release Packages，再用 ./one_click_deb_install.sh 安装。" >&2
+  echo "ERROR: 禁止本机编译发布包。请 push 触发 Release Packages；客户端走云端更新。" >&2
   echo "  （CI 流水线内会自动构建；本地打包请设 SKIP_BUILD=1 并提供 CI 产物 Runner.app）" >&2
   exit 1
 fi

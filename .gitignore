@@ -37,11 +37,9 @@ migrate_working_dir/
 /android/build/
 **/problems-report.html
 
-# iOS 越狱打包产物（CI package_deb.sh 输出）
+# 本地缓存目录（CI 产物勿入库；本机不再提供装包脚本）
 packages/
 ipa-out/
-.last_device_ip
-.last_android_adb
 .device.env
 /dev/machine.env
 

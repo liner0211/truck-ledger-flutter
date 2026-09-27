@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# 一键发版总控：提交(可选) →（可选临时公开）→ push → 等 CI → 改回私有 → 可选装包。
+# 一键发版总控：提交(可选) →（可选临时公开）→ push → 等 CI（编译/上传 downloads/控制面/部署）→ 改回私有。
+# 设备安装由 App 云端更新完成，本脚本不再 adb / SSH 装包。
 #
 # 用法:
 #   ./one_click_ship.sh
 #   ./one_click_ship.sh -m "修复某某"
-#   ./one_click_ship.sh --install-apk --install-deb
-#   SHIP_INSTALL_APK=1 ./one_click_ship.sh
 #
-# 依赖: git、gh（已 login）、可选 adb / DEVICE_PASS（装包时）
+# 依赖: git、gh（已 login）
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,9 +18,6 @@ source "$ROOT/scripts/github_repo.sh"
 
 COMMIT_MSG="${SHIP_COMMIT_MSG:-}"
 DO_WAIT=1
-INSTALL_APK="${SHIP_INSTALL_APK:-0}"
-INSTALL_DEB="${SHIP_INSTALL_DEB:-0}"
-INSTALL_IPA="${SHIP_INSTALL_IPA:-0}"
 LOCAL_SERVER="${SHIP_LOCAL_SERVER:-1}"
 # 等 CI 期间临时公开仓库（规避私有库 Actions 额度/账单拦截）；结束后改回私有
 TEMP_PUBLIC="${SHIP_TEMP_PUBLIC:-1}"
@@ -33,7 +29,7 @@ MADE_PUBLIC=0
 
 usage() {
   cat <<'EOF'
-一键发版：push → 等待 GitHub Actions（编译包、上传 downloads、更新控制面、部署 PHP）→ 可选安装
+一键发版：push → 等待 GitHub Actions（编译包、上传 downloads、更新控制面、部署 PHP）
 
   ./one_click_ship.sh [选项]
 
@@ -42,16 +38,13 @@ usage() {
   --no-wait           只 push，不等 CI（也不临时公开）
   --keep-private      等 CI 时保持私有（不临时公开；可能撞上 Actions 额度）
   --no-local-server   有 server-php 变更时也不本机 rsync（只靠 CI Deploy）
-  --install-apk       CI 成功后 adb 安装最新 APK
-  --install-deb       CI 成功后安装越狱 deb
-  --install-ipa       CI 成功后拉取 IPA 到 ipa-out/
-  --install-all       上述三种安装都做
   -h, --help          帮助
 
-环境变量（同名覆盖）: SHIP_COMMIT_MSG, SHIP_INSTALL_APK/DEB/IPA=1,
-  SHIP_LOCAL_SERVER=0, SHIP_TEMP_PUBLIC=0, SHIP_POLL_SEC, SHIP_TIMEOUT_MIN
+环境变量（同名覆盖）: SHIP_COMMIT_MSG, SHIP_LOCAL_SERVER=0,
+  SHIP_TEMP_PUBLIC=0, SHIP_POLL_SEC, SHIP_TIMEOUT_MIN
 
 默认：等待 CI 时会临时把仓库改为 public，结束后（成功/失败/中断）改回 private。
+客户端从云端 downloads / 控制面更新，无需本机装包脚本。
 EOF
 }
 
@@ -61,10 +54,10 @@ while [[ $# -gt 0 ]]; do
     --no-wait) DO_WAIT=0; shift ;;
     --keep-private) TEMP_PUBLIC=0; shift ;;
     --no-local-server) LOCAL_SERVER=0; shift ;;
-    --install-apk) INSTALL_APK=1; shift ;;
-    --install-deb) INSTALL_DEB=1; shift ;;
-    --install-ipa) INSTALL_IPA=1; shift ;;
-    --install-all) INSTALL_APK=1; INSTALL_DEB=1; INSTALL_IPA=1; shift ;;
+    --install-apk|--install-deb|--install-ipa|--install-all)
+      echo "ERROR: 已移除本机装包选项（$1）。请用 App 云端更新，或从生产 downloads 手动获取。" >&2
+      exit 2
+      ;;
     -h|--help) usage; exit 0 ;;
     *) echo "未知参数: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -370,29 +363,15 @@ fi
 restore_repo_private_if_needed
 
 if [[ "$FAILED" != "0" ]]; then
-  echo "ERROR: 部分 CI 未成功，中止安装步骤。" >&2
+  echo "ERROR: 部分 CI 未成功。" >&2
   exit 1
 fi
 
 echo "==> CI 全部成功。生产 downloads / 控制面应由「Release Packages」写回；后端应由 Deploy 或本机 rsync 更新。"
 
-# --- 8) 可选安装 ---
-if [[ "$INSTALL_APK" == "1" ]]; then
-  echo "==> 安装 APK"
-  "$ROOT/one_click_apk_install.sh"
-fi
-if [[ "$INSTALL_DEB" == "1" ]]; then
-  echo "==> 安装 DEB"
-  "$ROOT/one_click_deb_install.sh"
-fi
-if [[ "$INSTALL_IPA" == "1" ]]; then
-  echo "==> 拉取 IPA"
-  "$ROOT/one_click_ipa.sh"
-fi
-
 BASE="${PUBLIC_BASE_URL:-https://truck.liner0211.online}"
 echo ""
-echo "完成。"
+echo "完成。客户端请走云端更新；运维可核对："
 echo "  APK:  ${BASE%/}/downloads/truckledger-latest.apk"
 echo "  IPA:  ${BASE%/}/downloads/truckledger-latest.ipa"
 echo "  DEB:  ${BASE%/}/downloads/truckledger-latest.deb"

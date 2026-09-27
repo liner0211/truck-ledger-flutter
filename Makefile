@@ -1,24 +1,8 @@
-# 越狱 SSH 设备默认 IP（供 deploy.sh / debug.sh 读取；兼容旧变量 THEOS_DEVICE_IP）。
-DEVICE_IP_DEFAULT ?= 192.168.0.129
-THEOS_DEVICE_IP ?= $(DEVICE_IP_DEFAULT)
+.PHONY: ship server-deploy machine-env-example
 
-.PHONY: ship ipa-one deb-install-one apk-install-one machine-env-example server-deploy
-
-# 一键总控：push → 等 CI 编译/上传/部署 → 可选装包（见 ./one_click_ship.sh -h）
+# 一键总控：push → 等 CI 编译/上传/部署（见 ./one_click_ship.sh -h）
 ship:
 	./one_click_ship.sh
-
-# 一键：从 CI / 生产下载 IPA（禁止本机编译）
-ipa-one:
-	./one_click_ipa.sh
-
-# 一键：从 CI / 生产下载 deb → SSH 安装
-deb-install-one:
-	./one_click_deb_install.sh
-
-# 一键：从 CI / 生产下载 APK → adb 安装
-apk-install-one:
-	./one_click_apk_install.sh
 
 # 一键：rsync 部署 server-php（需 SERVER_*，见 machine.env.example）
 server-deploy:

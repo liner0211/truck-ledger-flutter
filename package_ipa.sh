@@ -11,7 +11,7 @@ if [[ "${GITHUB_ACTIONS:-}" == "true" && "${SKIP_BUILD:-0}" != "1" ]]; then
   echo "[1/4] CI 内 flutter build ios…"
   "$ROOT_DIR/scripts/flutter_build_ios_release.sh"
 elif [[ "${SKIP_BUILD:-0}" != "1" ]]; then
-  echo "ERROR: 禁止本机编译发布包。请使用 ./one_click_ipa.sh 拉取 CI 产物。" >&2
+  echo "ERROR: 禁止本机编译发布包。请 push 触发 Release Packages；客户端走云端更新。" >&2
   exit 1
 fi
 

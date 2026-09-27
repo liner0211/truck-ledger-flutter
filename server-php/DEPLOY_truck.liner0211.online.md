@@ -250,10 +250,10 @@ curl -s -o /dev/null -w "%{http_code}\n" https://truck.liner0211.online/api/atta
 
 ## 与 App 打包
 
-发布 APK 由 CI「Release Packages」产出；本机只下载安装：
+发布 APK / IPA 由 CI「Release Packages」产出并上传 `public/downloads/`，控制面回写版本后由 **App 云端更新** 安装。本机发版入口：
 
 ```bash
-./one_click_apk_install.sh
+./one_click_ship.sh
 ```
 
-详见根目录 `docs/CI_AUTO_RELEASE.md`。
+详见根目录 `docs/CI_AUTO_RELEASE.md`、`BUILD_AND_DEPLOY.md`。
