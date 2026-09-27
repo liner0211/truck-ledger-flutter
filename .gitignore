@@ -33,6 +33,10 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Android Gradle outputs（勿入库）
+/android/build/
+**/problems-report.html
+
 # iOS 越狱打包产物（CI package_deb.sh 输出）
 packages/
 ipa-out/
@@ -42,8 +46,6 @@ ipa-out/
 /dev/machine.env
 
 # 云端后端本地数据
-/server/data/
-/server/.venv/
 /server-php/data/
 /server-php/config.php
 

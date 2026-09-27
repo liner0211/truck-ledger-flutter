@@ -2,7 +2,7 @@
 
 离线优先的司机 / 小车队记账 App。包名 **`com.liner0211.truckledger`**，显示名 **卡车记账**。本地 JSON + 附件；可选登录后与云端同步。
 
-**当前版本**：见 `pubspec.yaml`（如 `1.0.4`）。
+**当前版本**：见 [`pubspec.yaml`](./pubspec.yaml)。
 
 ## 发行说明（面向用户）
 
@@ -14,11 +14,13 @@
 
 | 读者 | 文档 |
 |------|------|
-| 新机器编译 / 装包 / CI | [`BUILD_AND_DEPLOY.md`](./BUILD_AND_DEPLOY.md) |
+| 新机器编译 / 装包 / 一键发版 | [`BUILD_AND_DEPLOY.md`](./BUILD_AND_DEPLOY.md) |
+| 换机 / 换服 / GitHub Secrets | [`docs/MIGRATION.md`](./docs/MIGRATION.md) |
 | AI / 新对话上下文 | [`AGENTS.md`](./AGENTS.md) |
-| PHP 后端与宝塔 | [`server-php/README.md`](./server-php/README.md) |
+| PHP 后端与 API | [`server-php/README.md`](./server-php/README.md) |
+| 生产宝塔逐步部署 | [`server-php/DEPLOY_truck.liner0211.online.md`](./server-php/DEPLOY_truck.liner0211.online.md) |
 
-克隆后：`cp dev/machine.env.example dev/machine.env`，填写 `FLUTTER_BIN_PATH`、`DEVICE_PASS`、`GITHUB_REPO`、可选 `SERVER_*`。
+克隆后：`cp dev/machine.env.example dev/machine.env`，填写 `FLUTTER_BIN_PATH`、`DEVICE_PASS`、可选 `GITHUB_REPO` / `SERVER_*`。详见 [`docs/MIGRATION.md`](./docs/MIGRATION.md)。
 
 ```bash
 flutter pub get
@@ -28,19 +30,20 @@ flutter doctor -v
 ### 一键（需 `gh` / adb / 越狱 SSH 等，见手册）
 
 ```bash
-./one_click_apk_install.sh      # 拉取 CI APK → adb 安装
-./one_click_ipa.sh              # 拉取 CI IPA
-./one_click_deb_install.sh      # 拉取 CI deb → 越狱机
+./one_click_ship.sh             # 总控：commit(可选) → push → 等 CI → 可选装包
+./one_click_apk_install.sh      # 拉取 CI/生产 APK → adb 安装
+./one_click_ipa.sh              # 拉取 CI/生产 IPA
+./one_click_deb_install.sh      # 拉取 CI/生产 deb → 越狱机
 ./one_click_server_deploy.sh    # 同步 server-php（保留远端 config.php / data）
 ```
 
-发布包一律由 GitHub Actions 编译；本机脚本只下载安装。详见 `docs/CI_AUTO_RELEASE.md`。
+发布包一律由 GitHub Actions 编译；本机脚本只下载安装。CI 细节见 [`docs/CI_AUTO_RELEASE.md`](./docs/CI_AUTO_RELEASE.md)。
 
 或 VS Code 任务：「一键：…」系列。
 
 ## 云端能力摘要
 
-控制面（停服 / 强更 / 设备）、账本 `revision` 冲突可见、试用与到期、站内信、管理后台 `/admin`。部署与健康检查细节见 `server-php/`。
+控制面（停服 / 强更 / 设备）、账本 `revision` 冲突可见、试用与到期、站内信、管理后台 `/admin`、Web `/app/`。细节见 [`server-php/README.md`](./server-php/README.md)。
 
 ## 与其他版本并存
 
@@ -49,4 +52,4 @@ flutter doctor -v
 
 ## 不要提交
 
-`dev/machine.env`、`.device.env`、密钥、私钥、`packages/`、`ipa-out/` 等（见 `.gitignore`）。
+`dev/machine.env`、`.device.env`、密钥、私钥、`packages/`、`ipa-out/`、`android/build/` 等（见 [`.gitignore`](./.gitignore)）。

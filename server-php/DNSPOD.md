@@ -35,7 +35,7 @@ curl -s https://truck.liner0211.online/api/health
 # 应返回 {"status":"ok"}
 ```
 
-手机浏览器打开同一 health 地址，能打开则 App 也应能连（服务器地址填 `https://truck.liner0211.online`）。
+手机浏览器打开同一 health 地址，能打开则网络与证书正常。
 
 ## 宝塔侧（与子域名配套）
 
@@ -46,7 +46,11 @@ curl -s https://truck.liner0211.online/api/health
 
 子域名与主域名 **不必** 绑在同一站点；只保证 `truck` 的 A 记录指向本服务器即可。
 
-## App 服务器地址
+## App 与域名（运维 / Debug）
+
+Release 版**不向司机展示**可编辑服务器地址，内置默认云端入口。
+
+仅 **Debug / Profile** 联调时可在登录页填写：
 
 ```
 https://truck.liner0211.online
