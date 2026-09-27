@@ -26,6 +26,19 @@ Android / iOS / Windows / Linux，对接 `/api/admin/*`。
 - 点进用户可查看账本、切换交账标记、高级 JSON 编辑、**导出 Excel**
 - 开发者专属：控制面、会计账号管理
 
+## UI 预览（设计示意）
+
+改版后的壳层信息架构示意（浅色工作台 · 品牌绿）：
+
+| 页面 | 预览 |
+|------|------|
+| 登录 | ![登录](docs/ui_preview/01_login.png) |
+| 总览 | ![总览](docs/ui_preview/02_dashboard.png) |
+| 用户 | ![用户](docs/ui_preview/03_users.png) |
+| 控制面 | ![控制面](docs/ui_preview/04_control.png) |
+
+预览为设计稿，与真机像素可有差异；宽屏为左侧导航，窄屏为底部导航。
+
 ## 本地调试
 
 ```bash

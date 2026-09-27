@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'main.dart';
+import 'admin_session.dart';
 
 /// 用户快照恢复 + 设备吊销（对齐网页 /admin/users/{id}/ops）。
 class UserOpsPage extends StatefulWidget {

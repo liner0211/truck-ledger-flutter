@@ -8,7 +8,7 @@ import 'package:truck_ledger_editor/truck_ledger_editor.dart';
 import 'package:uuid/uuid.dart';
 
 import 'ledger_excel.dart';
-import 'main.dart';
+import 'admin_session.dart';
 
 class UserLedgerPage extends StatefulWidget {
   const UserLedgerPage({super.key, required this.user});
