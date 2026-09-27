@@ -163,7 +163,13 @@
   function fuelSubtitle(item) {
     const parts = [money(item.amount)];
     if ((item.fuelKilograms || 0) > 0.000001) parts.push(`${item.fuelKilograms} kg`);
-    if ((item.fuelUnitPrice || 0) > 0.000001) parts.push(`${money(item.fuelUnitPrice)}/kg`);
+    if ((item.fuelUnitPrice || 0) > 0.000001) {
+      if (item.fuelUnitPriceExpression) {
+        parts.push(`${money(item.fuelUnitPrice)}/kg（${item.fuelUnitPriceExpression}）`);
+      } else {
+        parts.push(`${money(item.fuelUnitPrice)}/kg`);
+      }
+    }
     parts.push(item.paymentSource);
     return parts.join(' · ');
   }
@@ -1297,7 +1303,7 @@ ${wageLine}`;
           attachments: [],
           createdAt: encodeSwiftDate(new Date()),
           tollCashAmount: 0, tollEtcAmount: 0,
-          fuelKilograms: 0, fuelUnitPrice: 0,
+          fuelKilograms: 0, fuelUnitPrice: 0, fuelUnitPriceExpression: '',
         };
       } else {
         e = JSON.parse(JSON.stringify(trip.expenses[globalIndex]));
@@ -1324,12 +1330,14 @@ ${wageLine}`;
       const titleValue = isNew ? '' : esc(e.title || '');
       const amountValue = (!isNew && e.amount) ? e.amount : '';
       const kgValue = (!isNew && e.fuelKilograms) ? e.fuelKilograms : '';
-      const priceValue = (!isNew && e.fuelUnitPrice) ? e.fuelUnitPrice : '';
+      const priceValue = (!isNew && e.fuelUnitPriceExpression)
+        ? esc(e.fuelUnitPriceExpression)
+        : ((!isNew && e.fuelUnitPrice) ? e.fuelUnitPrice : '');
 
       const fuelFields = cat === '油费'
         ? `<label>公斤数<input id="m-fuel-kg" type="text" inputmode="decimal" placeholder="支持小数，如 12.5" value="${kgValue}"></label>
-           <label>单价（元/kg）<input id="m-fuel-price" type="text" inputmode="decimal" placeholder="可自动算出" value="${priceValue}"></label>
-           <p class="hint">手动填过的数字不会被覆盖；清空后可再自动生成。金额 = 公斤数 × 单价。</p>`
+           <label>单价（元/kg）<input id="m-fuel-price" type="text" inputmode="decimal" placeholder="数字或 5.2*0.95" value="${priceValue}"><span id="m-fuel-price-hint" class="hint"></span></label>
+           <p class="hint">手动填过的数字不会被覆盖；清空后可再自动生成。金额 = 公斤数 × 单价。单价支持运算式并保留原文。</p>`
         : '';
 
       this.modal(`
@@ -1350,7 +1358,7 @@ ${wageLine}`;
         let payForItem = e.paymentSource;
         let tollCash = 0, tollEtc = 0;
         let reimb = document.getElementById('m-reimb')?.checked || false;
-        let fuelKg = 0, fuelPrice = 0;
+        let fuelKg = 0, fuelPrice = 0, fuelPriceExpression = '';
 
         if (cat === '高速费') {
           const sel = overlay.querySelector('input[name="tollpay"]:checked');
@@ -1367,7 +1375,13 @@ ${wageLine}`;
 
         if (cat === '油费') {
           fuelKg = parseAmount(document.getElementById('m-fuel-kg')?.value) || 0;
-          fuelPrice = parseAmount(document.getElementById('m-fuel-price')?.value) || 0;
+          const rawPrice = (document.getElementById('m-fuel-price')?.value || '').trim();
+          if (rawPrice) {
+            const parsed = parseAmountOrExpression(rawPrice);
+            if (parsed == null) { showErr('单价请输入数字或运算式（如 5.2*0.95）'); return false; }
+            fuelPrice = parsed;
+            fuelPriceExpression = parseAmount(rawPrice) == null ? rawPrice : '';
+          }
           if (fuelKg < 0 || fuelPrice < 0) { showErr('公斤数与单价不能为负数'); return false; }
         }
 
@@ -1379,6 +1393,7 @@ ${wageLine}`;
         e.tollEtcAmount = tollEtc;
         e.fuelKilograms = cat === '油费' ? fuelKg : 0;
         e.fuelUnitPrice = cat === '油费' ? fuelPrice : 0;
+        e.fuelUnitPriceExpression = cat === '油费' ? fuelPriceExpression : '';
 
         if (!trip.expenses) trip.expenses = [];
         if (isNew) trip.expenses.push(e);
@@ -1406,6 +1421,7 @@ ${wageLine}`;
             const amtEl = overlay.querySelector('#m-amount');
             const kgEl = overlay.querySelector('#m-fuel-kg');
             const priceEl = overlay.querySelector('#m-fuel-price');
+            const priceHint = overlay.querySelector('#m-fuel-price-hint');
             let syncing = false;
             const manual = {
               amount: !!(amtEl && amtEl.value.trim()),
@@ -1419,6 +1435,15 @@ ${wageLine}`;
               const next = (v == null || Number.isNaN(v)) ? '' : String(v);
               if (el.value !== next) el.value = next;
             };
+            const updatePriceHint = () => {
+              if (!priceHint || !priceEl) return;
+              const raw = (priceEl.value || '').trim();
+              const plain = parseAmount(raw);
+              const v = parseAmountOrExpression(raw);
+              priceHint.textContent = (raw && plain == null && v != null)
+                ? `计算结果：${v}`
+                : '';
+            };
             const syncFrom = (changed) => {
               if (syncing) return;
               const raw = changed === 'amount' ? amtEl?.value
@@ -1428,7 +1453,7 @@ ${wageLine}`;
 
               const a = parseAmount(amtEl?.value);
               const k = parseAmount(kgEl?.value);
-              const p = parseAmount(priceEl?.value);
+              const p = parseAmountOrExpression(priceEl?.value);
               let autoA = null, autoK = null, autoP = null;
 
               if (k != null && p != null && a == null && !manual.amount) autoA = roundMoney(k * p);
@@ -1452,10 +1477,12 @@ ${wageLine}`;
               if (autoK != null) setAuto(kgEl, 'kg', autoK);
               if (autoP != null) setAuto(priceEl, 'price', autoP);
               syncing = false;
+              updatePriceHint();
             };
             amtEl?.addEventListener('input', () => syncFrom('amount'));
             kgEl?.addEventListener('input', () => syncFrom('kg'));
             priceEl?.addEventListener('input', () => syncFrom('price'));
+            updatePriceHint();
           }
         },
       });

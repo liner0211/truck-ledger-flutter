@@ -165,7 +165,9 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
         text: e.fuelKilograms > 0 ? _fmtNum(e.fuelKilograms) : '',
       );
       _fuelPrice = TextEditingController(
-        text: e.fuelUnitPrice > 0 ? _fmtNum(e.fuelUnitPrice) : '',
+        text: e.fuelUnitPriceExpression.isNotEmpty
+            ? e.fuelUnitPriceExpression
+            : (e.fuelUnitPrice > 0 ? _fmtNum(e.fuelUnitPrice) : ''),
       );
       if (_amount.text.isNotEmpty) _fuelManual.add(_FuelField.amount);
       if (_fuelKg.text.isNotEmpty) _fuelManual.add(_FuelField.kg);
@@ -279,6 +281,7 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
 
     double fuelKg = 0;
     double fuelPrice = 0;
+    var fuelPriceExpression = '';
     if (cat == ExpenseCategory.fuel) {
       fuelKg = parseAmount(_fuelKg.text) ?? 0;
       final rawPrice = _fuelPrice.text.trim();
@@ -289,6 +292,8 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
           return;
         }
         fuelPrice = parsed;
+        // 与运费一致：非纯数字时保留运算符原文
+        fuelPriceExpression = parseAmount(rawPrice) == null ? rawPrice : '';
       }
       if (fuelKg < 0 || fuelPrice < 0) {
         _err('公斤数与单价不能为负数');
@@ -314,6 +319,7 @@ class _ExpenseEditorPageState extends State<ExpenseEditorPage> {
       tollEtcAmount: tollEtc,
       fuelKilograms: fuelKg,
       fuelUnitPrice: fuelPrice,
+      fuelUnitPriceExpression: fuelPriceExpression,
     );
 
     if (idxInCat != null && idxInCat < indices.length) {

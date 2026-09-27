@@ -75,7 +75,11 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       parts.add(kgText);
     }
     if (item.fuelUnitPrice > 0.000001) {
-      parts.add('${widget.money(item.fuelUnitPrice)}/kg');
+      if (item.fuelUnitPriceExpression.isNotEmpty) {
+        parts.add('${widget.money(item.fuelUnitPrice)}/kg（${item.fuelUnitPriceExpression}）');
+      } else {
+        parts.add('${widget.money(item.fuelUnitPrice)}/kg');
+      }
     }
     parts.add(item.paymentSource.label);
     return parts.join(' · ');

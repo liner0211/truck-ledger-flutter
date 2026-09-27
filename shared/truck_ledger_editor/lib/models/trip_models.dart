@@ -116,6 +116,7 @@ class ExpenseItem {
     this.tollEtcAmount = 0,
     this.fuelKilograms = 0,
     this.fuelUnitPrice = 0,
+    this.fuelUnitPriceExpression = '',
   });
 
   final String id;
@@ -132,6 +133,8 @@ class ExpenseItem {
   double fuelKilograms;
   /// 油费单价（元/公斤，仅油费有意义）。
   double fuelUnitPrice;
+  /// 油费单价运算式原文（非纯数字时保留，如 `5.2*0.95`）。
+  String fuelUnitPriceExpression;
 
   ExpenseItem copy() => ExpenseItem(
         id: id,
@@ -146,6 +149,7 @@ class ExpenseItem {
         tollEtcAmount: tollEtcAmount,
         fuelKilograms: fuelKilograms,
         fuelUnitPrice: fuelUnitPrice,
+        fuelUnitPriceExpression: fuelUnitPriceExpression,
       );
 
   Map<String, dynamic> toJson() => {
@@ -161,6 +165,7 @@ class ExpenseItem {
         'tollEtcAmount': tollEtcAmount,
         'fuelKilograms': fuelKilograms,
         'fuelUnitPrice': fuelUnitPrice,
+        'fuelUnitPriceExpression': fuelUnitPriceExpression,
       };
 
   static ExpenseItem fromJson(Map<String, dynamic> j) {
@@ -175,6 +180,7 @@ class ExpenseItem {
     var tollEtcAmount = (j['tollEtcAmount'] as num?)?.toDouble() ?? 0;
     var fuelKilograms = (j['fuelKilograms'] as num?)?.toDouble() ?? 0;
     var fuelUnitPrice = (j['fuelUnitPrice'] as num?)?.toDouble() ?? 0;
+    var fuelUnitPriceExpression = j['fuelUnitPriceExpression'] as String? ?? '';
 
     if (j['category'] == null) {
       if (title.contains('油')) {
@@ -215,6 +221,7 @@ class ExpenseItem {
     if (category != ExpenseCategory.fuel) {
       fuelKilograms = 0;
       fuelUnitPrice = 0;
+      fuelUnitPriceExpression = '';
     }
 
     return ExpenseItem(
@@ -230,6 +237,7 @@ class ExpenseItem {
       tollEtcAmount: tollEtcAmount,
       fuelKilograms: fuelKilograms,
       fuelUnitPrice: fuelUnitPrice,
+      fuelUnitPriceExpression: fuelUnitPriceExpression,
     );
   }
 }

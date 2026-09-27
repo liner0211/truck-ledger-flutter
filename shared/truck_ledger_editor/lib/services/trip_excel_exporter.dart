@@ -191,7 +191,11 @@ class TripExcelExporter {
         detail.add('${e.fuelKilograms} kg');
       }
       if (e.fuelUnitPrice > 0.000001) {
-        detail.add('${e.fuelUnitPrice} 元/kg');
+        if (e.fuelUnitPriceExpression.isNotEmpty) {
+          detail.add('${e.fuelUnitPrice} 元/kg（${e.fuelUnitPriceExpression}）');
+        } else {
+          detail.add('${e.fuelUnitPrice} 元/kg');
+        }
       }
       rows.add(_ExportRow(
         dateText: _df.format(e.createdAt),
