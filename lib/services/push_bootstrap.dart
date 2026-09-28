@@ -13,29 +13,70 @@ import '../ui/messages_hub_screen.dart';
 import 'messages_api.dart';
 import 'inbox_service.dart';
 
-/// 后台 FCM 入口（必须顶层函数）。仅刷新标记；前台由 [PushBootstrap] 处理横幅。
+/// 后台 FCM 入口（必须顶层函数）。
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // 系统托盘由 FCM notification 载荷展示；此处无需额外逻辑。
+  // 系统托盘由 FCM notification 载荷展示。
 }
 
-/// 初始化 Firebase + 上报 FCM token；未配置 google-services 时回退 local 占位。
+/// 初始化 Firebase + 上报 FCM token；未配置 / 超时则回退 local 占位。
+/// 注意：所有异步调用都有超时，避免卡死启动与 ControlGate。
 class PushBootstrap {
   PushBootstrap._();
   static bool _firebaseReady = false;
+  static bool _initAttempted = false;
   static StreamSubscription<RemoteMessage>? _fgSub;
   static StreamSubscription<String>? _tokenSub;
+  static bool _openedHooked = false;
 
   static bool get firebaseReady => _firebaseReady;
 
-  /// 尝试初始化；失败不抛错（无 Firebase 配置时走站内信 + WS）。
+  static Future<T?> _withTimeout<T>(
+    Future<T> future, {
+    Duration timeout = const Duration(seconds: 5),
+    String label = 'op',
+  }) async {
+    try {
+      return await future.timeout(timeout);
+    } on TimeoutException {
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('FCM $label timed out after ${timeout.inSeconds}s');
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('FCM $label failed: $e');
+      }
+      return null;
+    }
+  }
+
+  /// 尝试初始化；失败/超时不抛错。
   static Future<void> ensureInitialized() async {
     if (kIsWeb) return;
     if (!(Platform.isAndroid || Platform.isIOS)) return;
-    if (_firebaseReady) return;
+    if (_firebaseReady || _initAttempted) return;
+    _initAttempted = true;
     try {
-      await Firebase.initializeApp();
-      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+      final ok = await _withTimeout(
+        Firebase.initializeApp(),
+        timeout: const Duration(seconds: 4),
+        label: 'initializeApp',
+      );
+      if (ok == null && Firebase.apps.isEmpty) {
+        _firebaseReady = false;
+        return;
+      }
+      // initializeApp 成功或已有 apps
+      if (Firebase.apps.isEmpty) {
+        _firebaseReady = false;
+        return;
+      }
+      try {
+        FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+      } catch (_) {}
       _firebaseReady = true;
     } catch (e) {
       if (kDebugMode) {
@@ -46,7 +87,7 @@ class PushBootstrap {
     }
   }
 
-  /// 请求权限、取 token、登记到服务端，并挂接前台消息 → 软件内横幅（抑制重复系统通知观感）。
+  /// 请求权限、取 token、登记；任何一步超时都不阻塞调用方超过约 8 秒。
   static Future<String?> registerToken({
     required MessagesApi api,
     required String platform,
@@ -57,18 +98,30 @@ class PushBootstrap {
     if (_firebaseReady) {
       try {
         final messaging = FirebaseMessaging.instance;
-        await messaging.requestPermission(
-          alert: true,
-          badge: true,
-          sound: true,
+        await _withTimeout(
+          messaging.requestPermission(
+            alert: true,
+            badge: true,
+            sound: true,
+          ),
+          timeout: const Duration(seconds: 6),
+          label: 'requestPermission',
         );
-        // iOS：前台不弹系统横幅，改走 InAppNotifier，避免叠两层
-        await messaging.setForegroundNotificationPresentationOptions(
-          alert: false,
-          badge: true,
-          sound: false,
+        await _withTimeout(
+          messaging.setForegroundNotificationPresentationOptions(
+            alert: false,
+            badge: true,
+            sound: false,
+          ),
+          timeout: const Duration(seconds: 2),
+          label: 'foregroundOptions',
         );
-        fcmToken = await messaging.getToken();
+        final tokenOrNull = await _withTimeout<String?>(
+          messaging.getToken(),
+          timeout: const Duration(seconds: 6),
+          label: 'getToken',
+        );
+        fcmToken = tokenOrNull;
         _tokenSub?.cancel();
         _tokenSub = messaging.onTokenRefresh.listen((t) async {
           if (t.isEmpty) return;
@@ -80,8 +133,15 @@ class PushBootstrap {
         });
         _fgSub?.cancel();
         _fgSub = FirebaseMessaging.onMessage.listen(_onForegroundMessage);
-        FirebaseMessaging.onMessageOpenedApp.listen(_onOpened);
-        final initial = await messaging.getInitialMessage();
+        if (!_openedHooked) {
+          _openedHooked = true;
+          FirebaseMessaging.onMessageOpenedApp.listen(_onOpened);
+        }
+        final initial = await _withTimeout(
+          messaging.getInitialMessage(),
+          timeout: const Duration(seconds: 2),
+          label: 'getInitialMessage',
+        );
         if (initial != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _navigateFromData(initial.data);
@@ -95,11 +155,15 @@ class PushBootstrap {
         fcmToken = null;
       }
     }
-    await inbox.registerPushChannel(
-      api: api,
-      platform: platform,
-      fcmToken: fcmToken,
-    );
+    try {
+      await inbox
+          .registerPushChannel(
+            api: api,
+            platform: platform,
+            fcmToken: fcmToken,
+          )
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {}
     return fcmToken;
   }
 

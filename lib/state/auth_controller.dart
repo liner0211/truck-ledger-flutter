@@ -535,14 +535,27 @@ class AuthController extends ChangeNotifier {
   Future<void> bootstrapPushAndInbox() async {
     final api = messagesApi;
     if (api == null) return;
-    await PushBootstrap.registerToken(
-      api: api,
-      platform: platformName,
-      inbox: inbox,
-    );
-    await refreshInbox();
+    // 先拉未读 + 连 WS，保证进主界面不被 FCM 卡住
+    try {
+      await refreshInbox().timeout(const Duration(seconds: 10));
+    } catch (_) {}
     _connectRealtime();
     startForegroundPolling();
+    // FCM 登记放到后台；超时/失败不影响进入应用
+    unawaited(() async {
+      try {
+        await PushBootstrap.registerToken(
+          api: api,
+          platform: platformName,
+          inbox: inbox,
+        ).timeout(const Duration(seconds: 20));
+      } catch (e) {
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('bootstrap FCM skipped: $e');
+        }
+      }
+    }());
   }
 
   Future<void> setLocalRevision(int rev) async {

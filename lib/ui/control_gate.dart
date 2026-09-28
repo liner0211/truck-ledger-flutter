@@ -145,11 +145,16 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
       }
 
       try {
-        await context.read<LedgerController>().syncWithCloud();
+        await context
+            .read<LedgerController>()
+            .syncWithCloud()
+            .timeout(const Duration(seconds: 20));
       } catch (_) {}
 
       try {
-        await auth.bootstrapPushAndInbox();
+        await auth
+            .bootstrapPushAndInbox()
+            .timeout(const Duration(seconds: 15));
         if (auth.unreadMessages > 0) {
           banner = banner == null || banner.isEmpty
               ? '您有 ${auth.unreadMessages} 条未读消息'

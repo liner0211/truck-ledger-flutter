@@ -24,7 +24,14 @@ class _PermissionBootstrapGateState extends State<PermissionBootstrapGate> {
   }
 
   Future<void> _bootstrap() async {
-    final report = await AppPermissionService.requestAllRuntimePermissions();
+    AppPermissionReport report;
+    try {
+      report = await AppPermissionService.requestAllRuntimePermissions()
+          .timeout(const Duration(seconds: 12));
+    } catch (_) {
+      // 权限弹窗卡住时放行，避免永久转圈
+      report = AppPermissionReport()..photos = PermissionStatus.granted;
+    }
     if (!mounted) return;
     setState(() {
       _report = report;
@@ -34,7 +41,13 @@ class _PermissionBootstrapGateState extends State<PermissionBootstrapGate> {
 
   Future<void> _retryPhotos() async {
     setState(() => _loading = true);
-    final report = await AppPermissionService.requestAllRuntimePermissions();
+    AppPermissionReport report;
+    try {
+      report = await AppPermissionService.requestAllRuntimePermissions()
+          .timeout(const Duration(seconds: 12));
+    } catch (_) {
+      report = AppPermissionReport()..photos = PermissionStatus.denied;
+    }
     if (!mounted) return;
     setState(() {
       _report = report;

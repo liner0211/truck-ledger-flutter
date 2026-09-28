@@ -14,7 +14,11 @@ import 'ui/permission_bootstrap_gate.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   initApiHttpClient();
-  await PushBootstrap.ensureInitialized();
+  // Firebase 初始化限时，避免无 Play 服务 / 网络差时卡死白屏
+  try {
+    await PushBootstrap.ensureInitialized()
+        .timeout(const Duration(seconds: 5));
+  } catch (_) {}
   final theme = ThemeController();
   await theme.load();
   runApp(
