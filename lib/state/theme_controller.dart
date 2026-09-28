@@ -2,10 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 外观：跟随系统 / 浅色 / 深色，持久化到本机。
+/// 深色为 OLED 纯黑（#000000），避免大面积灰雾。
 class ThemeController extends ChangeNotifier {
   ThemeController();
 
   static const _prefsKey = 'theme_mode';
+  static const _seed = Color(0xFF1B5E20);
+  static const _seedDark = Color(0xFF2E7D32);
+  static const _oledBlack = Color(0xFF000000);
+  static const _oledCard = Color(0xFF121212);
+  static const _lightScaffold = Color(0xFFF2F3F5);
 
   ThemeMode _mode = ThemeMode.system;
   bool _ready = false;
@@ -64,19 +70,74 @@ class ThemeController extends ChangeNotifier {
     }
   }
 
-  static ThemeData lightTheme() => ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1B5E20),
-          brightness: Brightness.light,
+  static ThemeData lightTheme() {
+    final scheme = ColorScheme.fromSeed(
+      seedColor: _seed,
+      brightness: Brightness.light,
+    );
+    return ThemeData(
+      colorScheme: scheme,
+      useMaterial3: true,
+      scaffoldBackgroundColor: _lightScaffold,
+      appBarTheme: AppBarTheme(
+        backgroundColor: _lightScaffold,
+        surfaceTintColor: Colors.transparent,
+        foregroundColor: scheme.onSurface,
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: Colors.white,
+        indicatorColor: scheme.primaryContainer,
+      ),
+      cardTheme: CardThemeData(
+        color: Colors.white,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.6)),
         ),
-        useMaterial3: true,
-      );
+      ),
+    );
+  }
 
-  static ThemeData darkTheme() => ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1B5E20),
-          brightness: Brightness.dark,
+  static ThemeData darkTheme() {
+    final base = ColorScheme.fromSeed(
+      seedColor: _seedDark,
+      brightness: Brightness.dark,
+    );
+    final scheme = base.copyWith(
+      surface: _oledBlack,
+      surfaceContainerLowest: _oledBlack,
+      surfaceContainerLow: _oledCard,
+      surfaceContainer: _oledCard,
+      surfaceContainerHigh: const Color(0xFF1A1A1A),
+      surfaceContainerHighest: const Color(0xFF1E1E1E),
+      outlineVariant: const Color(0xFF2A2A2A),
+    );
+    return ThemeData(
+      colorScheme: scheme,
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      scaffoldBackgroundColor: _oledBlack,
+      canvasColor: _oledBlack,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: _oledBlack,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+      ),
+      navigationBarTheme: const NavigationBarThemeData(
+        backgroundColor: _oledBlack,
+        elevation: 0,
+      ),
+      dialogTheme: const DialogThemeData(backgroundColor: _oledCard),
+      bottomSheetTheme: const BottomSheetThemeData(backgroundColor: _oledCard),
+      cardTheme: CardThemeData(
+        color: _oledCard,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xFF2A2A2A)),
         ),
-        useMaterial3: true,
-      );
+      ),
+    );
+  }
 }

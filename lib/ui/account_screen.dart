@@ -6,10 +6,8 @@ import '../services/auth_api.dart';
 import '../services/sync_service.dart';
 import '../state/auth_controller.dart';
 import '../state/ledger_controller.dart';
-import '../state/theme_controller.dart';
 import 'devices_screen.dart';
 import 'change_password_screen.dart';
-import 'messages_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -101,7 +99,7 @@ class _AccountScreenState extends State<AccountScreen> {
     final profile = auth.profile;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('账号与同步')),
+      appBar: AppBar(title: const Text('同步与冲突')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -111,17 +109,14 @@ class _AccountScreenState extends State<AccountScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('当前用户', style: Theme.of(context).textTheme.titleMedium),
+                  Text('同步状态', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 8),
                   Text(auth.username ?? '未登录'),
                   if (auth.licensePlate != null && auth.licensePlate!.isNotEmpty)
                     Text('车牌号：${auth.licensePlate}'),
-                  if (auth.userId != null)
-                    Text('用户 ID：${auth.userId}', style: Theme.of(context).textTheme.bodySmall),
                   if (profile != null) ...[
                     const SizedBox(height: 8),
                     Text('状态：${profile.status} · 套餐：${profile.plan}'),
-                    if (profile.daysLeft != null) Text('剩余天数：${profile.daysLeft}'),
                     Text(profile.writeAllowed ? '写入：允许' : '写入：只读'),
                   ],
                   const SizedBox(height: 4),
@@ -151,56 +146,6 @@ class _AccountScreenState extends State<AccountScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('外观', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  SegmentedButton<ThemeMode>(
-                    segments: const [
-                      ButtonSegment(
-                        value: ThemeMode.system,
-                        icon: Icon(Icons.brightness_auto, size: 18),
-                        label: Text('系统'),
-                      ),
-                      ButtonSegment(
-                        value: ThemeMode.light,
-                        icon: Icon(Icons.light_mode_outlined, size: 18),
-                        label: Text('浅色'),
-                      ),
-                      ButtonSegment(
-                        value: ThemeMode.dark,
-                        icon: Icon(Icons.dark_mode_outlined, size: 18),
-                        label: Text('深色'),
-                      ),
-                    ],
-                    selected: {context.watch<ThemeController>().mode},
-                    onSelectionChanged: (set) {
-                      if (set.isNotEmpty) {
-                        context.read<ThemeController>().setMode(set.first);
-                      }
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.mail_outline),
-            title: const Text('消息中心'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.push<void>(
-                context,
-                MaterialPageRoute<void>(builder: (_) => const MessagesScreen()),
-              );
-            },
-          ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.devices),
@@ -378,19 +323,6 @@ class _AccountScreenState extends State<AccountScreen> {
             Text(_status!),
           ],
           const SizedBox(height: 32),
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Theme.of(context).colorScheme.error,
-            ),
-            onPressed: _busy
-                ? null
-                : () async {
-                    await auth.logout();
-                    if (context.mounted) Navigator.pop(context);
-                  },
-            icon: const Icon(Icons.logout),
-            label: const Text('退出登录'),
-          ),
         ],
       ),
     );

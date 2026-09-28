@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:truck_ledger_editor/truck_ledger_editor.dart' show WageShareBar;
 
 import '../models/trip_models.dart';
 import '../services/profit_calculator.dart';
 import '../services/trip_date.dart';
 import '../state/ledger_controller.dart';
+import 'trip_detail_screen.dart';
 
+/// 按月汇总；[asTab] 为 true 时作为底部「汇总」Tab。
 class MonthlySummaryScreen extends StatefulWidget {
-  const MonthlySummaryScreen({super.key});
+  const MonthlySummaryScreen({super.key, this.asTab = false});
+
+  final bool asTab;
 
   @override
   State<MonthlySummaryScreen> createState() => _MonthlySummaryScreenState();
@@ -30,7 +33,7 @@ class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
     final keys = rounds.map(TripDate.monthKey).toSet().toList()
       ..sort((a, b) => b.compareTo(a));
     final nowKey = _keyOf(DateTime.now());
-    final prev = _prevMonth(nowKey);
+    final prev = _shiftMonth(nowKey, -1);
     for (final k in [nowKey, prev]) {
       if (!keys.contains(k)) keys.add(k);
     }
@@ -38,14 +41,17 @@ class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
     return keys;
   }
 
-  String _prevMonth(String key) {
+  String _shiftMonth(String key, int delta) {
     final p = key.split('-');
     var y = int.parse(p[0]);
-    var m = int.parse(p[1]);
-    m -= 1;
-    if (m < 1) {
-      m = 12;
+    var m = int.parse(p[1]) + delta;
+    while (m < 1) {
+      m += 12;
       y -= 1;
+    }
+    while (m > 12) {
+      m -= 12;
+      y += 1;
     }
     return '${y.toString().padLeft(4, '0')}-${m.toString().padLeft(2, '0')}';
   }
@@ -55,34 +61,33 @@ class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
     final ctrl = context.watch<LedgerController>();
     final rounds = ctrl.book.rounds;
     final months = _availableMonths(rounds);
-    final nowKey = _keyOf(DateTime.now());
-    final prevKey = _prevMonth(nowKey);
+    final monthKey =
+        months.contains(_monthKey) || months.isEmpty ? _monthKey : months.first;
+
     final monthRounds =
-        rounds.where((r) => TripDate.monthKey(r) == _monthKey).toList();
+        rounds.where((r) => TripDate.monthKey(r) == monthKey).toList();
     final sums = monthRounds.map(ProfitCalculator.calculate).toList();
 
-    var freight = 0.0;
-    var fuel = 0.0;
-    var fuelKg = 0.0;
-    var toll = 0.0;
-    var other = 0.0;
-    var info = 0.0;
     var profit = 0.0;
     var wage = 0.0;
     var wagePaid = 0.0;
     var unpaidReconciled = 0.0;
+    var freight = 0.0;
+    var fuel = 0.0;
+    var toll = 0.0;
+    var other = 0.0;
+    var info = 0.0;
     var reconciled = 0;
     for (var i = 0; i < monthRounds.length; i++) {
       final s = sums[i];
       final r = monthRounds[i];
+      profit += s.netProfit;
+      wage += s.driverWagePayable;
       freight += s.totalFreight;
       fuel += s.fuelExpense;
-      fuelKg += s.fuelKilogramsTotal;
       toll += s.tollExpense;
       other += s.otherExpense;
       info += s.totalInfoFee;
-      profit += s.netProfit;
-      wage += s.driverWagePayable;
       if (r.isSalarySettled) {
         wagePaid += s.driverWagePayable;
       } else if (r.isReconciled) {
@@ -90,113 +95,264 @@ class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
       }
       if (r.isReconciled) reconciled++;
     }
+    final unpaidAll = wage - wagePaid;
+    final cs = Theme.of(context).colorScheme;
+    final amber = const Color(0xFFE8A317);
+    final wageProgress = wage > 0.000001 ? (wagePaid / wage).clamp(0.0, 1.0) : 0.0;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('按月汇总')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.tonal(
-                onPressed: () => setState(() => _monthKey = nowKey),
-                child: Text(_monthKey == nowKey ? '本月 ✓' : '本月'),
-              ),
-              FilledButton.tonal(
-                onPressed: () => setState(() => _monthKey = prevKey),
-                child: Text(_monthKey == prevKey ? '上月 ✓' : '上月'),
-              ),
-            ],
+      appBar: AppBar(
+        title: const Text('汇总'),
+        centerTitle: widget.asTab,
+        automaticallyImplyLeading: !widget.asTab,
+        actions: [
+          IconButton(
+            tooltip: '上一月',
+            onPressed: () => setState(() => _monthKey = _shiftMonth(monthKey, -1)),
+            icon: const Icon(Icons.chevron_left),
           ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: months.contains(_monthKey) ? _monthKey : months.first,
-            decoration: const InputDecoration(
-              labelText: '选择月份',
-              border: OutlineInputBorder(),
+          Center(
+            child: Text(
+              TripDate.monthLabel(monthKey),
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
             ),
-            items: [
-              for (final k in months)
-                DropdownMenuItem(value: k, child: Text(TripDate.monthLabel(k))),
-            ],
-            onChanged: (v) {
-              if (v == null) return;
-              setState(() => _monthKey = v);
-            },
           ),
-          const SizedBox(height: 16),
-          Text(
-            TripDate.monthLabel(_monthKey),
-            style: Theme.of(context).textTheme.titleLarge,
+          IconButton(
+            tooltip: '下一月',
+            onPressed: () => setState(() => _monthKey = _shiftMonth(monthKey, 1)),
+            icon: const Icon(Icons.chevron_right),
           ),
-          Text(
-            '共 ${monthRounds.length} 圈 · 已交账 $reconciled 圈',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        children: [
+          if (months.length > 2)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: DropdownButtonFormField<String>(
+                initialValue: monthKey,
+                decoration: const InputDecoration(
+                  labelText: '选择月份',
+                  border: OutlineInputBorder(),
+                  isDense: true,
                 ),
+                items: [
+                  for (final k in months)
+                    DropdownMenuItem(value: k, child: Text(TripDate.monthLabel(k))),
+                ],
+                onChanged: (v) {
+                  if (v == null) return;
+                  setState(() => _monthKey = v);
+                },
+              ),
+            ),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '本月净利',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    ctrl.money(profit),
+                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: cs.primary,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '共 ${monthRounds.length} 个圈次 · 已交账 $reconciled 圈',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                  ),
+                ],
+              ),
+            ),
           ),
           const SizedBox(height: 12),
-          if (monthRounds.isEmpty)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    '本月工资',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _MoneyCol(
+                          label: '应付',
+                          value: ctrl.money(wage),
+                        ),
+                      ),
+                      Expanded(
+                        child: _MoneyCol(
+                          label: '已发',
+                          value: ctrl.money(wagePaid),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: wageProgress,
+                      minHeight: 8,
+                      backgroundColor: cs.surfaceContainerHighest,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    unpaidReconciled > 0.000001
+                        ? '未发 ${ctrl.money(unpaidAll)}（其中已交账未发 ${ctrl.money(unpaidReconciled)}）'
+                        : '未发 ${ctrl.money(unpaidAll)}',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: unpaidAll > 0.000001 ? amber : cs.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (monthRounds.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    _row(context, '运费合计', ctrl.money(freight)),
+                    _row(context, '油费', ctrl.money(fuel)),
+                    _row(context, '高速费', ctrl.money(toll)),
+                    _row(context, '信息费', ctrl.money(info)),
+                    _row(context, '其他费用', ctrl.money(other)),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '圈次明细',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            for (var i = 0; i < monthRounds.length; i++)
+              Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  title: Text(
+                    monthRounds[i].title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    '${monthRounds[i].isReconciled ? '已交账' : '未交账'} · '
+                    '${monthRounds[i].isSalarySettled ? '工资已发' : '工资未发'}',
+                  ),
+                  trailing: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        ctrl.money(sums[i].netProfit),
+                        style: TextStyle(
+                          color: cs.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        ctrl.money(sums[i].driverWagePayable),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                  onTap: () {
+                    final round = monthRounds[i];
+                    Navigator.push<void>(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => TripDetailScreen(
+                          initial: round.copy(),
+                          money: ctrl.money,
+                          allRounds: ctrl.book.rounds,
+                          onReplace: (updated) => ctrl.replaceTrip(updated),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ] else
             const Card(
               child: ListTile(
                 title: Text('本月暂无圈次'),
                 subtitle: Text('新建圈次后会按开始时间归入对应月份'),
               ),
-            )
-          else ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _row(context, '运费合计', ctrl.money(freight)),
-                    _row(context, '油费', ctrl.money(fuel)),
-                    if (fuelKg > 0.000001)
-                      _row(
-                        context,
-                        '气耗',
-                        '${fuelKg.toStringAsFixed(fuelKg == fuelKg.roundToDouble() ? 0 : 2)} kg',
-                      ),
-                    _row(context, '高速费', ctrl.money(toll)),
-                    _row(context, '信息费', ctrl.money(info)),
-                    _row(context, '其他费用', ctrl.money(other)),
-                    const Divider(),
-                    _row(context, '利润合计', ctrl.money(profit), emphasize: true),
-                    _row(context, '司机应发工资', ctrl.money(wage), emphasize: true),
-                    _row(context, '其中已发', ctrl.money(wagePaid)),
-                    _row(context, '未发（应发−已发）', ctrl.money(wage - wagePaid)),
-                  ],
-                ),
-              ),
             ),
-            const SizedBox(height: 12),
-            WageShareBar(
-              totalDue: wage,
-              paid: wagePaid,
-              unpaidReconciled: unpaidReconciled,
-              money: ctrl.money,
-            ),
-          ],
         ],
       ),
     );
   }
 
-  Widget _row(BuildContext context, String label, String value, {bool emphasize = false}) {
-    final style = emphasize
-        ? Theme.of(context).textTheme.titleMedium
-        : Theme.of(context).textTheme.bodyLarge;
+  Widget _row(BuildContext context, String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Expanded(child: Text(label, style: style)),
-          Text(value, style: style),
+          Expanded(child: Text(label)),
+          Text(value),
         ],
       ),
+    );
+  }
+}
+
+class _MoneyCol extends StatelessWidget {
+  const _MoneyCol({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+      ],
     );
   }
 }

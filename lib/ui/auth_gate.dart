@@ -3,8 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../state/auth_controller.dart';
 import 'control_gate.dart';
-import 'home_screen.dart';
 import 'login_screen.dart';
+import 'main_shell.dart';
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -20,6 +20,6 @@ class AuthGate extends StatelessWidget {
     if (!auth.isLoggedIn) {
       return const LoginScreen();
     }
-    return const ControlGate(child: HomeScreen());
+    return const ControlGate(child: MainShell());
   }
 }
