@@ -257,6 +257,8 @@ if [[ "$DO_WAIT" == "1" && "$FORCE_DISPATCH" == "1" ]]; then
   WAIT_ONLY_EXISTING=0
 elif [[ "$DID_PUSH" == "1" ]]; then
   echo "==> 已 push，依赖 path 过滤器自动触发 CI（不重复派发）"
+  # 只等真正出现的 run；未触发的 workflow（如仅改 admin 时不会跑 Release Packages）约 2 分钟后跳过，避免空等 90 分钟
+  WAIT_ONLY_EXISTING=1
 fi
 
 # --- 6) 本机可先部署后端（与 CI 并行）---
