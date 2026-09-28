@@ -47,7 +47,7 @@ usage() {
   SHIP_TEMP_PUBLIC=0, SHIP_FORCE_CI=1, SHIP_POLL_SEC, SHIP_TIMEOUT_MIN
 
 约定：无新 commit / 改动不命中 App·后端·管理端路径时，不重新执行 CI。
-默认：需要等 CI 时会临时把仓库改为 public，结束后改回 private。
+默认：需要等 CI 时会临时把仓库改为 public；无论是否跑 CI，结束时都会确认改回 private。
 EOF
 }
 
@@ -122,16 +122,31 @@ set_repo_visibility() {
   return 1
 }
 
-restore_repo_private_if_needed() {
-  if [[ "$MADE_PUBLIC" != "1" ]]; then
+# 无论是否跑 CI，结束时都确认仓库为私有（误留 public 时改回）
+ensure_repo_private() {
+  local priv
+  priv="$(gh api "repos/$REPO_SLUG" --jq .private 2>/dev/null || echo "")"
+  if [[ "$priv" == "true" ]]; then
+    echo "==> 仓库可见性：私有 ✓"
+    MADE_PUBLIC=0
     return 0
   fi
-  echo "==> CI 结束：改回私有仓库"
-  if set_repo_visibility true; then
-    MADE_PUBLIC=0
-  else
+  if [[ "$priv" == "false" ]]; then
+    echo "==> 仓库当前为公开 → 改回私有"
+    if set_repo_visibility true; then
+      MADE_PUBLIC=0
+      return 0
+    fi
     echo "ERROR: 改回私有失败，请手动: gh api -X PATCH repos/$REPO_SLUG -f private=true -f visibility=private" >&2
+    return 1
   fi
+  echo "WARN: 无法查询仓库可见性，请自行确认 $REPO_SLUG 为 private" >&2
+  return 0
+}
+
+restore_repo_private_if_needed() {
+  # trap / 早退：始终核对可见性（不仅限于本脚本临时公开过）
+  ensure_repo_private || true
 }
 
 trap restore_repo_private_if_needed EXIT INT TERM
@@ -200,6 +215,7 @@ fi
 if [[ "$REMOTE_OK" == "1" && "$AHEAD" == "0" ]]; then
   if [[ "$FORCE_CI" != "1" ]]; then
     echo "==> 已与远端同步，无新代码改动 → 跳过 CI（需要重跑请加 --force-ci）"
+    ensure_repo_private
     exit 0
   fi
   echo "==> 已与远端同步，但指定 --force-ci → 将手动派发 CI"
@@ -251,9 +267,9 @@ else
   echo "    SHA=$SHA"
 fi
 
-# push 后若仍无 CI 需求：结束
+# push 后若仍无 CI 需求：结束（仍确认私有）
 if [[ "$NEED_CI" != "1" && "$FORCE_DISPATCH" != "1" ]]; then
-  restore_repo_private_if_needed
+  ensure_repo_private
   echo "完成。已同步远端，本次无发版 CI。"
   exit 0
 fi
@@ -296,6 +312,7 @@ if [[ "$need_server" == "1" && "$LOCAL_SERVER" == "1" ]]; then
 fi
 
 if [[ "$DO_WAIT" != "1" ]]; then
+  ensure_repo_private
   echo "完成（--no-wait）。请在 GitHub Actions 查看编译与上传。"
   echo "注意：--no-wait 不会临时公开仓库；若需公开跑 CI 请去掉该参数。"
   exit 0
@@ -385,8 +402,8 @@ if [[ "$need_admin" == "1" ]]; then
   wait_workflow "Release Admin Packages" "$OPT" || FAILED=1
 fi
 
-# 先改回私有，再决定成败退出（trap 也会再保一次）
-restore_repo_private_if_needed
+# 先确认私有，再决定成败退出（trap 也会再保一次）
+ensure_repo_private
 
 if [[ "$FAILED" != "0" ]]; then
   echo "ERROR: 部分 CI 未成功。" >&2
