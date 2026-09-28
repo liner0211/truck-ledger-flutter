@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../admin_session.dart';
 import '../realtime_socket.dart';
 import '../ui/admin_widgets.dart';
+import '../utils/system_nav_inset.dart';
 import '../widgets/update_progress_dialog.dart';
 import 'control_page.dart';
 import 'dashboard_page.dart';
@@ -36,6 +37,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    SystemNavInset.ensureLoaded().then((_) {
+      if (mounted) setState(() {});
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkUpdate();
       context.read<AdminSession>().pollOnForeground(notifyMissed: false);
@@ -392,8 +396,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       bottomNavigationBar: wide
           ? null
           : Padding(
+              // 仅虚拟按键时按系统高度抬底；手势导航为 0，贴边全屏
               padding: EdgeInsets.only(
-                bottom: MediaQuery.viewPaddingOf(context).bottom,
+                bottom: SystemNavInset.bottomForNavBar(context),
               ),
               child: NavigationBar(
                 selectedIndex: _index,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../state/auth_controller.dart';
+import '../utils/system_nav_inset.dart';
 import 'home_screen.dart';
 import 'me_screen.dart';
 import 'monthly_summary_screen.dart';
@@ -16,6 +17,14 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    SystemNavInset.ensureLoaded().then((_) {
+      if (mounted) setState(() {});
+    });
+  }
 
   Widget _badgeIcon({
     required IconData icon,
@@ -35,7 +44,8 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final unread = context.watch<AuthController>().unreadMessages;
-    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
+    // 仅虚拟按键时按系统高度抬底；手势导航为 0，贴边全屏
+    final bottomInset = SystemNavInset.bottomForNavBar(context);
     return Scaffold(
       body: IndexedStack(
         index: _index,
@@ -50,7 +60,6 @@ class _MainShellState extends State<MainShell> {
         color: Theme.of(context).navigationBarTheme.backgroundColor ??
             Theme.of(context).colorScheme.surface,
         child: Padding(
-          // 虚拟导航键 / 手势条：避免遮挡底部 NavigationBar
           padding: EdgeInsets.only(bottom: bottomInset),
           child: NavigationBar(
             selectedIndex: _index,
