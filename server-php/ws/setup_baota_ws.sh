@@ -37,11 +37,25 @@ ensure_node() {
     *) warn "未知架构 $arch，尝试 x64" ;;
   esac
   local tmp="/tmp/node-${ver}-linux-${node_arch}.tar.xz"
-  local url="https://nodejs.org/dist/${ver}/node-${ver}-linux-${node_arch}.tar.xz"
-  if ! curl -fsSL --max-time 120 "$url" -o "$tmp"; then
-    warn "官方源失败，尝试 npmmirror…"
-    url="https://npmmirror.com/mirrors/node/${ver}/node-${ver}-linux-${node_arch}.tar.xz"
-    curl -fsSL --max-time 120 "$url" -o "$tmp"
+  local urls=(
+    "https://npmmirror.com/mirrors/node/${ver}/node-${ver}-linux-${node_arch}.tar.xz"
+    "https://nodejs.org/dist/${ver}/node-${ver}-linux-${node_arch}.tar.xz"
+  )
+  local ok=0 url
+  for url in "${urls[@]}"; do
+    log "下载 $url"
+    rm -f "$tmp"
+    if curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 300 "$url" -o "$tmp"; then
+      if [[ -s "$tmp" ]] && tar -tJf "$tmp" >/dev/null 2>&1; then
+        ok=1
+        break
+      fi
+      warn "下载损坏，换源重试"
+    fi
+  done
+  if [[ "$ok" != 1 ]]; then
+    warn "Node 下载失败"
+    return 1
   fi
   mkdir -p /usr/local/lib/nodejs
   tar -xJf "$tmp" -C /usr/local/lib/nodejs
