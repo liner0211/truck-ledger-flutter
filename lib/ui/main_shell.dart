@@ -35,6 +35,7 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final unread = context.watch<AuthController>().unreadMessages;
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
     return Scaffold(
       body: IndexedStack(
         index: _index,
@@ -44,36 +45,45 @@ class _MainShellState extends State<MainShell> {
           MeScreen(),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.local_shipping_outlined),
-            selectedIcon: Icon(Icons.local_shipping),
-            label: '圈次',
+      bottomNavigationBar: Material(
+        elevation: 3,
+        color: Theme.of(context).navigationBarTheme.backgroundColor ??
+            Theme.of(context).colorScheme.surface,
+        child: Padding(
+          // 虚拟导航键 / 手势条：避免遮挡底部 NavigationBar
+          padding: EdgeInsets.only(bottom: bottomInset),
+          child: NavigationBar(
+            selectedIndex: _index,
+            onDestinationSelected: (i) => setState(() => _index = i),
+            destinations: [
+              const NavigationDestination(
+                icon: Icon(Icons.local_shipping_outlined),
+                selectedIcon: Icon(Icons.local_shipping),
+                label: '圈次',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.bar_chart_outlined),
+                selectedIcon: Icon(Icons.bar_chart),
+                label: '汇总',
+              ),
+              NavigationDestination(
+                icon: _badgeIcon(
+                  icon: Icons.person_outline,
+                  selectedIcon: Icons.person,
+                  selected: false,
+                  count: unread,
+                ),
+                selectedIcon: _badgeIcon(
+                  icon: Icons.person_outline,
+                  selectedIcon: Icons.person,
+                  selected: true,
+                  count: unread,
+                ),
+                label: unread > 0 ? '我的($unread)' : '我的',
+              ),
+            ],
           ),
-          const NavigationDestination(
-            icon: Icon(Icons.bar_chart_outlined),
-            selectedIcon: Icon(Icons.bar_chart),
-            label: '汇总',
-          ),
-          NavigationDestination(
-            icon: _badgeIcon(
-              icon: Icons.person_outline,
-              selectedIcon: Icons.person,
-              selected: false,
-              count: unread,
-            ),
-            selectedIcon: _badgeIcon(
-              icon: Icons.person_outline,
-              selectedIcon: Icons.person,
-              selected: true,
-              count: unread,
-            ),
-            label: unread > 0 ? '我的($unread)' : '我的',
-          ),
-        ],
+        ),
       ),
     );
   }
