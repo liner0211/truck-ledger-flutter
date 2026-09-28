@@ -20,9 +20,13 @@ return [
     'max_upload_bytes' => 20 * 1024 * 1024,
     // CORS：生产建议改为具体域名列表，例如 ['https://truck.liner0211.online']
     'cors_origins' => ['*'],
-    // 可选：Firebase Cloud Messaging Legacy Server Key；不配则仅站内信
+    // FCM HTTP v1：服务账号 JSON 路径（相对站点根或绝对路径）。默认 data/fcm-service-account.json
+    'fcm_service_account_file' => 'data/fcm-service-account.json',
+    // 可选：覆盖 JSON 内 project_id
+    'fcm_project_id' => '',
+    // 已废弃（Legacy API 已停用）；保留键名以免旧 config 报错
     'fcm_server_key' => '',
-    // WebSocket 实时通道（不用 FCM）。本机跑：bash ws/start_ws.sh；Nginx 反代 /ws
+    // WebSocket 实时通道。本机跑：bash ws/start_ws.sh；Nginx 反代 /ws
     'ws_enabled' => true,
     'ws_port' => 8765,
     'ws_publish_url' => 'http://127.0.0.1:8765/publish',

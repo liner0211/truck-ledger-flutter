@@ -28,7 +28,7 @@ server-php/
 - **控制面**：停服 / 最低版本 / 强制升级 / 离线宽限 / 全局公告
 - **用户运营**：试用、到期只读或禁登、延期、转正、踢下线、设备吊销
 - **同步**：`revision` 乐观锁，冲突 409
-- **触达**：站内信；可选 `fcm_server_key`（见 FCM_SETUP）
+- **触达**：站内信；可选 FCM HTTP v1（服务账号，见 FCM_SETUP）
 - **运维**：审计、账本快照、健康深检 `GET /api/health?deep=1`、Admin CSRF
 
 管理后台：`/admin`。

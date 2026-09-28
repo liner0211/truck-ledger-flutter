@@ -89,19 +89,17 @@ PHP 写库后向本机 `http://127.0.0.1:8765/publish` 发事件（`type`: `inbo
 前台 App 收到 FCM 时走 `InAppNotifier`（iOS 关闭前台系统横幅），避免与软件内横幅叠两层。  
 `local:` 占位 token 不发 FCM。
 
-### 运维配置
+### 运维配置（HTTP v1）
 
-1. `config.php`：`'fcm_server_key' => '…'`（Legacy；可后续迁 HTTP v1）  
-2. Firebase 控制台下载：  
-   - `android/app/google-services.json`  
-   - `ios/Runner/GoogleService-Info.plist`  
-   （已 gitignore；CI/本机注入后 Android 自动 apply `google-services` 插件）  
-3. 司机端依赖 `firebase_core` + `firebase_messaging`；登录后 `POST /api/devices/push-token` 上报真 token  
-4. Android 通知渠道 id：`messages`（名称「消息」）
+1. Firebase 下载服务账号 JSON + `google-services.json`（+ iOS plist）到 `dev/fcm/`  
+2. 执行 `./scripts/apply_fcm_credentials.sh`（上传服务端、本机客户端、可选 GitHub Secret）  
+3. `config.php`：`fcm_service_account_file` → `data/fcm-service-account.json`  
+4. CI Secret：`GOOGLE_SERVICES_JSON_BASE64`（Release APK 注入）  
+5. Android 渠道 id：`messages`
 
-详见 [`server-php/FCM_SETUP.md`](../server-php/FCM_SETUP.md)、[`docs/MIGRATION.md`](MIGRATION.md)。
+详见 [`server-php/FCM_SETUP.md`](../server-php/FCM_SETUP.md)。
 
-**说明：** 未配置 FCM key 或客户端未放 google-services 时，仍可靠站内信 + WS；杀进程后无系统通知。
+**说明：** 未配置服务账号或客户端未放 google-services 时，仍可靠站内信 + WS；杀进程后无系统通知。
 
 ### 试用到期推送
 

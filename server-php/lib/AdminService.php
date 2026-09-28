@@ -155,7 +155,11 @@ final class AdminService
         $adminPlain = (string)($cfg['admin_password'] ?? '');
         $checks['admin_password'] = ($adminHash !== '' || ($adminPlain !== '' && $adminPlain !== '请改成强密码'))
             ? 'ok' : 'weak';
-        $checks['fcm'] = !empty($cfg['fcm_server_key']) ? 'configured' : 'optional';
+        $st = PushService::status($cfg);
+        $checks['fcm'] = $st['configured'] ? 'configured' : 'optional';
+        if (!empty($st['detail'])) {
+            $checks['fcm_detail'] = (string)$st['detail'];
+        }
         $checks['user_count'] = (int)$pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
         $ws = RealtimeHub::status($cfg);
         $checks['websocket'] = !empty($ws['ok'])
