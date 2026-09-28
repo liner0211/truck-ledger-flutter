@@ -57,7 +57,8 @@ fi
 echo "==> 上传服务账号到 ${SERVER_HOST}:${SERVER_PATH}/data/"
 "${SSH[@]}" "${SERVER_USER}@${SERVER_HOST}" "mkdir -p '$SERVER_PATH/data' && chmod 700 '$SERVER_PATH/data'"
 "${SCP[@]}" "$SA_SRC" "${SERVER_USER}@${SERVER_HOST}:${SERVER_PATH}/data/fcm-service-account.json"
-"${SSH[@]}" "${SERVER_USER}@${SERVER_HOST}" "chmod 600 '$SERVER_PATH/data/fcm-service-account.json'"
+"${SSH[@]}" "${SERVER_USER}@${SERVER_HOST}" \
+  "chown www:www '$SERVER_PATH/data/fcm-service-account.json' 2>/dev/null || chown www-data:www-data '$SERVER_PATH/data/fcm-service-account.json' 2>/dev/null || true; chmod 640 '$SERVER_PATH/data/fcm-service-account.json'"
 
 echo "==> 补齐远端 config.php"
 "${SSH[@]}" "${SERVER_USER}@${SERVER_HOST}" "python3 - '$SERVER_PATH/config.php'" <<'PY'
@@ -75,9 +76,9 @@ if "fcm_service_account_file" in src:
         count=1,
     )
 else:
-    m = re.search(r"return\s*\[", src)
+    m = re.search(r"return\s+(?:array\s*)?[\[(]", src)
     if not m:
-        raise SystemExit("config 找不到 return [")
+        raise SystemExit("config 找不到 return [ 或 return array (")
     src = src[: m.end()] + f"\n    {line},\n    {proj},\n" + src[m.end() :]
 open(path, "w", encoding="utf-8").write(src)
 print("patched", path)
