@@ -11,74 +11,70 @@
 
 ---
 
-## CI 编 IPA 时如何配极光（推荐顺序）
+## CI 编 IPA + 自签安装后要有后台推送
 
-本仓库 **Release Packages** 的 iOS 是 `flutter build ios --release --no-codesign` 再打成 IPA。  
-**极光 AppKey 不写进 IPA 源码**，而是 App 登录后由服务端 `/api/app/check` 下发。因此：
+本仓库 CI：`flutter build ios --release --no-codesign` → 打成 IPA。  
+AppKey **不写死在 IPA 里**，登录后由服务器 `/api/app/check` 下发。
 
-| 要做的事 | 和 CI 的关系 |
-|----------|--------------|
-| 服务器 `config.php` 填 `jpush_*` | **与 CI 无关**，SSH 改生产机即可（rsync 不覆盖） |
-| 极光控制台 + Apple APNs | **与 CI 无关**，网页操作 |
-| GitHub Secret `JPUSH_APPKEY` | **仅 Android** manifest 占位；iOS 不需要 |
-| 重跑 CI / 装新 IPA | 只有改了客户端推送代码才需要；**只配极光密钥不必重编** |
+### 硬性前提（缺一不可）
 
-### ① Apple Developer（一次性）
+1. **付费 Apple Developer（年费）**  
+   免费 Apple ID / 仅爱思免费签 **不能**开 Push，APNs 拿不到 token，后台通知做不到。  
+2. App ID `com.liner0211.truckledger` 勾选 **Push Notifications**  
+3. 极光控制台上传 APNs（`.p8` 推荐）+ 服务器填 `jpush_*`  
+4. **重签时必须带上 Push entitlement**（工程已含 `ios/Runner/Runner.entitlements`，`aps-environment=production`）
 
-1. [developer.apple.com](https://developer.apple.com) → Certificates, Identifiers & Profiles  
-2. Identifiers → App ID **`com.liner0211.truckledger`** → 勾选 **Push Notifications**  
-3. Keys → 新建 **Apple Push Notifications service (APNs)** Key，下载 `.p8`，记下 **Key ID**、**Team ID**  
-   （也可用旧版 APNs 证书，极光两种都支持；推荐 `.p8`）
+### ① Apple + 极光（网页）
 
-> CI 产出的是**未签名** IPA。你用爱思/巨魔/企业签等**重签安装**时，描述文件必须带 **Push**，否则极光拿不到 device token，后台仍无通知。
+1. Identifiers → `com.liner0211.truckledger` → Push Notifications  
+2. Keys → APNs Key → 下 `.p8`，记 Key ID、Team ID  
+3. [极光](https://www.jiguang.cn/) 建应用，iOS Bundle Id 同上，上传 APNs  
+4. 记下 **AppKey**、**Master Secret**
 
-### ② 极光控制台
-
-1. [jiguang.cn](https://www.jiguang.cn/) 建应用  
-2. Android：包名 `com.liner0211.truckledger`  
-3. iOS：Bundle ID `com.liner0211.truckledger`  
-4. iOS 配置里上传 APNs：**Auth Key (.p8)** + Key ID + Team ID（或上传证书）  
-5. 记下 **AppKey**、**Master Secret**
-
-### ③ 生产服务器（必做，与 CI 无关）
-
-SSH 编辑 `/www/wwwroot/truck.liner0211.online/config.php`（路径以你的 `SERVER_PATH` 为准）：
+### ② 服务器（与 CI 无关，SSH 改 `config.php`）
 
 ```php
 'jpush_app_key' => '你的AppKey',
 'jpush_master_secret' => '你的MasterSecret',
-// CI / 正式重签安装的包 → true；仅 Xcode 调试包 → false
+// 自签若用「Apple Development」证书 → false，且 entitlements 改为 development
+// CI/企业签/Ad Hoc/正式 → true（与仓库 Runner.entitlements 默认 production 一致）
 'jpush_apns_production' => true,
 ```
 
-自检：
+自检：`curl -fsS 'https://你的域名/api/health?deep=1'` → `checks.push=configured`
+
+### ③ 自签重签时带上 Push（关键）
+
+CI 包旁会附带 `Runner.entitlements`。重签示例：
 
 ```bash
-curl -fsS 'https://truck.liner0211.online/api/health?deep=1'
-# 期望 checks.push = configured，detail 含 jpush
+# 用带 Push 的描述文件 / 证书重签（工具因人而异，核心是 entitlements）
+codesign -f -s "Apple Distribution: Your Name (TEAMID)" \
+  --entitlements Runner.entitlements \
+  Payload/Runner.app
 ```
 
-服务端诊断：
+| 工具 | 注意 |
+|------|------|
+| 爱思助手 / Sideloadly | 选**付费开发者账号**；确认能力含 Push |
+| 企业签 / TF | 描述文件勾选 Push |
+| 免费七天签 | **无法**后台推送 |
 
-```bash
-cd /www/wwwroot/truck.liner0211.online && php bin/test_jpush.php <用户id>
-```
+若你实际用的是 **Development** 证书自签：把 `Runner.entitlements` 里 `aps-environment` 改成 `development`，服务器 `jpush_apns_production` 改 `false`，再编一版 IPA。
 
-### ④ GitHub Actions（可选，主要利 Android）
-
-仓库 Settings → Secrets：
+### ④ GitHub Secret（可选，Android）
 
 | Secret | 用途 |
 |--------|------|
-| `JPUSH_APPKEY` | Release APK 写入 AndroidManifest；**建议与服务器 AppKey 相同** |
+| `JPUSH_APPKEY` | 写入 AndroidManifest；建议与服务器 AppKey 相同 |
 
-iOS CI **不读**这个 Secret；客户端用服务端下发的 key 调 `JPush.setup`。
+iOS CI **不读**该 Secret。
 
-### ⑤ 用户侧验证
+### ⑤ 验证
 
-1. 装当前云端 IPA（或等下次 CI）→ **重新登录**一次  
-2. 库表 `push_tokens` 应出现 `jpush:……`  
-3. App 退到后台 / 杀进程 → 管理端发站内信或跑 `test_jpush.php` → 应出系统通知  
+1. 重签安装 → **重新登录**  
+2. 库表 `push_tokens` 有 `jpush:…`  
+3. 杀进程后 `php bin/test_jpush.php <user_id>` 或管理端发信 → 应出系统通知  
 
 ---
 

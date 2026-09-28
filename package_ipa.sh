@@ -30,8 +30,18 @@ rm -rf "$OUT_DIR"
 mkdir -p "$PAYLOAD_DIR"
 cp -a "$APP_SRC" "$PAYLOAD_DIR/"
 
+# 自签重签用：把 Push entitlements 放进 IPA 旁与 App 内，便于 codesign --entitlements
+ENTITLEMENTS_SRC="$ROOT_DIR/ios/Runner/Runner.entitlements"
+if [[ -f "$ENTITLEMENTS_SRC" ]]; then
+  cp -f "$ENTITLEMENTS_SRC" "$OUT_DIR/Runner.entitlements"
+  cp -f "$ENTITLEMENTS_SRC" "$PAYLOAD_DIR/${APP_NAME}.app/Runner.entitlements"
+fi
+
 echo "[3/4] Zip ipa..."
 (cd "$OUT_DIR" && zip -qry "${APP_NAME}.ipa" "Payload")
 
 echo "[4/4] 完成"
 echo "IPA: $IPA_PATH"
+if [[ -f "$OUT_DIR/Runner.entitlements" ]]; then
+  echo "Entitlements (自签请带 Push): $OUT_DIR/Runner.entitlements"
+fi

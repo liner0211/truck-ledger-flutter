@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- CI 正式 IPA / 自签重签时请带上 Push；与服务器 jpush_apns_production=true 对齐用 production -->
+	<key>aps-environment</key>
+	<string>production</string>
+</dict>
+</plist>

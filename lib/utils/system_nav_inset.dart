@@ -1,13 +1,13 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 
-/// Android 系统导航与底部 inset（需先 [enableEdgeToEdgeUi]）。
+/// Android 系统导航与底部 inset（需先 enableEdgeToEdgeUi）。
 ///
-/// - 三键/两键：按系统报告的导航栏高度抬起可点区域，底栏背景仍画满全屏
-/// - 手势 / iOS Home Indicator：不额外垫高，贴边全屏
+/// Material3 [NavigationBar] 内部自带 [SafeArea]，若再手动
+/// `Padding(bottom: viewPadding)` 会叠成约两倍高度。请用 [wrap]。
 class SystemNavInset {
   SystemNavInset._();
 
@@ -32,10 +32,9 @@ class SystemNavInset {
     } catch (_) {}
   }
 
-  /// 底栏可点区域下方预留高度（背景仍应铺满到屏幕底边）。
+  /// 仅三键/两键时返回系统导航栏高度；手势 / iOS 为 0。
   static double bottomForNavBar(BuildContext context) {
     if (kIsWeb) return 0;
-    // iOS / 桌面：贴边全屏，Home Indicator 叠在底栏上
     if (!Platform.isAndroid) return 0;
 
     final viewBottom = MediaQuery.viewPaddingOf(context).bottom;
@@ -50,5 +49,18 @@ class SystemNavInset {
         gesture.left > 0 || gesture.right > 0 || viewBottom < 36;
     if (looksLikeGesture) return 0;
     return viewBottom;
+  }
+
+  /// 包住 [NavigationBar]：去掉其内置 SafeArea 底垫，再按虚拟键高度抬一次。
+  static Widget wrap(BuildContext context, {required Widget child}) {
+    final inset = bottomForNavBar(context);
+    return MediaQuery.removePadding(
+      context: context,
+      removeBottom: true,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: inset),
+        child: child,
+      ),
+    );
   }
 }

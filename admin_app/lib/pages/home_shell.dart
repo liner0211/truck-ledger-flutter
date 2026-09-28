@@ -395,15 +395,16 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       ),
       bottomNavigationBar: wide
           ? null
-          : Padding(
-              // 仅虚拟按键时按系统高度抬底；手势导航为 0，贴边全屏
-              padding: EdgeInsets.only(
-                bottom: SystemNavInset.bottomForNavBar(context),
-              ),
-              child: NavigationBar(
-                selectedIndex: _index,
-                onDestinationSelected: (i) => setState(() => _index = i),
-                destinations: navDestinations,
+          : Material(
+              color: Theme.of(context).navigationBarTheme.backgroundColor ??
+                  Theme.of(context).colorScheme.surface,
+              child: SystemNavInset.wrap(
+                context,
+                child: NavigationBar(
+                  selectedIndex: _index,
+                  onDestinationSelected: (i) => setState(() => _index = i),
+                  destinations: navDestinations,
+                ),
               ),
             ),
     );

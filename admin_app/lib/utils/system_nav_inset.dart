@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 
-/// Android 系统导航与底部 inset（需先 [enableEdgeToEdgeUi]）。
+/// 见司机端同名工具：去掉 NavigationBar 内置 SafeArea 底垫，避免双倍高度。
 class SystemNavInset {
   SystemNavInset._();
 
@@ -44,5 +44,17 @@ class SystemNavInset {
         gesture.left > 0 || gesture.right > 0 || viewBottom < 36;
     if (looksLikeGesture) return 0;
     return viewBottom;
+  }
+
+  static Widget wrap(BuildContext context, {required Widget child}) {
+    final inset = bottomForNavBar(context);
+    return MediaQuery.removePadding(
+      context: context,
+      removeBottom: true,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: inset),
+        child: child,
+      ),
+    );
   }
 }

@@ -44,8 +44,6 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final unread = context.watch<AuthController>().unreadMessages;
-    // 仅虚拟按键时按系统高度抬底；手势导航为 0，贴边全屏
-    final bottomInset = SystemNavInset.bottomForNavBar(context);
     return Scaffold(
       body: IndexedStack(
         index: _index,
@@ -59,8 +57,9 @@ class _MainShellState extends State<MainShell> {
         elevation: 3,
         color: Theme.of(context).navigationBarTheme.backgroundColor ??
             Theme.of(context).colorScheme.surface,
-        child: Padding(
-          padding: EdgeInsets.only(bottom: bottomInset),
+        // NavigationBar 自带 SafeArea；用 wrap 去掉底垫后再按虚拟键抬一次，避免双倍高度
+        child: SystemNavInset.wrap(
+          context,
           child: NavigationBar(
             selectedIndex: _index,
             onDestinationSelected: (i) => setState(() => _index = i),
