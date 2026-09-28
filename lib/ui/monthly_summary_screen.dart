@@ -7,7 +7,7 @@ import '../services/trip_date.dart';
 import '../state/ledger_controller.dart';
 import 'trip_detail_screen.dart';
 
-/// 按月汇总；[asTab] 为 true 时作为底部「汇总」Tab。
+/// 汇总：全部圈次 / 按月；[asTab] 为 true 时作为底部「汇总」Tab。
 class MonthlySummaryScreen extends StatefulWidget {
   const MonthlySummaryScreen({super.key, this.asTab = false});
 
@@ -18,7 +18,10 @@ class MonthlySummaryScreen extends StatefulWidget {
 }
 
 class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
-  late String _monthKey;
+  static const _allKey = '__all__';
+
+  /// `_allKey` = 全部圈次；否则为 `yyyy-MM`。
+  late String _periodKey;
 
   static String _keyOf(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}';
@@ -26,8 +29,11 @@ class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
   @override
   void initState() {
     super.initState();
-    _monthKey = _keyOf(DateTime.now());
+    // 默认看全部，方便一眼看工资总账；仍可切到按月。
+    _periodKey = _allKey;
   }
+
+  bool get _isAll => _periodKey == _allKey;
 
   List<String> _availableMonths(List<TripLedger> rounds) {
     final keys = rounds.map(TripDate.monthKey).toSet().toList()
@@ -61,12 +67,16 @@ class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
     final ctrl = context.watch<LedgerController>();
     final rounds = ctrl.book.rounds;
     final months = _availableMonths(rounds);
-    final monthKey =
-        months.contains(_monthKey) || months.isEmpty ? _monthKey : months.first;
 
-    final monthRounds =
-        rounds.where((r) => TripDate.monthKey(r) == monthKey).toList();
-    final sums = monthRounds.map(ProfitCalculator.calculate).toList();
+    String periodKey = _periodKey;
+    if (!_isAll && !months.contains(periodKey) && months.isNotEmpty) {
+      periodKey = months.first;
+    }
+
+    final scopedRounds = _isAll
+        ? List<TripLedger>.from(rounds)
+        : rounds.where((r) => TripDate.monthKey(r) == periodKey).toList();
+    final sums = scopedRounds.map(ProfitCalculator.calculate).toList();
 
     var profit = 0.0;
     var wage = 0.0;
@@ -78,9 +88,9 @@ class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
     var other = 0.0;
     var info = 0.0;
     var reconciled = 0;
-    for (var i = 0; i < monthRounds.length; i++) {
+    for (var i = 0; i < scopedRounds.length; i++) {
       final s = sums[i];
-      final r = monthRounds[i];
+      final r = scopedRounds[i];
       profit += s.netProfit;
       wage += s.driverWagePayable;
       freight += s.totalFreight;
@@ -99,56 +109,102 @@ class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
     final cs = Theme.of(context).colorScheme;
     final amber = const Color(0xFFE8A317);
     final wageProgress = wage > 0.000001 ? (wagePaid / wage).clamp(0.0, 1.0) : 0.0;
+    final profitLabel = _isAll ? '全部净利' : '本月净利';
+    final wageLabel = _isAll ? '全部工资' : '本月工资';
+    final emptyTitle = _isAll ? '暂无圈次' : '本月暂无圈次';
+    final emptySub = _isAll
+        ? '在「圈次」里记一圈后即可在此汇总'
+        : '新建圈次后会按开始时间归入对应月份';
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('汇总'),
         centerTitle: widget.asTab,
         automaticallyImplyLeading: !widget.asTab,
-        actions: [
-          IconButton(
-            tooltip: '上一月',
-            onPressed: () => setState(() => _monthKey = _shiftMonth(monthKey, -1)),
-            icon: const Icon(Icons.chevron_left),
-          ),
-          Center(
-            child: Text(
-              TripDate.monthLabel(monthKey),
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ),
-          IconButton(
-            tooltip: '下一月',
-            onPressed: () => setState(() => _monthKey = _shiftMonth(monthKey, 1)),
-            icon: const Icon(Icons.chevron_right),
-          ),
-        ],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
-          if (months.length > 2)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: DropdownButtonFormField<String>(
-                initialValue: monthKey,
-                decoration: const InputDecoration(
-                  labelText: '选择月份',
-                  border: OutlineInputBorder(),
-                  isDense: true,
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: true, label: Text('全部'), icon: Icon(Icons.select_all, size: 18)),
+              ButtonSegment(value: false, label: Text('按月'), icon: Icon(Icons.calendar_month_outlined, size: 18)),
+            ],
+            selected: {_isAll},
+            onSelectionChanged: (set) {
+              final all = set.first;
+              setState(() {
+                if (all) {
+                  _periodKey = _allKey;
+                } else {
+                  _periodKey = months.contains(_keyOf(DateTime.now()))
+                      ? _keyOf(DateTime.now())
+                      : (months.isNotEmpty ? months.first : _keyOf(DateTime.now()));
+                }
+              });
+            },
+          ),
+          if (!_isAll) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                IconButton(
+                  tooltip: '上一月',
+                  onPressed: () =>
+                      setState(() => _periodKey = _shiftMonth(periodKey, -1)),
+                  icon: const Icon(Icons.chevron_left),
                 ),
-                items: [
-                  for (final k in months)
-                    DropdownMenuItem(value: k, child: Text(TripDate.monthLabel(k))),
-                ],
-                onChanged: (v) {
-                  if (v == null) return;
-                  setState(() => _monthKey = v);
-                },
+                Expanded(
+                  child: Text(
+                    TripDate.monthLabel(periodKey),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: '下一月',
+                  onPressed: () =>
+                      setState(() => _periodKey = _shiftMonth(periodKey, 1)),
+                  icon: const Icon(Icons.chevron_right),
+                ),
+              ],
+            ),
+            if (months.length > 2)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, bottom: 4),
+                child: DropdownButtonFormField<String>(
+                  initialValue: periodKey,
+                  decoration: const InputDecoration(
+                    labelText: '选择月份',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: [
+                    for (final k in months)
+                      DropdownMenuItem(
+                        value: k,
+                        child: Text(TripDate.monthLabel(k)),
+                      ),
+                  ],
+                  onChanged: (v) {
+                    if (v == null) return;
+                    setState(() => _periodKey = v);
+                  },
+                ),
+              ),
+          ] else
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                '统计账本内全部圈次',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
               ),
             ),
+          const SizedBox(height: 12),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -156,7 +212,7 @@ class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '本月净利',
+                    profitLabel,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: cs.onSurfaceVariant,
                         ),
@@ -171,7 +227,7 @@ class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    '共 ${monthRounds.length} 个圈次 · 已交账 $reconciled 圈',
+                    '共 ${scopedRounds.length} 个圈次 · 已交账 $reconciled 圈',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: cs.onSurfaceVariant,
                         ),
@@ -188,7 +244,7 @@ class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    '本月工资',
+                    wageLabel,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: cs.onSurfaceVariant,
                         ),
@@ -233,7 +289,7 @@ class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
               ),
             ),
           ),
-          if (monthRounds.isNotEmpty) ...[
+          if (scopedRounds.isNotEmpty) ...[
             const SizedBox(height: 12),
             Card(
               child: Padding(
@@ -257,18 +313,19 @@ class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
                   ),
             ),
             const SizedBox(height: 8),
-            for (var i = 0; i < monthRounds.length; i++)
+            for (var i = 0; i < scopedRounds.length; i++)
               Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
                   title: Text(
-                    monthRounds[i].title,
+                    scopedRounds[i].title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   subtitle: Text(
-                    '${monthRounds[i].isReconciled ? '已交账' : '未交账'} · '
-                    '${monthRounds[i].isSalarySettled ? '工资已发' : '工资未发'}',
+                    '${TripDate.monthLabel(TripDate.monthKey(scopedRounds[i]))} · '
+                    '${scopedRounds[i].isReconciled ? '已交账' : '未交账'} · '
+                    '${scopedRounds[i].isSalarySettled ? '工资已发' : '工资未发'}',
                   ),
                   trailing: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -288,7 +345,7 @@ class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
                     ],
                   ),
                   onTap: () {
-                    final round = monthRounds[i];
+                    final round = scopedRounds[i];
                     Navigator.push<void>(
                       context,
                       MaterialPageRoute<void>(
@@ -304,10 +361,10 @@ class _MonthlySummaryScreenState extends State<MonthlySummaryScreen> {
                 ),
               ),
           ] else
-            const Card(
+            Card(
               child: ListTile(
-                title: Text('本月暂无圈次'),
-                subtitle: Text('新建圈次后会按开始时间归入对应月份'),
+                title: Text(emptyTitle),
+                subtitle: Text(emptySub),
               ),
             ),
         ],
