@@ -52,10 +52,11 @@ VS Code 任务见 **`.vscode/tasks.json`**（发版总控、部署 PHP、应用 
 ```bash
 ./one_click_ship.sh -m "说明"
 ./one_click_ship.sh --keep-private     # 等 CI 时不临时公开仓库
+./one_click_ship.sh --force-ci         # 无新改动或路径不触发时仍手动重跑 CI
 make ship
 ```
 
-流程：可选 commit →（默认临时 public）→ `git push` → 等 **Release Packages** / Deploy / Admin → 改回 private。有 `server-php` 变更时可本机并行 rsync。
+流程：有未提交改动则 commit → `git push` → **仅当路径命中** App / 后端 / 管理端时才等对应 CI（默认临时 public，结束后改回 private）。无新 commit、或只改文档/脚本等不命中路径时：**不重新执行 CI**（需重跑加 `--force-ci`）。
 
 成功后客户端从控制面拉取新版本；运维可核对：
 

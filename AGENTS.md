@@ -9,7 +9,8 @@ Flutter「卡车记账」，包名 `com.liner0211.truckledger`，版本见 `pubs
 
 ## AI 协作约定
 
-- 功能/修复完成后优先 **`./one_click_ship.sh`**（可 `-m "说明"`；已 commit 则直接 push → 等 CI → 有 `server-php` 变更则本机 rsync）。不要只 push 就结束。
+- 功能/修复完成后优先 **`./one_click_ship.sh`**（可 `-m "说明"`；已 commit 则 push → **有路径触发才等 CI** → 有 `server-php` 变更则本机 rsync）。
+- **无新代码改动 / 路径不触发发版 workflow 时不重跑 CI**；确需重跑加 `--force-ci`。
 - 等 CI 时默认临时公开仓库、结束后改回私有；不需要时加 `--keep-private`。
 - 例外：改动含密钥、破坏性操作、或用户明确只要本地改时，先停并说明。
 

@@ -23,13 +23,15 @@ LOCAL_SERVER="${SHIP_LOCAL_SERVER:-1}"
 TEMP_PUBLIC="${SHIP_TEMP_PUBLIC:-1}"
 POLL_SEC="${SHIP_POLL_SEC:-20}"
 TIMEOUT_MIN="${SHIP_TIMEOUT_MIN:-90}"
+# 仅当确有代码改动将触发 CI 时才等 / 派发；--force-ci 才手动重跑
+FORCE_CI="${SHIP_FORCE_CI:-0}"
 
 REPO_SLUG=""
 MADE_PUBLIC=0
 
 usage() {
   cat <<'EOF'
-一键发版：push → 等待 GitHub Actions（编译包、上传 downloads、更新控制面、部署 PHP）
+一键发版：有代码改动时 commit → push → 等对应 GitHub Actions（有路径触发才跑）
 
   ./one_click_ship.sh [选项]
 
@@ -38,13 +40,14 @@ usage() {
   --no-wait           只 push，不等 CI（也不临时公开）
   --keep-private      等 CI 时保持私有（不临时公开；可能撞上 Actions 额度）
   --no-local-server   有 server-php 变更时也不本机 rsync（只靠 CI Deploy）
+  --force-ci          无路径命中或已与远端同步时，仍手动派发 CI（默认不派发）
   -h, --help          帮助
 
 环境变量（同名覆盖）: SHIP_COMMIT_MSG, SHIP_LOCAL_SERVER=0,
-  SHIP_TEMP_PUBLIC=0, SHIP_POLL_SEC, SHIP_TIMEOUT_MIN
+  SHIP_TEMP_PUBLIC=0, SHIP_FORCE_CI=1, SHIP_POLL_SEC, SHIP_TIMEOUT_MIN
 
-默认：等待 CI 时会临时把仓库改为 public，结束后（成功/失败/中断）改回 private。
-客户端从云端 downloads / 控制面更新，无需本机装包脚本。
+约定：无新 commit / 改动不命中 App·后端·管理端路径时，不重新执行 CI。
+默认：需要等 CI 时会临时把仓库改为 public，结束后改回 private。
 EOF
 }
 
@@ -54,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     --no-wait) DO_WAIT=0; shift ;;
     --keep-private) TEMP_PUBLIC=0; shift ;;
     --no-local-server) LOCAL_SERVER=0; shift ;;
+    --force-ci) FORCE_CI=1; shift ;;
     --install-apk|--install-deb|--install-ipa|--install-all)
       echo "ERROR: 已移除本机装包选项（$1）。请用 App 云端更新，或从生产 downloads 手动获取。" >&2
       exit 2
@@ -192,24 +196,38 @@ if git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
   AHEAD="$(git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)"
 fi
 
-# 无路径命中：用户跑 ship 即为发版 → 手动派发主 App 包（不误触后端/管理端）
-if [[ "$PATH_MISS" == "1" ]]; then
-  echo "==> 路径不触发自动 CI → 将手动派发「Release Packages」"
+# 无新 commit：默认不重跑 CI（除非 --force-ci）
+if [[ "$REMOTE_OK" == "1" && "$AHEAD" == "0" ]]; then
+  if [[ "$FORCE_CI" != "1" ]]; then
+    echo "==> 已与远端同步，无新代码改动 → 跳过 CI（需要重跑请加 --force-ci）"
+    exit 0
+  fi
+  echo "==> 已与远端同步，但指定 --force-ci → 将手动派发 CI"
+  if [[ "$PATH_MISS" == "1" ]]; then
+    need_app=1
+  fi
+fi
+
+# 有新 commit 但路径不触发任何发版 workflow：只 push，不派发、不等 CI
+if [[ "$AHEAD" != "0" && "$PATH_MISS" == "1" && "$FORCE_CI" != "1" ]]; then
+  echo "==> 改动不命中 App/后端/管理端路径 → 将 push，但不触发 CI（需要重跑请加 --force-ci）"
+elif [[ "$PATH_MISS" == "1" && "$FORCE_CI" == "1" ]]; then
+  echo "==> --force-ci：路径未命中，默认派发「Release Packages」"
   need_app=1
 fi
 
 echo "==> 触发预期: App编译上传=$need_app  后端部署=$need_server  管理端=$need_admin"
 
-# 无新 push、或 push 不会自动触发时，手动 workflow_dispatch
+NEED_CI=0
+[[ "$need_app$need_server$need_admin" != "000" ]] && NEED_CI=1
+
 FORCE_DISPATCH=0
-if [[ "$REMOTE_OK" == "1" && "$AHEAD" == "0" ]]; then
-  FORCE_DISPATCH=1
-elif [[ "$PATH_MISS" == "1" ]]; then
+if [[ "$FORCE_CI" == "1" && ( "$AHEAD" == "0" || "$PATH_MISS" == "1" ) ]]; then
   FORCE_DISPATCH=1
 fi
 
-# --- 3) 临时公开（须在 push / 派发之前）---
-if [[ "$DO_WAIT" == "1" && "$TEMP_PUBLIC" == "1" ]]; then
+# --- 3) 临时公开（仅在需要等 CI 时）---
+if [[ "$DO_WAIT" == "1" && "$TEMP_PUBLIC" == "1" && ( "$NEED_CI" == "1" || "$FORCE_DISPATCH" == "1" ) ]]; then
   priv="$(gh api "repos/$REPO_SLUG" --jq .private)"
   if [[ "$priv" == "true" ]]; then
     set_repo_visibility false
@@ -223,17 +241,24 @@ fi
 # --- 4) push ---
 DID_PUSH=0
 if [[ "$REMOTE_OK" == "1" && "$AHEAD" == "0" ]]; then
-  echo "==> 已与远端同步，无新 commit 可 push（将改用手动触发 CI）"
   SHA="$(git rev-parse HEAD)"
+  echo "==> 无需 push，SHA=$SHA"
 else
   echo "==> git push origin HEAD"
   git push -u origin HEAD
   DID_PUSH=1
   SHA="$(git rev-parse HEAD)"
+  echo "    SHA=$SHA"
 fi
-echo "    SHA=$SHA"
 
-# --- 5) 手动派发 workflow（无新 push 或 push 不会自动触发时）---
+# push 后若仍无 CI 需求：结束
+if [[ "$NEED_CI" != "1" && "$FORCE_DISPATCH" != "1" ]]; then
+  restore_repo_private_if_needed
+  echo "完成。已同步远端，本次无发版 CI。"
+  exit 0
+fi
+
+# --- 5) 手动派发（仅 --force-ci）---
 dispatch_workflow() {
   local name="$1"
   echo "==> 手动触发 workflow: $name （ref=$BRANCH）"
@@ -241,7 +266,7 @@ dispatch_workflow() {
 }
 
 if [[ "$DO_WAIT" == "1" && "$FORCE_DISPATCH" == "1" ]]; then
-  echo "==> 手动派发 CI（否则不会自动跑）"
+  echo "==> 手动派发 CI（--force-ci）"
   if [[ "$need_app" == "1" ]]; then
     dispatch_workflow "Release Packages"
   fi
@@ -253,11 +278,10 @@ if [[ "$DO_WAIT" == "1" && "$FORCE_DISPATCH" == "1" ]]; then
   fi
   echo "    等待 Actions 注册 run…"
   sleep 8
-  # 已派发则必须等成功，不能「找不到就跳过」
   WAIT_ONLY_EXISTING=0
 elif [[ "$DID_PUSH" == "1" ]]; then
   echo "==> 已 push，依赖 path 过滤器自动触发 CI（不重复派发）"
-  # 只等真正出现的 run；未触发的 workflow（如仅改 admin 时不会跑 Release Packages）约 2 分钟后跳过，避免空等 90 分钟
+  # 只等真正出现的 run；未触发的约 2 分钟后跳过
   WAIT_ONLY_EXISTING=1
 fi
 
