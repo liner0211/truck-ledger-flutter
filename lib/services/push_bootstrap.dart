@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../app_nav.dart';
 import '../ui/chat_room_screen.dart';
@@ -13,18 +14,18 @@ import '../ui/messages_hub_screen.dart';
 import 'messages_api.dart';
 import 'inbox_service.dart';
 
-/// 后台 FCM 入口（必须顶层函数）。
+/// 后台 FCM 入口（必须顶层函数）。带 notification 载荷时系统会弹通知栏。
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // 系统托盘由 FCM notification 载荷展示。
+  // 无需自绘；系统托盘由 FCM notification 展示。
 }
 
-/// 初始化 Firebase + 上报 FCM token；未配置 / 超时则回退 local 占位。
-/// 注意：所有异步调用都有超时，避免卡死启动与 ControlGate。
+/// Firebase 初始化 + 真 FCM token 上报。
+/// 启动只做短超时探测；登录后在后台用更长超时重试，避免永久卡在 local: 占位。
 class PushBootstrap {
   PushBootstrap._();
   static bool _firebaseReady = false;
-  static bool _initAttempted = false;
+  static bool _bgHandlerBound = false;
   static StreamSubscription<RemoteMessage>? _fgSub;
   static StreamSubscription<String>? _tokenSub;
   static bool _openedHooked = false;
@@ -33,7 +34,7 @@ class PushBootstrap {
 
   static Future<T?> _withTimeout<T>(
     Future<T> future, {
-    Duration timeout = const Duration(seconds: 5),
+    required Duration timeout,
     String label = 'op',
   }) async {
     try {
@@ -53,30 +54,34 @@ class PushBootstrap {
     }
   }
 
-  /// 尝试初始化；失败/超时不抛错。
-  static Future<void> ensureInitialized() async {
+  /// [quick] 启动用短超时；登录后用 [quick]=false 再试一次。
+  static Future<void> ensureInitialized({bool quick = true}) async {
     if (kIsWeb) return;
     if (!(Platform.isAndroid || Platform.isIOS)) return;
-    if (_firebaseReady || _initAttempted) return;
-    _initAttempted = true;
+    if (_firebaseReady) return;
+
+    final timeout =
+        quick ? const Duration(seconds: 4) : const Duration(seconds: 15);
     try {
-      final ok = await _withTimeout(
-        Firebase.initializeApp(),
-        timeout: const Duration(seconds: 4),
-        label: 'initializeApp',
-      );
-      if (ok == null && Firebase.apps.isEmpty) {
-        _firebaseReady = false;
-        return;
+      if (Firebase.apps.isEmpty) {
+        await _withTimeout(
+          Firebase.initializeApp(),
+          timeout: timeout,
+          label: 'initializeApp',
+        );
       }
-      // initializeApp 成功或已有 apps
       if (Firebase.apps.isEmpty) {
         _firebaseReady = false;
         return;
       }
-      try {
-        FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-      } catch (_) {}
+      if (!_bgHandlerBound) {
+        try {
+          FirebaseMessaging.onBackgroundMessage(
+            firebaseMessagingBackgroundHandler,
+          );
+          _bgHandlerBound = true;
+        } catch (_) {}
+      }
       _firebaseReady = true;
     } catch (e) {
       if (kDebugMode) {
@@ -87,13 +92,26 @@ class PushBootstrap {
     }
   }
 
-  /// 请求权限、取 token、登记；任何一步超时都不阻塞调用方超过约 8 秒。
+  static Future<void> _ensureNotificationPermission() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final status = await Permission.notification.status;
+      if (status.isGranted) return;
+      await Permission.notification
+          .request()
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {}
+  }
+
+  /// 登录后调用：尽量拿到真 token；失败时若 Firebase 已就绪则不上报 local:（避免覆盖）。
   static Future<String?> registerToken({
     required MessagesApi api,
     required String platform,
     required InboxService inbox,
   }) async {
-    await ensureInitialized();
+    await ensureInitialized(quick: false);
+    await _ensureNotificationPermission();
+
     String? fcmToken;
     if (_firebaseReady) {
       try {
@@ -104,7 +122,7 @@ class PushBootstrap {
             badge: true,
             sound: true,
           ),
-          timeout: const Duration(seconds: 6),
+          timeout: const Duration(seconds: 8),
           label: 'requestPermission',
         );
         await _withTimeout(
@@ -116,12 +134,19 @@ class PushBootstrap {
           timeout: const Duration(seconds: 2),
           label: 'foregroundOptions',
         );
-        final tokenOrNull = await _withTimeout<String?>(
-          messaging.getToken(),
-          timeout: const Duration(seconds: 6),
-          label: 'getToken',
-        );
-        fcmToken = tokenOrNull;
+
+        // 多试几次：冷启动 + 弱网时 getToken 经常偏慢
+        for (var i = 0; i < 3 && (fcmToken == null || fcmToken.isEmpty); i++) {
+          fcmToken = await _withTimeout<String?>(
+            messaging.getToken(),
+            timeout: Duration(seconds: 12 + i * 4),
+            label: 'getToken#$i',
+          );
+          if (fcmToken == null || fcmToken.isEmpty) {
+            await Future<void>.delayed(Duration(milliseconds: 600 * (i + 1)));
+          }
+        }
+
         _tokenSub?.cancel();
         _tokenSub = messaging.onTokenRefresh.listen((t) async {
           if (t.isEmpty) return;
@@ -155,6 +180,16 @@ class PushBootstrap {
         fcmToken = null;
       }
     }
+
+    // Firebase 已就绪却拿不到 token：不要用 local: 覆盖（否则系统推送永远发不出去）
+    if (_firebaseReady && (fcmToken == null || fcmToken.isEmpty)) {
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('FCM: firebase ready but no token yet; skip local upsert');
+      }
+      return null;
+    }
+
     try {
       await inbox
           .registerPushChannel(
@@ -162,12 +197,13 @@ class PushBootstrap {
             platform: platform,
             fcmToken: fcmToken,
           )
-          .timeout(const Duration(seconds: 8));
+          .timeout(const Duration(seconds: 10));
     } catch (_) {}
     return fcmToken;
   }
 
   static void _onForegroundMessage(RemoteMessage message) {
+    // 前台：系统通知栏通常不展示 notification 载荷，改走软件内横幅
     final title = message.notification?.title ??
         message.data['title']?.toString() ??
         '新消息';

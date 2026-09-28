@@ -63,11 +63,26 @@ dev/fcm/
 
 ## 验证
 
-1. 司机端登录并允许通知权限  
-2. 管理端发一条站内信 / 客服回复 / 聊天消息  
-3. **杀进程**后应出现系统通知栏消息  
+1. 司机端登录并允许**通知权限**（Android 13+ 会弹窗）  
+2. 管理端发站内信；**先把 App 切到后台或杀进程**再发（前台只弹软件内横幅，不占通知栏）  
+3. 服务器检查是否有真 token：
 
-调试：服务器 `data/` 下勿提交私钥；`push_tokens` 表中 token 不应再是 `local:` 开头。
+```bash
+cd /www/wwwroot/truck.liner0211.online && php bin/test_fcm.php
+php bin/test_fcm.php <user_id>   # 向该用户发测试推送
+```
+
+`push_tokens` 里必须是 **FCM**（不是 `local:`），否则服务端不会发系统通知。
+
+### 仍无真 token 时排查
+
+1. 手机是否有 **Google Play 服务**（国内精简机常见没有 → FCM 不可用）  
+2. Firebase 控制台 → 项目设置 → 你的 Android 应用 → 添加 **SHA-1**（Release 签名）：
+   ```bash
+   keytool -printcert -jarfile truckledger-latest.apk | grep SHA1
+   ```
+3. Google Cloud 已启用 **Firebase Cloud Messaging API**  
+4. 重新安装含 `google-services.json` 的包并重新登录
 
 ## 试用到期推送
 

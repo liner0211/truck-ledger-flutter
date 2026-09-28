@@ -1,3 +1,4 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
@@ -14,9 +15,13 @@ import 'ui/permission_bootstrap_gate.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   initApiHttpClient();
-  // Firebase 初始化限时，避免无 Play 服务 / 网络差时卡死白屏
+  // 必须在 runApp 前注册（即使 init 失败也不影响）
   try {
-    await PushBootstrap.ensureInitialized()
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  } catch (_) {}
+  // 启动只做短超时探测，完整 token 在登录后后台重试
+  try {
+    await PushBootstrap.ensureInitialized(quick: true)
         .timeout(const Duration(seconds: 5));
   } catch (_) {}
   final theme = ThemeController();
