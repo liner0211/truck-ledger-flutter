@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../utils/system_nav_inset.dart';
+
 /// 外观：跟随系统 / 浅色 / 深色，持久化到本机。
 /// 深色为 OLED 纯黑（#000000），避免大面积灰雾。
 class ThemeController extends ChangeNotifier {
@@ -93,8 +95,7 @@ class ThemeController extends ChangeNotifier {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        // M3 默认 80 偏高；按图标+文字内容收紧
-        height: 56,
+        height: SystemNavInset.contentHeight,
         backgroundColor: Colors.white,
         indicatorColor: scheme.primaryContainer,
       ),
@@ -142,7 +143,7 @@ class ThemeController extends ChangeNotifier {
         ),
       ),
       navigationBarTheme: const NavigationBarThemeData(
-        height: 56,
+        height: SystemNavInset.contentHeight,
         backgroundColor: _oledBlack,
         elevation: 0,
       ),

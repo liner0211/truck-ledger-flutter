@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'utils/system_nav_inset.dart';
+
 /// 管理端外观：跟随系统 / 浅色 / 深色。
 class ThemeController extends ChangeNotifier {
   ThemeController(this._prefs) {
@@ -93,7 +95,7 @@ class ThemeController extends ChangeNotifier {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        height: 56,
+        height: SystemNavInset.contentHeight,
         backgroundColor: scheme.surfaceContainerLowest,
         indicatorColor: scheme.secondaryContainer,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,

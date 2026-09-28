@@ -37,9 +37,6 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    SystemNavInset.ensureLoaded().then((_) {
-      if (mounted) setState(() {});
-    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkUpdate();
       context.read<AdminSession>().pollOnForeground(notifyMissed: false);
@@ -395,17 +392,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       ),
       bottomNavigationBar: wide
           ? null
-          : Material(
-              color: Theme.of(context).navigationBarTheme.backgroundColor ??
-                  Theme.of(context).colorScheme.surface,
-              child: SystemNavInset.wrap(
-                context,
-                child: NavigationBar(
-                  selectedIndex: _index,
-                  onDestinationSelected: (i) => setState(() => _index = i),
-                  destinations: navDestinations,
-                ),
-              ),
+          : NavigationBar(
+              height: SystemNavInset.contentHeight,
+              selectedIndex: _index,
+              onDestinationSelected: (i) => setState(() => _index = i),
+              destinations: navDestinations,
             ),
     );
   }

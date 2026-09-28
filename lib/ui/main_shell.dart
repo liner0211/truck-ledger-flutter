@@ -18,14 +18,6 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _index = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    SystemNavInset.ensureLoaded().then((_) {
-      if (mounted) setState(() {});
-    });
-  }
-
   Widget _badgeIcon({
     required IconData icon,
     required IconData selectedIcon,
@@ -53,45 +45,38 @@ class _MainShellState extends State<MainShell> {
           MeScreen(),
         ],
       ),
-      bottomNavigationBar: Material(
-        elevation: 3,
-        color: Theme.of(context).navigationBarTheme.backgroundColor ??
-            Theme.of(context).colorScheme.surface,
-        // NavigationBar 自带 SafeArea；用 wrap 去掉底垫后再按虚拟键抬一次，避免双倍高度
-        child: SystemNavInset.wrap(
-          context,
-          child: NavigationBar(
-            selectedIndex: _index,
-            onDestinationSelected: (i) => setState(() => _index = i),
-            destinations: [
-              const NavigationDestination(
-                icon: Icon(Icons.local_shipping_outlined),
-                selectedIcon: Icon(Icons.local_shipping),
-                label: '圈次',
-              ),
-              const NavigationDestination(
-                icon: Icon(Icons.bar_chart_outlined),
-                selectedIcon: Icon(Icons.bar_chart),
-                label: '汇总',
-              ),
-              NavigationDestination(
-                icon: _badgeIcon(
-                  icon: Icons.person_outline,
-                  selectedIcon: Icons.person,
-                  selected: false,
-                  count: unread,
-                ),
-                selectedIcon: _badgeIcon(
-                  icon: Icons.person_outline,
-                  selectedIcon: Icons.person,
-                  selected: true,
-                  count: unread,
-                ),
-                label: unread > 0 ? '我的($unread)' : '我的',
-              ),
-            ],
+      // 高度=按键区；底部系统安全区由 NavigationBar 内置 SafeArea 自适应
+      bottomNavigationBar: NavigationBar(
+        height: SystemNavInset.contentHeight,
+        selectedIndex: _index,
+        onDestinationSelected: (i) => setState(() => _index = i),
+        destinations: [
+          const NavigationDestination(
+            icon: Icon(Icons.local_shipping_outlined),
+            selectedIcon: Icon(Icons.local_shipping),
+            label: '圈次',
           ),
-        ),
+          const NavigationDestination(
+            icon: Icon(Icons.bar_chart_outlined),
+            selectedIcon: Icon(Icons.bar_chart),
+            label: '汇总',
+          ),
+          NavigationDestination(
+            icon: _badgeIcon(
+              icon: Icons.person_outline,
+              selectedIcon: Icons.person,
+              selected: false,
+              count: unread,
+            ),
+            selectedIcon: _badgeIcon(
+              icon: Icons.person_outline,
+              selectedIcon: Icons.person,
+              selected: true,
+              count: unread,
+            ),
+            label: unread > 0 ? '我的($unread)' : '我的',
+          ),
+        ],
       ),
     );
   }
