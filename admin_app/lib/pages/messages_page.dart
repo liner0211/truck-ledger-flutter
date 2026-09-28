@@ -9,7 +9,17 @@ import '../realtime_socket.dart';
 import '../ui/admin_widgets.dart';
 
 class MessagesPage extends StatefulWidget {
-  const MessagesPage({super.key});
+  const MessagesPage({
+    super.key,
+    this.initialTab,
+    this.openMessageId,
+    this.openThreadId,
+  });
+
+  /// 0 发送 / 1 站内信管理 / 2 客服
+  final int? initialTab;
+  final int? openMessageId;
+  final int? openThreadId;
 
   @override
   State<MessagesPage> createState() => _MessagesPageState();
@@ -22,7 +32,36 @@ class _MessagesPageState extends State<MessagesPage>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 3, vsync: this);
+    final initial = (widget.initialTab ?? 0).clamp(0, 2);
+    _tabs = TabController(length: 3, vsync: this, initialIndex: initial);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _handleDeepOpen());
+  }
+
+  Future<void> _handleDeepOpen() async {
+    final mid = widget.openMessageId;
+    final tid = widget.openThreadId;
+    if (mid != null && mid > 0) {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (ctx) => _InboxDetailSheet(
+          messageId: mid,
+          onChanged: () async {},
+        ),
+      );
+    } else if (tid != null && tid > 0) {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (ctx) => _SupportDetailSheet(
+          threadId: tid,
+          onChanged: () async {},
+        ),
+      );
+    }
+    if (mounted) {
+      context.read<AdminSession>().clearPendingNav();
+    }
   }
 
   @override

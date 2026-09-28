@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'admin_session.dart';
+import 'app_nav.dart';
 import 'pages/home_shell.dart';
 import 'pages/login_page.dart';
 import 'theme_controller.dart';
@@ -28,6 +29,7 @@ class AdminRoot extends StatelessWidget {
       child: Consumer<ThemeController>(
         builder: (context, theme, _) => MaterialApp(
           title: '卡车记账管理端',
+          navigatorKey: AppNav.navigatorKey,
           locale: const Locale('zh', 'CN'),
           supportedLocales: const [
             Locale('zh', 'CN'),

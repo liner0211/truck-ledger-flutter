@@ -179,13 +179,28 @@ class _HomeShellState extends State<HomeShell> {
       );
     }
 
+    final session = context.watch<AdminSession>();
     final pages = <Widget>[
       const DashboardPage(),
       const UsersPage(),
-      const MessagesPage(),
+      MessagesPage(
+        key: ValueKey(
+          'messages-${session.pendingMessagesTab}-${session.pendingMessageId}-${session.pendingThreadId}',
+        ),
+        initialTab: session.pendingMessagesTab,
+        openMessageId: session.pendingMessageId,
+        openThreadId: session.pendingThreadId,
+      ),
       if (admin.can('control.write')) const ControlPage(),
       if (admin.can('admins.manage')) const OperatorsPage(),
     ];
+    const messagesIndex = 2;
+    if (session.pendingMessagesTab != null && _index != messagesIndex) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _index = messagesIndex);
+      });
+    }
 
     final railDestinations = <NavigationRailDestination>[
       const NavigationRailDestination(

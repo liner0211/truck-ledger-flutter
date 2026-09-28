@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'admin_api.dart';
+import 'in_app_notifier.dart';
 import 'realtime_socket.dart';
 
 class AdminSession extends ChangeNotifier {
@@ -17,6 +18,11 @@ class AdminSession extends ChangeNotifier {
   String? error;
   bool busy = false;
   int realtimeTick = 0;
+
+  /// 通知点击：请求主壳切到消息 Tab（1=站内信管理 2=客服）
+  int? pendingMessagesTab;
+  int? pendingMessageId;
+  int? pendingThreadId;
 
   bool get isLoggedIn => api.token != null && api.token!.isNotEmpty && admin != null;
 
@@ -97,12 +103,61 @@ class AdminSession extends ChangeNotifier {
     realtime.connect(baseUrl: api.baseUrl, token: t);
     realtime.connectionState.addListener(_onRtConnChanged);
     _rtSub = realtime.events.listen((e) {
-      final type = e['type'];
+      final type = e['type']?.toString();
       if (type == 'inbox' || type == 'support') {
         realtimeTick++;
         notifyListeners();
+        _maybeShowInAppNotice(e);
       }
     });
+  }
+
+  void clearPendingNav() {
+    pendingMessagesTab = null;
+    pendingMessageId = null;
+    pendingThreadId = null;
+  }
+
+  void _maybeShowInAppNotice(Map<String, dynamic> e) {
+    final type = e['type']?.toString();
+    final event = e['event']?.toString() ?? '';
+    if (type == 'inbox') {
+      // 已读实时刷新列表即可，不弹通知
+      if (event == 'read' || event == 'read_all' || event == 'deleted') return;
+      if (event == 'reply' && e['sender_role'] == 'admin') return;
+      if (event == 'created') return; // 管理员自己发出的站内信
+      final mid = (e['message_id'] as num?)?.toInt();
+      final title = event == 'reply' ? '用户回复了站内信' : '站内信更新';
+      final body = (e['preview'] as String?) ?? (e['title'] as String?) ?? '';
+      InAppNotifier.instance.show(
+        title: title,
+        body: body.isEmpty ? null : body,
+        onTap: () {
+          pendingMessagesTab = 1;
+          pendingMessageId = mid;
+          pendingThreadId = null;
+          notifyListeners();
+        },
+      );
+      return;
+    }
+    if (type == 'support') {
+      if (event == 'read') return;
+      if (event != 'message') return;
+      if (e['sender_role'] == 'admin') return;
+      final tid = (e['thread_id'] as num?)?.toInt();
+      final who = (e['username'] as String?)?.trim();
+      InAppNotifier.instance.show(
+        title: who != null && who.isNotEmpty ? '$who 发来客服消息' : '新的客服消息',
+        body: (e['preview'] as String?) ?? '',
+        onTap: () {
+          pendingMessagesTab = 2;
+          pendingThreadId = tid;
+          pendingMessageId = null;
+          notifyListeners();
+        },
+      );
+    }
   }
 
   void _onRtConnChanged() => notifyListeners();

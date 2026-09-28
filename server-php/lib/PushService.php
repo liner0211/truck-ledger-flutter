@@ -37,7 +37,11 @@ final class PushService
     public static function notifyUser(PDO $pdo, array $cfg, int $userId, string $title, string $body): array
     {
         $mid = MessageService::create($pdo, $userId, $title, $body, 'account.notify');
-        RealtimeHub::inboxUpdated($cfg, $userId, 'created', ['message_id' => $mid]);
+        RealtimeHub::inboxUpdated($cfg, $userId, 'created', [
+            'message_id' => $mid,
+            'title' => $title,
+            'preview' => mb_substr($body, 0, 80),
+        ]);
         return self::sendToUser($pdo, $cfg, $userId, $title, $body);
     }
 
@@ -45,7 +49,11 @@ final class PushService
     public static function broadcast(PDO $pdo, array $cfg, string $title, string $body, string $type = 'ops.broadcast'): array
     {
         $mid = MessageService::create($pdo, null, $title, $body, $type);
-        RealtimeHub::inboxUpdated($cfg, null, 'created', ['message_id' => $mid]);
+        RealtimeHub::inboxUpdated($cfg, null, 'created', [
+            'message_id' => $mid,
+            'title' => $title,
+            'preview' => mb_substr($body, 0, 80),
+        ]);
         $sent = 0;
         $skipped = 0;
         $errors = [];

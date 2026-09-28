@@ -295,6 +295,10 @@ if (strpos($uri, '/api/') === 0) {
     if ($uri === '/api/messages/read-all' && $method === 'POST') {
         $user = AuthService::requireUser($pdo, $cfg);
         MessageService::markAllRead($pdo, (int)$user['id']);
+        RealtimeHub::inboxUpdated($cfg, (int)$user['id'], 'read_all', [
+            'reader_user_id' => (int)$user['id'],
+            'reader_username' => (string)($user['username'] ?? ''),
+        ]);
         JsonResponse::send(['ok' => true]);
     }
 
@@ -302,7 +306,11 @@ if (strpos($uri, '/api/') === 0) {
         $user = AuthService::requireUser($pdo, $cfg);
         $msgId = (int)$m[1];
         MessageService::markRead($pdo, (int)$user['id'], $msgId);
-        RealtimeHub::inboxUpdated($cfg, (int)$user['id'], 'read', ['message_id' => $msgId]);
+        RealtimeHub::inboxUpdated($cfg, (int)$user['id'], 'read', [
+            'message_id' => $msgId,
+            'reader_user_id' => (int)$user['id'],
+            'reader_username' => (string)($user['username'] ?? ''),
+        ]);
         JsonResponse::send(['ok' => true]);
     }
 
@@ -354,6 +362,9 @@ if (strpos($uri, '/api/') === 0) {
         RealtimeHub::inboxUpdated($cfg, $targetUid, 'reply', [
             'message_id' => $msgId,
             'reply_id' => (int)$reply['id'],
+            'title' => (string)($raw['title'] ?? '新回复'),
+            'preview' => mb_substr((string)($body['body'] ?? ''), 0, 80),
+            'sender_role' => 'user',
         ]);
         JsonResponse::send(['ok' => true, 'reply' => $reply]);
     }
@@ -363,6 +374,13 @@ if (strpos($uri, '/api/') === 0) {
         $user = AuthService::requireUser($pdo, $cfg);
         $thread = SupportChatService::getOrCreateThread($pdo, (int)$user['id']);
         SupportChatService::markPeerRead($pdo, (int)$thread['id'], 'user');
+        RealtimeHub::supportUpdated(
+            $cfg,
+            (int)$user['id'],
+            (int)$thread['id'],
+            'read',
+            ['reader_role' => 'user', 'reader_user_id' => (int)$user['id']]
+        );
         JsonResponse::send([
             'thread' => SupportChatService::getThread($pdo, (int)$thread['id']),
             'messages' => SupportChatService::listMessages($pdo, (int)$thread['id']),
@@ -375,11 +393,12 @@ if (strpos($uri, '/api/') === 0) {
         RateLimitService::assert($cfg, 'support_msg_' . $user['id'], 60, 3600);
         $thread = SupportChatService::getOrCreateThread($pdo, (int)$user['id']);
         $body = readJsonBody();
+        $text = trim((string)($body['body'] ?? ''));
         $msg = SupportChatService::postMessage(
             $pdo,
             (int)$thread['id'],
             'user',
-            (string)($body['body'] ?? ''),
+            $text,
             (int)$user['id'],
             null
         );
@@ -388,7 +407,12 @@ if (strpos($uri, '/api/') === 0) {
             (int)$user['id'],
             (int)$thread['id'],
             'message',
-            ['message_id' => (int)$msg['id']]
+            [
+                'message_id' => (int)$msg['id'],
+                'preview' => mb_substr($text, 0, 80),
+                'sender_role' => 'user',
+                'username' => (string)($user['username'] ?? ''),
+            ]
         );
         JsonResponse::send(['ok' => true, 'message' => $msg]);
     }
@@ -462,7 +486,11 @@ if (strpos($uri, '/api/') === 0) {
                 ]);
             }
             PushService::sendToUser($pdo, $cfg, $userId, $title, $text);
-            RealtimeHub::inboxUpdated($cfg, $userId, 'created', ['message_id' => $msgId]);
+            RealtimeHub::inboxUpdated($cfg, $userId, 'created', [
+                'message_id' => $msgId,
+                'title' => $title,
+                'preview' => mb_substr($text, 0, 80),
+            ]);
             AppControlService::audit($pdo, $adminId, 'ADMIN_RECONCILE_MSG', 'user', (string)$userId, [
                 'message_id' => $msgId,
                 'trip_id' => $tripId,
@@ -687,6 +715,9 @@ if (strpos($uri, '/api/') === 0) {
             RealtimeHub::inboxUpdated($cfg, $uid, 'reply', [
                 'message_id' => $msgId,
                 'reply_id' => (int)$reply['id'],
+                'title' => (string)($raw['title'] ?? '管理员回复'),
+                'preview' => mb_substr((string)($body['body'] ?? ''), 0, 80),
+                'sender_role' => 'admin',
             ]);
             JsonResponse::send(['ok' => true, 'reply' => $reply]);
         }
@@ -704,6 +735,13 @@ if (strpos($uri, '/api/') === 0) {
                 JsonResponse::error('会话不存在', 404);
             }
             SupportChatService::markPeerRead($pdo, $tid, 'admin');
+            RealtimeHub::supportUpdated(
+                $cfg,
+                (int)$thread['user_id'],
+                $tid,
+                'read',
+                ['reader_role' => 'admin', 'reader_admin_id' => $adminId]
+            );
             JsonResponse::send([
                 'thread' => SupportChatService::getThread($pdo, $tid),
                 'messages' => SupportChatService::listMessages($pdo, $tid),
@@ -718,11 +756,12 @@ if (strpos($uri, '/api/') === 0) {
                 JsonResponse::error('会话不存在', 404);
             }
             $body = readJsonBody();
+            $text = trim((string)($body['body'] ?? ''));
             $msg = SupportChatService::postMessage(
                 $pdo,
                 $tid,
                 'admin',
-                (string)($body['body'] ?? ''),
+                $text,
                 null,
                 $adminId
             );
@@ -731,7 +770,11 @@ if (strpos($uri, '/api/') === 0) {
                 (int)$thread['user_id'],
                 $tid,
                 'message',
-                ['message_id' => (int)$msg['id']]
+                [
+                    'message_id' => (int)$msg['id'],
+                    'preview' => mb_substr($text, 0, 80),
+                    'sender_role' => 'admin',
+                ]
             );
             JsonResponse::send(['ok' => true, 'message' => $msg]);
         }

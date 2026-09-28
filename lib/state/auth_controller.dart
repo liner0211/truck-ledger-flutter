@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../app_nav.dart';
 import '../services/app_control_api.dart';
 import '../services/auth_api.dart';
 import '../services/device_id_service.dart';
@@ -13,6 +15,10 @@ import '../services/inbox_service.dart';
 import '../services/messages_api.dart';
 import '../services/realtime_socket.dart';
 import '../services/sync_service.dart';
+import '../ui/in_app_notifier.dart';
+import '../ui/message_detail_screen.dart';
+import '../ui/messages_screen.dart';
+import '../ui/support_chat_screen.dart';
 
 class AuthController extends ChangeNotifier {
   static const serverUrlKey = 'TruckLedger.serverUrl';
@@ -268,11 +274,61 @@ class AuthController extends ChangeNotifier {
     realtime.connect(baseUrl: _serverUrl, token: t);
     realtime.connectionState.addListener(_onRtConnChanged);
     _rtSub = realtime.events.listen((e) {
-      final type = e['type'];
+      final type = e['type']?.toString();
       if (type == 'inbox' || type == 'support') {
         refreshInbox();
+        _maybeShowInAppNotice(e);
       }
     });
+  }
+
+  void _maybeShowInAppNotice(Map<String, dynamic> e) {
+    final type = e['type']?.toString();
+    final event = e['event']?.toString() ?? '';
+    if (type == 'inbox') {
+      if (event != 'created' && event != 'reply') return;
+      if (event == 'reply' && e['sender_role'] == 'user') return;
+      final mid = (e['message_id'] as num?)?.toInt();
+      final title = (e['title'] as String?)?.trim().isNotEmpty == true
+          ? (e['title'] as String)
+          : (event == 'reply' ? '消息有新回复' : '新站内信');
+      final body = (e['preview'] as String?) ?? '';
+      InAppNotifier.instance.show(
+        title: title,
+        body: body.isEmpty ? null : body,
+        onTap: () {
+          if (mid != null && mid > 0) {
+            AppNav.push(
+              MaterialPageRoute<void>(
+                builder: (_) => MessageDetailScreen(messageId: mid),
+              ),
+            );
+          } else {
+            AppNav.push(
+              MaterialPageRoute<void>(
+                builder: (_) => const MessagesScreen(),
+              ),
+            );
+          }
+        },
+      );
+      return;
+    }
+    if (type == 'support') {
+      if (event != 'message') return;
+      if (e['sender_role'] == 'user') return;
+      InAppNotifier.instance.show(
+        title: '客服新消息',
+        body: (e['preview'] as String?) ?? '管理员回复了你',
+        onTap: () {
+          AppNav.push(
+            MaterialPageRoute<void>(
+              builder: (_) => const SupportChatScreen(),
+            ),
+          );
+        },
+      );
+    }
   }
 
   void _onRtConnChanged() => notifyListeners();

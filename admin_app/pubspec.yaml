@@ -30,6 +30,7 @@ dependencies:
   web_socket_channel: ^3.0.3
   # 与主 App 对齐；勿升到 13.x（Windows 插件在新 MSVC 下会编译失败）
   permission_handler: ^11.4.0
+  audioplayers: ^6.1.0
 
 dev_dependencies:
   flutter_test:
@@ -38,3 +39,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/sounds/notify.wav
