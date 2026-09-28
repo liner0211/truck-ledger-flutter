@@ -9,7 +9,9 @@ import 'inbox_service.dart';
 import 'local_push_service.dart';
 import 'messages_api.dart';
 
-/// 国内推送（极光）：杀进程仍可达。AppKey 从服务端下发；未配置则跳过。
+/// 国内推送（极光）：杀进程 / iOS 后台仍可达。
+/// 前提：服务端 config.php 配置 jpush_app_key + jpush_master_secret，
+/// iOS 还需在极光后台上传 APNs 证书，正式包设 jpush_apns_production=true。
 class ChinaPushBootstrap {
   ChinaPushBootstrap._();
   static final _jpush = JPush.newJPush();
@@ -29,7 +31,10 @@ class ChinaPushBootstrap {
     if (key.isEmpty || key.length < 16) {
       if (kDebugMode) {
         // ignore: avoid_print
-        print('JPush skipped: no app key from server');
+        print(
+          'JPush skipped: server jpush_app_key empty — '
+          'iOS/Android 杀进程推送不可用',
+        );
       }
       return;
     }
@@ -42,7 +47,11 @@ class ChinaPushBootstrap {
           production: production,
           debug: kDebugMode,
         );
-        // 前台也允许系统通知（与 QQ 类似）；本地横幅仍由 InAppNotifier 补充
+        if (Platform.isIOS) {
+          // iOS 必须主动申请通知权限，否则无法弹出系统通知
+          _jpush.applyPushAuthority();
+        }
+        // 前台也允许系统通知；本地横幅仍由 InAppNotifier 补充
         _jpush.setUnShowAtTheForeground(unShow: false);
         _jpush.addEventHandler(
           onReceiveNotification: (Map<String, dynamic> message) async {

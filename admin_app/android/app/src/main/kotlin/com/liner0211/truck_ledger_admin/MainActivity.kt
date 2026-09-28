@@ -1,13 +1,29 @@
 package com.liner0211.truck_ledger_admin
 
+import android.graphics.Color
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
 import android.view.WindowInsets
+import androidx.core.view.WindowCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            window.statusBarColor = Color.TRANSPARENT
+            window.navigationBarColor = Color.TRANSPARENT
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+            window.isStatusBarContrastEnforced = false
+        }
+        super.onCreate(savedInstanceState)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(
@@ -27,7 +43,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /** 0=三键, 1=两键, 2=手势 */
     private fun navigationMode(): Int {
         return try {
             Settings.Secure.getInt(contentResolver, "navigation_mode")

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 外观：跟随系统 / 浅色 / 深色，持久化到本机。
@@ -83,6 +84,13 @@ class ThemeController extends ChangeNotifier {
         backgroundColor: _lightScaffold,
         surfaceTintColor: Colors.transparent,
         foregroundColor: scheme.onSurface,
+        systemOverlayStyle: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.dark,
+          statusBarBrightness: Brightness.light,
+          systemNavigationBarColor: Colors.transparent,
+          systemNavigationBarContrastEnforced: false,
+        ),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: Colors.white,
@@ -123,6 +131,13 @@ class ThemeController extends ChangeNotifier {
         backgroundColor: _oledBlack,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
+          systemNavigationBarColor: Colors.transparent,
+          systemNavigationBarContrastEnforced: false,
+        ),
       ),
       navigationBarTheme: const NavigationBarThemeData(
         backgroundColor: _oledBlack,

@@ -9,9 +9,11 @@ import 'pages/home_shell.dart';
 import 'pages/login_page.dart';
 import 'services/local_push_service.dart';
 import 'theme_controller.dart';
+import 'utils/system_ui.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  enableEdgeToEdgeUi();
   try {
     await LocalPushService.instance.init().timeout(const Duration(seconds: 5));
   } catch (_) {}
@@ -47,6 +49,15 @@ class AdminRoot extends StatelessWidget {
           theme: ThemeController.lightTheme(),
           darkTheme: ThemeController.darkTheme(),
           themeMode: theme.mode,
+          builder: (context, child) {
+            final bright = Theme.of(context).brightness;
+            applySystemUiOverlay(
+              statusBarIconBrightness: bright == Brightness.dark
+                  ? Brightness.light
+                  : Brightness.dark,
+            );
+            return child ?? const SizedBox.shrink();
+          },
           home: const _Gate(),
         ),
       ),

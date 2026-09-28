@@ -4,15 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-/// Android 系统导航模式与底部 inset。
-/// - 三键/两键虚拟导航：按系统报告高度抬起底栏
-/// - 手势导航：返回 0，底栏贴边，保持全屏
+/// Android 系统导航与底部 inset（需先 [enableEdgeToEdgeUi]）。
 class SystemNavInset {
   SystemNavInset._();
 
   static const _channel = MethodChannel('com.liner0211.truckledger/system_nav');
 
-  /// 0=三键, 1=两键, 2=手势；非 Android 为 null
   static int? _mode;
 
   static Future<void> ensureLoaded() async {
@@ -28,32 +25,19 @@ class SystemNavInset {
           _mode = m.toInt();
         }
       }
-    } catch (_) {
-      // 引擎未就绪时稍后由 Shell 重试；期间走启发式
-    }
+    } catch (_) {}
   }
 
-  /// 底栏（如 NavigationBar）下方应预留的高度。
-  /// 手势导航为 0；虚拟按键为 [MediaQuery.viewPadding.bottom]（随旋转实时变化）。
   static double bottomForNavBar(BuildContext context) {
+    if (kIsWeb) return 0;
+    if (!Platform.isAndroid) return 0;
+
     final viewBottom = MediaQuery.viewPaddingOf(context).bottom;
     if (viewBottom <= 0) return 0;
 
-    if (kIsWeb) return 0;
-
-    if (Platform.isIOS) {
-      return viewBottom;
-    }
-
-    if (!Platform.isAndroid) return 0;
-
     final mode = _mode;
-    if (mode == 2) {
-      return 0;
-    }
-    if (mode == 0 || mode == 1) {
-      return viewBottom;
-    }
+    if (mode == 2) return 0;
+    if (mode == 0 || mode == 1) return viewBottom;
 
     final gesture = MediaQuery.systemGestureInsetsOf(context);
     final looksLikeGesture =

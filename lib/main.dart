@@ -10,9 +10,11 @@ import 'state/ledger_controller.dart';
 import 'state/theme_controller.dart';
 import 'ui/auth_gate.dart';
 import 'ui/permission_bootstrap_gate.dart';
+import 'utils/system_ui.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  enableEdgeToEdgeUi();
   initApiHttpClient();
   try {
     await LocalPushService.instance.init().timeout(const Duration(seconds: 5));
@@ -47,6 +49,15 @@ class TruckLedgerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.watch<ThemeController>();
+    final brightness = theme.mode == ThemeMode.light
+        ? Brightness.dark
+        : theme.mode == ThemeMode.dark
+            ? Brightness.light
+            : null;
+    // 跟随系统时在 builder 里再按实际亮度刷新一次
+    if (brightness != null) {
+      applySystemUiOverlay(statusBarIconBrightness: brightness);
+    }
     return MaterialApp(
       title: '卡车记账',
       navigatorKey: AppNav.navigatorKey,
@@ -63,6 +74,14 @@ class TruckLedgerApp extends StatelessWidget {
       theme: ThemeController.lightTheme(),
       darkTheme: ThemeController.darkTheme(),
       themeMode: theme.mode,
+      builder: (context, child) {
+        final bright = Theme.of(context).brightness;
+        applySystemUiOverlay(
+          statusBarIconBrightness:
+              bright == Brightness.dark ? Brightness.light : Brightness.dark,
+        );
+        return child ?? const SizedBox.shrink();
+      },
       home: const PermissionBootstrapGate(child: AuthGate()),
     );
   }
