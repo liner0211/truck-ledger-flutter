@@ -9,16 +9,18 @@ import '../app_nav.dart';
 import '../services/app_control_api.dart';
 import '../services/auth_api.dart';
 import '../services/device_id_service.dart';
+import '../services/chat_api.dart';
 import '../services/devices_api.dart';
 import '../services/feature_flags.dart';
 import '../services/inbox_service.dart';
 import '../services/messages_api.dart';
+import '../services/push_bootstrap.dart';
 import '../services/realtime_socket.dart';
 import '../services/sync_service.dart';
+import '../ui/chat_room_screen.dart';
 import '../ui/in_app_notifier.dart';
 import '../ui/message_detail_screen.dart';
-import '../ui/messages_screen.dart';
-import '../ui/support_chat_screen.dart';
+import '../ui/messages_hub_screen.dart';
 
 class AuthController extends ChangeNotifier {
   static const serverUrlKey = 'TruckLedger.serverUrl';
@@ -47,6 +49,8 @@ class AuthController extends ChangeNotifier {
   int _localRevision = 0;
   int _unreadMessages = 0;
   int _unreadSupport = 0;
+  int _unreadChatDm = 0;
+  int _unreadChatGroup = 0;
   final Set<int> _knownMessageIds = {};
   Timer? _fgPoll;
   FeatureFlags _featureFlags = FeatureFlags();
@@ -61,10 +65,12 @@ class AuthController extends ChangeNotifier {
   bool get isLoggedIn => _token != null && _token!.isNotEmpty;
   bool get isInitialized => _initialized;
   int get localRevision => _localRevision;
-  /// 站内信 + 客服未读合计（红点数量）
-  int get unreadMessages => _unreadMessages + _unreadSupport;
+  /// 站内信 + 客服 + 聊天未读合计（红点数量）
+  int get unreadMessages =>
+      _unreadMessages + _unreadSupport + _unreadChatDm + _unreadChatGroup;
   int get unreadInbox => _unreadMessages;
   int get unreadSupport => _unreadSupport;
+  int get unreadChat => _unreadChatDm + _unreadChatGroup;
   FeatureFlags get featureFlags => _featureFlags;
   bool get writeAllowed => _profile?.writeAllowed ?? true;
 
@@ -93,6 +99,12 @@ class AuthController extends ChangeNotifier {
     final t = _token;
     if (t == null || t.isEmpty) return null;
     return MessagesApi(baseUrl: _serverUrl, token: t);
+  }
+
+  ChatApi? get chatApi {
+    final t = _token;
+    if (t == null || t.isEmpty) return null;
+    return ChatApi(baseUrl: _serverUrl, token: t);
   }
 
   DevicesApi? get devicesApi {
@@ -265,6 +277,8 @@ class AuthController extends ChangeNotifier {
     _lastControl = null;
     _unreadMessages = 0;
     _unreadSupport = 0;
+    _unreadChatDm = 0;
+    _unreadChatGroup = 0;
     _knownMessageIds.clear();
     _stopFgPoll();
     final prefs = await SharedPreferences.getInstance();
@@ -284,7 +298,7 @@ class AuthController extends ChangeNotifier {
     realtime.connectionState.addListener(_onRtConnChanged);
     _rtSub = realtime.events.listen((e) {
       final type = e['type']?.toString();
-      if (type == 'inbox' || type == 'support') {
+      if (type == 'inbox' || type == 'support' || type == 'chat') {
         refreshInbox();
         _maybeShowInAppNotice(e);
       }
@@ -315,7 +329,7 @@ class AuthController extends ChangeNotifier {
           } else {
             AppNav.push(
               MaterialPageRoute<void>(
-                builder: (_) => const MessagesScreen(),
+                builder: (_) => const MessagesHubScreen(initialTab: 0),
               ),
             );
           }
@@ -332,9 +346,39 @@ class AuthController extends ChangeNotifier {
         onTap: () {
           AppNav.push(
             MaterialPageRoute<void>(
-              builder: (_) => const SupportChatScreen(),
+              builder: (_) => const MessagesHubScreen(initialTab: 1),
             ),
           );
+        },
+      );
+      return;
+    }
+    if (type == 'chat') {
+      if (event != 'message') return;
+      final sid = (e['sender_user_id'] as num?)?.toInt();
+      if (sid != null && sid == _userId) return;
+      final cid = (e['conversation_id'] as num?)?.toInt() ?? 0;
+      final who = (e['sender_username'] as String?)?.trim();
+      InAppNotifier.instance.show(
+        title: who != null && who.isNotEmpty ? who : '新聊天消息',
+        body: (e['preview'] as String?) ?? '',
+        onTap: () {
+          if (cid > 0) {
+            AppNav.push(
+              MaterialPageRoute<void>(
+                builder: (_) => ChatRoomScreen(
+                  conversationId: cid,
+                  title: who ?? '聊天',
+                ),
+              ),
+            );
+          } else {
+            AppNav.push(
+              MaterialPageRoute<void>(
+                builder: (_) => const MessagesHubScreen(initialTab: 2),
+              ),
+            );
+          }
         },
       );
     }
@@ -369,6 +413,8 @@ class AuthController extends ChangeNotifier {
       final r = await inbox.refresh(api);
       _unreadMessages = r.unread;
       _unreadSupport = r.supportUnread;
+      _unreadChatDm = r.chatDm;
+      _unreadChatGroup = r.chatGroup;
       for (final m in inbox.latest) {
         _knownMessageIds.add(m.id);
       }
@@ -384,11 +430,14 @@ class AuthController extends ChangeNotifier {
     final prevIds = Set<int>.from(_knownMessageIds);
     final prevTotal = unreadMessages;
     final prevSupport = _unreadSupport;
+    final prevChat = unreadChat;
 
     try {
       final r = await inbox.refresh(api);
       _unreadMessages = r.unread;
       _unreadSupport = r.supportUnread;
+      _unreadChatDm = r.chatDm;
+      _unreadChatGroup = r.chatGroup;
       notifyListeners();
 
       if (realtime.connectionState.value != RealtimeConnState.online) {
@@ -432,7 +481,19 @@ class AuthController extends ChangeNotifier {
           onTap: () {
             AppNav.push(
               MaterialPageRoute<void>(
-                builder: (_) => const SupportChatScreen(),
+                builder: (_) => const MessagesHubScreen(initialTab: 1),
+              ),
+            );
+          },
+        );
+      } else if (unreadChat > prevChat && unreadChat > 0) {
+        InAppNotifier.instance.show(
+          title: '聊天未读',
+          body: '有 $unreadChat 条聊天未读',
+          onTap: () {
+            AppNav.push(
+              MaterialPageRoute<void>(
+                builder: (_) => const MessagesHubScreen(initialTab: 2),
               ),
             );
           },
@@ -444,7 +505,7 @@ class AuthController extends ChangeNotifier {
           onTap: () {
             AppNav.push(
               MaterialPageRoute<void>(
-                builder: (_) => const MessagesScreen(),
+                builder: (_) => const MessagesHubScreen(),
               ),
             );
           },
@@ -474,7 +535,11 @@ class AuthController extends ChangeNotifier {
   Future<void> bootstrapPushAndInbox() async {
     final api = messagesApi;
     if (api == null) return;
-    await inbox.registerPushChannel(api: api, platform: platformName);
+    await PushBootstrap.registerToken(
+      api: api,
+      platform: platformName,
+      inbox: inbox,
+    );
     await refreshInbox();
     _connectRealtime();
     startForegroundPolling();

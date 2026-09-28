@@ -219,6 +219,21 @@ class AdminApi {
   Future<void> deleteSupportMessage(int id) =>
       _json('DELETE', '/api/admin/support/messages/$id');
 
+  Future<List<Map<String, dynamic>>> chatConversations() async {
+    final m = await _json('GET', '/api/admin/chat/conversations');
+    final list = m['conversations'] as List? ?? [];
+    return list.map((e) => (e as Map).cast<String, dynamic>()).toList();
+  }
+
+  Future<Map<String, dynamic>> chatConversationDetail(int id) =>
+      _json('GET', '/api/admin/chat/conversations/$id');
+
+  Future<void> dissolveChatConversation(int id) =>
+      _json('DELETE', '/api/admin/chat/conversations/$id');
+
+  Future<void> deleteChatMessage(int id) =>
+      _json('DELETE', '/api/admin/chat/messages/$id');
+
   Future<List<Map<String, dynamic>>> operators() async {
     final m = await _json('GET', '/api/admin/operators');
     final list = m['admins'] as List? ?? [];

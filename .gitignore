@@ -59,3 +59,9 @@ app.*.map.json
 /android/app/release
 dev/android_signing_secrets.env
 dev/ci_publish_secrets.env
+
+# Firebase（本机/CI Secrets 注入，勿入库）
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+**/firebase_options.dart
+

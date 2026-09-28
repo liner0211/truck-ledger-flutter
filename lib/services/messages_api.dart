@@ -138,7 +138,7 @@ class MessagesApi {
         'Authorization': 'Bearer $token',
       };
 
-  Future<({List<InboxMessage> messages, int unread, int supportUnread})> list() async {
+  Future<({List<InboxMessage> messages, int unread, int supportUnread, int chatUnreadDm, int chatUnreadGroup})> list() async {
     final res = await apiHttpClient
         .get(Uri.parse(_url('/api/messages')), headers: _headers)
         .timeout(const Duration(seconds: 20));
@@ -157,6 +157,8 @@ class MessagesApi {
       messages: list,
       unread: (m['unread'] as num?)?.toInt() ?? 0,
       supportUnread: (m['support_unread'] as num?)?.toInt() ?? 0,
+      chatUnreadDm: (m['chat_unread_dm'] as num?)?.toInt() ?? 0,
+      chatUnreadGroup: (m['chat_unread_group'] as num?)?.toInt() ?? 0,
     );
   }
 

@@ -12,7 +12,9 @@ import 'message_detail_screen.dart';
 import 'support_chat_screen.dart';
 
 class MessagesScreen extends StatefulWidget {
-  const MessagesScreen({super.key});
+  const MessagesScreen({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
   State<MessagesScreen> createState() => _MessagesScreenState();
@@ -126,99 +128,89 @@ class _MessagesScreenState extends State<MessagesScreen> {
   @override
   Widget build(BuildContext context) {
     final fmt = DateFormat('yyyy-MM-dd HH:mm');
+    final body = _buildBody(fmt);
+    if (widget.embedded) {
+      return Column(
+        children: [
+          if (_unread > 0 || true)
+            Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    if (_unread > 0)
+                      TextButton(onPressed: _markAll, child: const Text('全部已读')),
+                    IconButton(onPressed: () => _load(), icon: const Icon(Icons.refresh)),
+                  ],
+                ),
+              ),
+            ),
+          Expanded(child: body),
+        ],
+      );
+    }
     return Scaffold(
       appBar: AppBar(
-        title: Text(_unread > 0 ? '消息（$_unread）' : '消息'),
+        title: Text(_unread > 0 ? '通知（$_unread）' : '通知'),
         actions: [
-          ValueListenableBuilder(
-            valueListenable: context.read<AuthController>().realtime.connectionState,
-            builder: (_, state, __) {
-              final online = state == RealtimeConnState.online;
-              final mid = state == RealtimeConnState.connecting;
-              return Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: Chip(
-                  visualDensity: VisualDensity.compact,
-                  avatar: Icon(
-                    Icons.circle,
-                    size: 10,
-                    color: online
-                        ? Colors.green
-                        : (mid ? Colors.orange : Colors.redAccent),
-                  ),
-                  label: Text(online ? '实时' : (mid ? '连接中' : '离线')),
-                ),
-              );
-            },
-          ),
           if (_unread > 0)
             TextButton(onPressed: _markAll, child: const Text('全部已读')),
           IconButton(onPressed: () => _load(), icon: const Icon(Icons.refresh)),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push<void>(
-            context,
-            MaterialPageRoute<void>(builder: (_) => const SupportChatScreen()),
-          );
-        },
-        icon: const Icon(Icons.support_agent),
-        label: const Text('联系管理员'),
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(child: Text(_error!))
-              : _messages.isEmpty
-                  ? const Center(child: Text('暂无站内信\n可点右下角联系管理员'))
-                  : ListView.separated(
-                      padding: const EdgeInsets.only(bottom: 88),
-                      itemCount: _messages.length,
-                      separatorBuilder: (_, i) => const Divider(height: 1),
-                      itemBuilder: (ctx, i) {
-                        final m = _messages[i];
-                        final time = m.createdAt > 0
-                            ? fmt.format(
-                                DateTime.fromMillisecondsSinceEpoch(m.createdAt),
-                              )
-                            : '';
-                        final ref = m.meta?.tripTitle;
-                        final isReconcile = m.type == 'ops.reconcile';
-                        return ListTile(
-                          leading: Icon(
-                            m.isRead
-                                ? Icons.mark_email_read_outlined
-                                : (isReconcile
-                                    ? Icons.fact_check_outlined
-                                    : Icons.mark_email_unread),
-                            color: m.isRead
-                                ? null
-                                : Theme.of(context).colorScheme.primary,
-                          ),
-                          title: Text(
-                            m.title,
-                            style: TextStyle(
-                              fontWeight:
-                                  m.isRead ? FontWeight.normal : FontWeight.w600,
-                            ),
-                          ),
-                          subtitle: Text(
-                            [
-                              if (ref != null && ref.isNotEmpty) '引用：$ref',
-                              m.body,
-                              [
-                                time,
-                                if (m.replyCount > 0) '${m.replyCount} 条回复',
-                                m.isRead ? '已读' : '未读',
-                              ].where((e) => e.isNotEmpty).join(' · '),
-                            ].where((e) => e.isNotEmpty).join('\n'),
-                          ),
-                          isThreeLine: true,
-                          onTap: () => _openMessage(m),
-                        );
-                      },
-                    ),
+      body: body,
+    );
+  }
+
+  Widget _buildBody(DateFormat fmt) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) return Center(child: Text(_error!));
+    if (_messages.isEmpty) {
+      return const Center(child: Text('暂无站内通知'));
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.only(bottom: 24),
+      itemCount: _messages.length,
+      separatorBuilder: (_, i) => const Divider(height: 1),
+      itemBuilder: (ctx, i) {
+        final m = _messages[i];
+        final time = m.createdAt > 0
+            ? fmt.format(DateTime.fromMillisecondsSinceEpoch(m.createdAt))
+            : '';
+        final ref = m.meta?.tripTitle;
+        final isReconcile = m.type == 'ops.reconcile';
+        return ListTile(
+          leading: Icon(
+            m.isRead
+                ? Icons.mark_email_read_outlined
+                : (isReconcile
+                    ? Icons.fact_check_outlined
+                    : Icons.mark_email_unread),
+            color: m.isRead ? null : Theme.of(context).colorScheme.primary,
+          ),
+          title: Text(
+            m.title,
+            style: TextStyle(
+              fontWeight: m.isRead ? FontWeight.normal : FontWeight.w600,
+            ),
+          ),
+          subtitle: Text(
+            [
+              if (ref != null && ref.isNotEmpty) '引用：$ref',
+              m.body,
+              [
+                time,
+                if (m.replyCount > 0) '${m.replyCount} 条回复',
+                m.isRead ? '已读' : '未读',
+              ].where((e) => e.isNotEmpty).join(' · '),
+            ].where((e) => e.isNotEmpty).join('\n'),
+          ),
+          isThreeLine: true,
+          onTap: () => _openMessage(m),
+        );
+      },
     );
   }
 }

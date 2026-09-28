@@ -13,6 +13,12 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+// 仅在放置了 google-services.json 时启用（无文件时 CI/本机仍可编 Debug）
+val googleServicesFile = file("google-services.json")
+if (googleServicesFile.exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.liner0211.truckledger"
     compileSdk = flutter.compileSdkVersion

@@ -72,6 +72,7 @@
 | `config.php` | 从 `config.example.php` 复制；**勿覆盖迁数据** |
 | `jwt_secret` | ≥32 随机 |
 | `ci_publish_token` | = GitHub `CI_PUBLISH_TOKEN` |
+| `fcm_server_key` | 可选；系统推送（FCM Legacy）。空则仅站内信+WS |
 | `admin_*` | 首迁超级管理员 |
 | `max_upload_bytes` | 与 nginx `client_max_body_size`（建议 ≥25m）一致 |
 | 保留目录 | `data/`、`attachments/`、`public/downloads/` |

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'app_nav.dart';
 import 'services/api_http_client.dart';
+import 'services/push_bootstrap.dart';
 import 'state/auth_controller.dart';
 import 'state/ledger_controller.dart';
 import 'state/theme_controller.dart';
@@ -13,6 +14,7 @@ import 'ui/permission_bootstrap_gate.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   initApiHttpClient();
+  await PushBootstrap.ensureInitialized();
   final theme = ThemeController();
   await theme.load();
   runApp(

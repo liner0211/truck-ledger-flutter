@@ -10,8 +10,7 @@ import 'account_screen.dart';
 import 'change_password_screen.dart';
 import 'devices_screen.dart';
 import 'ledger_backup_actions.dart';
-import 'messages_screen.dart';
-import 'support_chat_screen.dart';
+import 'messages_hub_screen.dart';
 import 'user_manual_screen.dart';
 
 /// 底部 Tab「我的」：资料、消息、账号、数据、主题、帮助。
@@ -103,9 +102,9 @@ class MeScreen extends StatelessWidget {
             children: [
               if (flags.messages) ...[
                 _NavTile(
-                  icon: Icons.mail_outline,
-                  title: unread > 0 ? '消息中心（$unread）' : '消息中心',
-                  subtitle: '站内通知 · 已读提示 · 可回复',
+                  icon: Icons.forum_outlined,
+                  title: unread > 0 ? '消息（$unread）' : '消息',
+                  subtitle: '通知 · 客服 · 私聊/群聊',
                   trailing: unread > 0
                       ? Badge(
                           backgroundColor: Colors.redAccent,
@@ -117,37 +116,7 @@ class MeScreen extends StatelessWidget {
                     Navigator.push<void>(
                       context,
                       MaterialPageRoute<void>(
-                        builder: (_) => const MessagesScreen(),
-                      ),
-                    ).then((_) {
-                      if (context.mounted) {
-                        context.read<AuthController>().refreshInbox();
-                      }
-                    });
-                  },
-                ),
-                _NavTile(
-                  icon: Icons.support_agent,
-                  title: auth.unreadSupport > 0
-                      ? '联系管理员（${auth.unreadSupport}）'
-                      : '联系管理员',
-                  subtitle: '向管理员发送聊天消息',
-                  trailing: auth.unreadSupport > 0
-                      ? Badge(
-                          backgroundColor: Colors.redAccent,
-                          label: Text(
-                            auth.unreadSupport > 99
-                                ? '99+'
-                                : '${auth.unreadSupport}',
-                          ),
-                          child: const Icon(Icons.chevron_right),
-                        )
-                      : const Icon(Icons.chevron_right),
-                  onTap: () {
-                    Navigator.push<void>(
-                      context,
-                      MaterialPageRoute<void>(
-                        builder: (_) => const SupportChatScreen(),
+                        builder: (_) => const MessagesHubScreen(),
                       ),
                     ).then((_) {
                       if (context.mounted) {

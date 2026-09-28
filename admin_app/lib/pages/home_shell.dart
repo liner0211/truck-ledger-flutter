@@ -299,18 +299,14 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         title: Row(
           children: [
             const Text('管理端'),
-            const SizedBox(width: 10),
-            Chip(
-              label: Text(admin.username),
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-            ),
-            const SizedBox(width: 6),
-            Chip(
-              label: Text(admin.roleLabel),
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-              backgroundColor: cs.secondaryContainer,
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                '${admin.username} · ${admin.roleLabel}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
             ),
           ],
         ),
@@ -320,19 +316,14 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             builder: (_, state, __) {
               final online = state == RealtimeConnState.online;
               final mid = state == RealtimeConnState.connecting;
-              return Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: Chip(
-                  visualDensity: VisualDensity.compact,
-                  label: Text(online ? '实时' : (mid ? '连接中' : '离线')),
-                  avatar: Icon(
-                    Icons.circle,
-                    size: 10,
-                    color: online
-                        ? Colors.green
-                        : (mid ? Colors.orange : Colors.redAccent),
-                  ),
-                ),
+              final color = online
+                  ? Colors.green
+                  : (mid ? Colors.orange : Colors.redAccent);
+              final tip = online ? '实时已连接' : (mid ? '连接中' : '实时离线');
+              return IconButton(
+                tooltip: tip,
+                onPressed: null,
+                icon: Icon(Icons.circle, size: 12, color: color),
               );
             },
           ),

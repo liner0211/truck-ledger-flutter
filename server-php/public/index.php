@@ -15,6 +15,7 @@ require $root . '/lib/SnapshotService.php';
 require $root . '/lib/AppControlService.php';
 require $root . '/lib/MessageService.php';
 require $root . '/lib/SupportChatService.php';
+require $root . '/lib/ChatService.php';
 require $root . '/lib/RealtimeHub.php';
 require $root . '/lib/PushService.php';
 require $root . '/lib/AdminService.php';
@@ -286,10 +287,14 @@ if (strpos($uri, '/api/') === 0) {
 
     if ($uri === '/api/messages' && $method === 'GET') {
         $user = AuthService::requireUser($pdo, $cfg);
+        $chatUnread = ChatService::unreadCounts($pdo, (int)$user['id']);
         JsonResponse::send([
             'messages' => MessageService::listForUser($pdo, (int)$user['id']),
             'unread' => MessageService::unreadCount($pdo, (int)$user['id']),
             'support_unread' => SupportChatService::unreadForUser($pdo, (int)$user['id']),
+            'chat_unread_dm' => $chatUnread['dm'],
+            'chat_unread_group' => $chatUnread['group'],
+            'chat_unread' => $chatUnread['total'],
         ]);
     }
 
@@ -415,7 +420,127 @@ if (strpos($uri, '/api/') === 0) {
                 'username' => (string)($user['username'] ?? ''),
             ]
         );
+        // 系统推送：通知管理员设备（若已登记）；用户侧无自推
         JsonResponse::send(['ok' => true, 'message' => $msg]);
+    }
+
+    // ---------- 用户私聊 / 群聊 ----------
+    if ($uri === '/api/chat/peers' && $method === 'GET') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        JsonResponse::send(['peers' => ChatService::listPeers($pdo, (int)$user['id'])]);
+    }
+
+    if ($uri === '/api/chat/conversations' && $method === 'GET') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        JsonResponse::send([
+            'conversations' => ChatService::listForUser($pdo, (int)$user['id']),
+            'unread' => ChatService::unreadCounts($pdo, (int)$user['id']),
+        ]);
+    }
+
+    if ($uri === '/api/chat/dm' && $method === 'POST') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        $body = readJsonBody();
+        $conv = ChatService::getOrCreateDm($pdo, (int)$user['id'], (int)($body['peer_user_id'] ?? 0));
+        if ($conv === null) {
+            JsonResponse::error('无法创建私聊', 400);
+        }
+        JsonResponse::send(['conversation' => $conv]);
+    }
+
+    if ($uri === '/api/chat/groups' && $method === 'POST') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        RateLimitService::assert($cfg, 'chat_group_' . $user['id'], 20, 3600);
+        $body = readJsonBody();
+        $memberIds = $body['member_ids'] ?? [];
+        if (!is_array($memberIds)) {
+            $memberIds = [];
+        }
+        $conv = ChatService::createGroup(
+            $pdo,
+            (int)$user['id'],
+            (string)($body['title'] ?? ''),
+            array_map('intval', $memberIds)
+        );
+        if ($conv === null) {
+            JsonResponse::error('建群失败（需标题与至少一名成员）', 400);
+        }
+        $members = ChatService::memberUserIds($pdo, (int)$conv['id']);
+        RealtimeHub::chatUpdated($cfg, (int)$conv['id'], $members, 'created', [
+            'title' => $conv['title'],
+        ]);
+        JsonResponse::send(['conversation' => $conv]);
+    }
+
+    if (preg_match('#^/api/chat/groups/(\d+)/members$#', $uri, $m) && $method === 'POST') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        $cid = (int)$m[1];
+        $body = readJsonBody();
+        $ids = $body['member_ids'] ?? [];
+        if (!is_array($ids) || !ChatService::addMembers($pdo, $cid, (int)$user['id'], array_map('intval', $ids))) {
+            JsonResponse::error('邀请失败', 400);
+        }
+        $members = ChatService::memberUserIds($pdo, $cid);
+        RealtimeHub::chatUpdated($cfg, $cid, $members, 'members', []);
+        JsonResponse::send(['ok' => true, 'conversation' => ChatService::getConversationForUser($pdo, $cid, (int)$user['id'])]);
+    }
+
+    if (preg_match('#^/api/chat/conversations/(\d+)/messages$#', $uri, $m) && $method === 'GET') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        $cid = (int)$m[1];
+        if (!ChatService::isMember($pdo, $cid, (int)$user['id'])) {
+            JsonResponse::error('会话不存在', 404);
+        }
+        $before = isset($_GET['before_id']) ? (int)$_GET['before_id'] : null;
+        JsonResponse::send([
+            'messages' => ChatService::listMessages($pdo, $cid, 100, $before),
+            'conversation' => ChatService::getConversationForUser($pdo, $cid, (int)$user['id']),
+        ]);
+    }
+
+    if (preg_match('#^/api/chat/conversations/(\d+)/messages$#', $uri, $m) && $method === 'POST') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        RateLimitService::assert($cfg, 'chat_msg_' . $user['id'], 120, 3600);
+        $cid = (int)$m[1];
+        $body = readJsonBody();
+        $text = trim((string)($body['body'] ?? ''));
+        $msg = ChatService::postMessage($pdo, $cid, (int)$user['id'], $text, (string)($body['msg_type'] ?? 'text'));
+        if ($msg === null) {
+            JsonResponse::error('发送失败', 400);
+        }
+        $members = ChatService::memberUserIds($pdo, $cid);
+        RealtimeHub::chatUpdated($cfg, $cid, $members, 'message', [
+            'message_id' => (int)$msg['id'],
+            'preview' => mb_substr($text, 0, 80),
+            'sender_user_id' => (int)$user['id'],
+            'sender_username' => (string)($user['username'] ?? ''),
+        ]);
+        foreach ($members as $uid) {
+            if ($uid === (int)$user['id']) {
+                continue;
+            }
+            PushService::sendToUser(
+                $pdo,
+                $cfg,
+                $uid,
+                (string)($user['username'] ?? '新消息'),
+                $text,
+                [
+                    'type' => 'chat',
+                    'conversation_id' => (string)$cid,
+                ]
+            );
+        }
+        JsonResponse::send(['ok' => true, 'message' => $msg]);
+    }
+
+    if (preg_match('#^/api/chat/conversations/(\d+)/read$#', $uri, $m) && $method === 'POST') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        $cid = (int)$m[1];
+        if (!ChatService::markRead($pdo, $cid, (int)$user['id'])) {
+            JsonResponse::error('会话不存在', 404);
+        }
+        JsonResponse::send(['ok' => true]);
     }
 
     // ---------- Admin Flutter / PC JSON API（JWT typ=admin）----------
@@ -777,6 +902,14 @@ if (strpos($uri, '/api/') === 0) {
                     'sender_role' => 'admin',
                 ]
             );
+            PushService::sendToUser(
+                $pdo,
+                $cfg,
+                (int)$thread['user_id'],
+                '客服回复',
+                $text,
+                ['type' => 'support']
+            );
             JsonResponse::send(['ok' => true, 'message' => $msg]);
         }
 
@@ -809,6 +942,50 @@ if (strpos($uri, '/api/') === 0) {
                 'event' => 'message_deleted',
                 'message_id' => $mid,
             ]);
+            JsonResponse::send(['ok' => true]);
+        }
+
+        if ($uri === '/api/admin/chat/conversations' && $method === 'GET') {
+            AdminAuthService::requirePermission($admin, 'messages.manage');
+            JsonResponse::send(['conversations' => ChatService::listForAdmin($pdo)]);
+        }
+
+        if (preg_match('#^/api/admin/chat/conversations/(\d+)$#', $uri, $m) && $method === 'GET') {
+            AdminAuthService::requirePermission($admin, 'messages.manage');
+            $cid = (int)$m[1];
+            $raw = ChatService::rawConversation($pdo, $cid);
+            if ($raw === null) {
+                JsonResponse::error('会话不存在', 404);
+            }
+            JsonResponse::send([
+                'conversation' => ChatService::publicConversation($pdo, $raw, null),
+                'messages' => ChatService::listMessages($pdo, $cid, 200),
+            ]);
+        }
+
+        if (preg_match('#^/api/admin/chat/conversations/(\d+)$#', $uri, $m) && $method === 'DELETE') {
+            AdminAuthService::requirePermission($admin, 'messages.manage');
+            $cid = (int)$m[1];
+            $members = ChatService::memberUserIds($pdo, $cid);
+            if (!ChatService::dissolve($pdo, $cid)) {
+                JsonResponse::error('会话不存在', 404);
+            }
+            RealtimeHub::chatUpdated($cfg, $cid, $members, 'deleted', []);
+            AppControlService::audit($pdo, $adminId, 'CHAT_DISSOLVE', 'chat', (string)$cid, []);
+            JsonResponse::send(['ok' => true]);
+        }
+
+        if (preg_match('#^/api/admin/chat/messages/(\d+)$#', $uri, $m) && $method === 'DELETE') {
+            AdminAuthService::requirePermission($admin, 'messages.manage');
+            $mid = (int)$m[1];
+            $stmt = $pdo->prepare('SELECT conversation_id FROM chat_messages WHERE id=?');
+            $stmt->execute([$mid]);
+            $cid = (int)($stmt->fetchColumn() ?: 0);
+            if ($cid <= 0 || !ChatService::forceDeleteMessage($pdo, $mid)) {
+                JsonResponse::error('消息不存在', 404);
+            }
+            $members = ChatService::memberUserIds($pdo, $cid);
+            RealtimeHub::chatUpdated($cfg, $cid, $members, 'message_deleted', ['message_id' => $mid]);
             JsonResponse::send(['ok' => true]);
         }
 

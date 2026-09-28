@@ -223,6 +223,46 @@ final class Database
         );
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_support_msgs_thread ON support_messages(thread_id, created_at)');
 
+        // 用户私聊 / 群聊
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS chat_conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT NOT NULL,
+                title TEXT,
+                dm_key TEXT,
+                created_by INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )'
+        );
+        $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_dm_key ON chat_conversations(dm_key) WHERE dm_key IS NOT NULL');
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS chat_members (
+                conversation_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                role TEXT NOT NULL DEFAULT "member",
+                joined_at INTEGER NOT NULL,
+                last_read_at INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (conversation_id, user_id),
+                FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )'
+        );
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id INTEGER NOT NULL,
+                sender_user_id INTEGER NOT NULL,
+                body TEXT NOT NULL,
+                msg_type TEXT NOT NULL DEFAULT "text",
+                created_at INTEGER NOT NULL,
+                deleted_at INTEGER,
+                FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE,
+                FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE
+            )'
+        );
+        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_chat_msgs_conv ON chat_messages(conversation_id, created_at)');
+
         $pdo->exec(
             'CREATE TABLE IF NOT EXISTS audit_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

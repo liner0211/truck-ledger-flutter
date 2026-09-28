@@ -11,7 +11,9 @@ import '../state/auth_controller.dart';
 
 /// 用户 ↔ 管理员客服会话。
 class SupportChatScreen extends StatefulWidget {
-  const SupportChatScreen({super.key});
+  const SupportChatScreen({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
   State<SupportChatScreen> createState() => _SupportChatScreenState();
@@ -138,114 +140,90 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   Widget build(BuildContext context) {
     final fmt = DateFormat('MM-dd HH:mm');
     final cs = Theme.of(context).colorScheme;
+    final content = Column(
+      children: [
+        if (_loading)
+          const LinearProgressIndicator(minHeight: 2)
+        else if (_error != null)
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text(_error!, style: TextStyle(color: cs.error)),
+          ),
+        Expanded(
+          child: ListView.builder(
+            controller: _scroll,
+            padding: const EdgeInsets.all(12),
+            itemCount: _messages.length,
+            itemBuilder: (ctx, i) {
+              final m = _messages[i];
+              final mine = m.isMine;
+              return Align(
+                alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.75,
+                  ),
+                  decoration: BoxDecoration(
+                    color: mine ? cs.primaryContainer : cs.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(m.body),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${fmt.format(DateTime.fromMillisecondsSinceEpoch(m.createdAt))}'
+                        '${m.peerRead ? ' · 已读' : ''}',
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _input,
+                    decoration: const InputDecoration(
+                      hintText: '输入消息…',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    minLines: 1,
+                    maxLines: 4,
+                    onSubmitted: (_) => _send(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  onPressed: _sending ? null : _send,
+                  icon: const Icon(Icons.send),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+    if (widget.embedded) return content;
     return Scaffold(
       appBar: AppBar(
         title: const Text('联系管理员'),
         actions: [
-          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
+          IconButton(onPressed: () => _load(), icon: const Icon(Icons.refresh)),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                    ? Center(child: Text(_error!))
-                    : _messages.isEmpty
-                        ? Center(
-                            child: Text(
-                              '向管理员发送消息，例如续期、对账疑问',
-                              style: TextStyle(color: cs.onSurfaceVariant),
-                              textAlign: TextAlign.center,
-                            ),
-                          )
-                        : ListView.builder(
-                            controller: _scroll,
-                            padding: const EdgeInsets.all(12),
-                            itemCount: _messages.length,
-                            itemBuilder: (ctx, i) {
-                              final m = _messages[i];
-                              final mine = m.isMine;
-                              return Align(
-                                alignment: mine
-                                    ? Alignment.centerRight
-                                    : Alignment.centerLeft,
-                                child: Container(
-                                  margin: const EdgeInsets.symmetric(vertical: 4),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 10,
-                                  ),
-                                  constraints: BoxConstraints(
-                                    maxWidth:
-                                        MediaQuery.sizeOf(context).width * 0.78,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: mine
-                                        ? cs.primaryContainer
-                                        : cs.surfaceContainerHighest,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: mine
-                                        ? CrossAxisAlignment.end
-                                        : CrossAxisAlignment.start,
-                                    children: [
-                                      Text(m.body),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        [
-                                          fmt.format(
-                                            DateTime.fromMillisecondsSinceEpoch(
-                                              m.createdAt,
-                                            ),
-                                          ),
-                                          if (mine && m.peerRead) '已读',
-                                        ].join(' · '),
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .labelSmall
-                                            ?.copyWith(
-                                              color: cs.onSurfaceVariant,
-                                            ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _input,
-                      minLines: 1,
-                      maxLines: 4,
-                      decoration: const InputDecoration(
-                        hintText: '输入消息…',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      onSubmitted: (_) => _send(),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    onPressed: _sending ? null : _send,
-                    child: const Text('发送'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
+      body: content,
     );
   }
 }

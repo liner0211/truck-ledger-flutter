@@ -117,6 +117,31 @@ final class RealtimeHub
     }
 
     /**
+     * 私聊/群聊：通知会话内全体用户 + 全体管理员（监管）。
+     * @param list<int> $memberUserIds
+     */
+    public static function chatUpdated(
+        array $cfg,
+        int $conversationId,
+        array $memberUserIds,
+        string $event,
+        array $extra = []
+    ): void {
+        $targets = [['role' => 'admin']];
+        foreach ($memberUserIds as $uid) {
+            $uid = (int)$uid;
+            if ($uid > 0) {
+                $targets[] = ['role' => 'user', 'id' => $uid];
+            }
+        }
+        self::publish($cfg, $targets, array_merge([
+            'type' => 'chat',
+            'event' => $event,
+            'conversation_id' => $conversationId,
+        ], $extra));
+    }
+
+    /**
      * 探测本机 WS 枢纽健康（供管理端/网页展示）。
      * @return array{ok:bool,reachable:bool,clients?:int,admins?:int,users?:int,error?:string,publish_url:string,port:int}
      */

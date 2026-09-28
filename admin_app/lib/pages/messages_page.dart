@@ -5,7 +5,6 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../admin_session.dart';
-import '../realtime_socket.dart';
 import '../ui/admin_widgets.dart';
 
 class MessagesPage extends StatefulWidget {
@@ -32,8 +31,8 @@ class _MessagesPageState extends State<MessagesPage>
   @override
   void initState() {
     super.initState();
-    final initial = (widget.initialTab ?? 0).clamp(0, 2);
-    _tabs = TabController(length: 3, vsync: this, initialIndex: initial);
+    final initial = (widget.initialTab ?? 0).clamp(0, 3);
+    _tabs = TabController(length: 4, vsync: this, initialIndex: initial);
     WidgetsBinding.instance.addPostFrameCallback((_) => _handleDeepOpen());
   }
 
@@ -79,33 +78,17 @@ class _MessagesPageState extends State<MessagesPage>
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
           child: PageHeader(
             title: '消息',
-            subtitle: '站内通知（可强制删除/看已读）· 客服会话（用户主动联系）',
-            trailing: ValueListenableBuilder(
-              valueListenable: context.watch<AdminSession>().realtime.connectionState,
-              builder: (_, state, __) {
-                final online = state == RealtimeConnState.online;
-                final mid = state == RealtimeConnState.connecting;
-                return Chip(
-                  visualDensity: VisualDensity.compact,
-                  avatar: Icon(
-                    Icons.circle,
-                    size: 10,
-                    color: online
-                        ? Colors.green
-                        : (mid ? Colors.orange : Colors.redAccent),
-                  ),
-                  label: Text(online ? 'WS 已连接' : (mid ? 'WS 连接中' : 'WS 离线')),
-                );
-              },
-            ),
+            subtitle: '站内通知 · 客服 · 用户聊天监管',
           ),
         ),
         TabBar(
           controller: _tabs,
+          isScrollable: true,
           tabs: const [
             Tab(text: '发送'),
-            Tab(text: '站内信管理'),
-            Tab(text: '客服会话'),
+            Tab(text: '站内信'),
+            Tab(text: '客服'),
+            Tab(text: '用户聊天'),
           ],
         ),
         Expanded(
@@ -115,6 +98,7 @@ class _MessagesPageState extends State<MessagesPage>
               _ComposeTab(),
               _InboxManageTab(),
               _SupportTab(),
+              _UserChatAdminTab(),
             ],
           ),
         ),
@@ -855,6 +839,287 @@ class _SupportDetailSheetState extends State<_SupportDetailSheet> {
                   FilledButton(onPressed: _send, child: const Text('发送')),
                 ],
               ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 用户私聊/群聊监管（只读消息 + 删消息 / 解散会话）。
+class _UserChatAdminTab extends StatefulWidget {
+  const _UserChatAdminTab();
+
+  @override
+  State<_UserChatAdminTab> createState() => _UserChatAdminTabState();
+}
+
+class _UserChatAdminTabState extends State<_UserChatAdminTab> {
+  bool _loading = true;
+  List<Map<String, dynamic>> _items = [];
+  StreamSubscription? _rtSub;
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _rtSub = context.read<AdminSession>().realtimeEvents.listen((e) {
+      if (e['type'] == 'chat' && mounted) {
+        _debounce?.cancel();
+        _debounce = Timer(const Duration(milliseconds: 320), () {
+          if (mounted) _load(silent: true);
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _rtSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) setState(() => _loading = true);
+    try {
+      final list = await context.read<AdminSession>().api.chatConversations();
+      if (!mounted) return;
+      setState(() {
+        _items = list;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
+  Future<void> _open(Map<String, dynamic> c) async {
+    final id = (c['id'] as num?)?.toInt() ?? 0;
+    if (id <= 0) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => _ChatAdminDetailSheet(
+        conversationId: id,
+        onChanged: () => _load(silent: true),
+      ),
+    );
+    if (mounted) await _load(silent: true);
+  }
+
+  String _titleOf(Map<String, dynamic> c) {
+    final t = '${c['title'] ?? ''}'.trim();
+    if (t.isNotEmpty) return t;
+    final type = '${c['type'] ?? 'dm'}';
+    return type == 'group' ? '群聊 #${c['id']}' : '私聊 #${c['id']}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fmt = DateFormat('MM-dd HH:mm');
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_items.isEmpty) {
+      return const Center(child: Text('暂无用户聊天会话'));
+    }
+    return RefreshIndicator(
+      onRefresh: () => _load(),
+      child: ListView.separated(
+        padding: const EdgeInsets.all(12),
+        itemCount: _items.length,
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (ctx, i) {
+          final c = _items[i];
+          final last = c['last_message'];
+          final preview = last is Map ? '${last['body'] ?? ''}' : '';
+          final updated = (c['updated_at'] as num?)?.toInt() ?? 0;
+          final type = '${c['type'] ?? 'dm'}';
+          return ListTile(
+            leading: Icon(type == 'group' ? Icons.groups_outlined : Icons.person_outline),
+            title: Text(_titleOf(c)),
+            subtitle: Text(
+              [
+                type == 'group' ? '群聊' : '私聊',
+                if (preview.isNotEmpty) preview,
+                if (updated > 0) fmt.format(DateTime.fromMillisecondsSinceEpoch(updated)),
+              ].join(' · '),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () => _open(c),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ChatAdminDetailSheet extends StatefulWidget {
+  const _ChatAdminDetailSheet({
+    required this.conversationId,
+    required this.onChanged,
+  });
+
+  final int conversationId;
+  final Future<void> Function() onChanged;
+
+  @override
+  State<_ChatAdminDetailSheet> createState() => _ChatAdminDetailSheetState();
+}
+
+class _ChatAdminDetailSheetState extends State<_ChatAdminDetailSheet> {
+  bool _loading = true;
+  String _title = '';
+  String _type = 'dm';
+  List<Map<String, dynamic>> _messages = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final m = await context
+          .read<AdminSession>()
+          .api
+          .chatConversationDetail(widget.conversationId);
+      final conv = (m['conversation'] as Map?)?.cast<String, dynamic>() ?? {};
+      final msgs = (m['messages'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => e.cast<String, dynamic>())
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _type = '${conv['type'] ?? 'dm'}';
+        final t = '${conv['title'] ?? ''}'.trim();
+        _title = t.isNotEmpty
+            ? t
+            : (_type == 'group'
+                ? '群聊 #${widget.conversationId}'
+                : '私聊 #${widget.conversationId}');
+        _messages = msgs;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
+  Future<void> _deleteMsg(int id) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除消息'),
+        content: const Text('强制删除该条用户聊天消息？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('删除')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await context.read<AdminSession>().api.deleteChatMessage(id);
+      await _load();
+      await widget.onChanged();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
+  Future<void> _dissolve() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('解散会话'),
+        content: const Text('解散后成员将无法继续该会话，确认？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('解散')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await context
+          .read<AdminSession>()
+          .api
+          .dissolveChatConversation(widget.conversationId);
+      await widget.onChanged();
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fmt = DateFormat('MM-dd HH:mm');
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.9,
+      builder: (ctx, scroll) {
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _title,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _dissolve,
+                    icon: const Icon(Icons.delete_forever_outlined),
+                    label: const Text('解散'),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView.builder(
+                      controller: scroll,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: _messages.length,
+                      itemBuilder: (c, i) {
+                        final m = _messages[i];
+                        final who = '${m['sender_username'] ?? m['sender_user_id'] ?? ''}';
+                        return ListTile(
+                          title: Text('${m['body']}'),
+                          subtitle: Text(
+                            '$who · '
+                            '${fmt.format(DateTime.fromMillisecondsSinceEpoch((m['created_at'] as num?)?.toInt() ?? 0))}',
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () =>
+                                _deleteMsg((m['id'] as num).toInt()),
+                          ),
+                        );
+                      },
+                    ),
             ),
           ],
         );

@@ -10,14 +10,25 @@ class InboxService {
 
   int unread = 0;
   int supportUnread = 0;
+  int chatUnreadDm = 0;
+  int chatUnreadGroup = 0;
   List<InboxMessage> latest = [];
 
-  Future<({int unread, int supportUnread})> refresh(MessagesApi api) async {
+  Future<({int unread, int supportUnread, int chatDm, int chatGroup})> refresh(
+    MessagesApi api,
+  ) async {
     final r = await api.list();
     unread = r.unread;
     supportUnread = r.supportUnread;
+    chatUnreadDm = r.chatUnreadDm;
+    chatUnreadGroup = r.chatUnreadGroup;
     latest = r.messages;
-    return (unread: unread, supportUnread: supportUnread);
+    return (
+      unread: unread,
+      supportUnread: supportUnread,
+      chatDm: chatUnreadDm,
+      chatGroup: chatUnreadGroup,
+    );
   }
 
   /// 登记推送通道。未集成 FCM 时使用 `local:<deviceId>`，Admin 广播仍走站内信。

@@ -1,6 +1,6 @@
 # Firebase Cloud Messaging（可选）
 
-站内信已可完整运营。若需要系统级推送通知，按下列步骤接入 FCM。
+站内信 + WebSocket 已可完整运营。系统级推送（杀进程仍弹通知）按下列步骤接入 FCM/APNs。
 
 ## 1. 服务端
 
@@ -10,26 +10,20 @@
 'fcm_server_key' => '你的 FCM Server Key',
 ```
 
-管理后台「远程通知」会：
+写库后会 **双发**：RealtimeHub（在线）+ `PushService::sendToUser`（FCM）。  
+`local:` 占位 token 会自动跳过。
 
-1. 写入站内信（必达）
-2. 若配置了 key，则向 `push_tokens` 表中的设备发 FCM
+## 2. Flutter 客户端
 
-## 2. Flutter 客户端（概要）
+1. 创建 Firebase 项目，下载：
+   - `android/app/google-services.json`
+   - `ios/Runner/GoogleService-Info.plist`
+2. 依赖已加入：`firebase_core`、`firebase_messaging`
+3. 登录后 `PushBootstrap` 取真 token 并 `POST /api/devices/push-token`
+4. 无 google-services 文件时：自动回退 `local:<deviceId>`，不影响站内信/WS；Android 不会 apply google-services 插件
 
-1. 创建 Firebase 项目，下载 `google-services.json` / `GoogleService-Info.plist`
-2. 添加依赖：`firebase_core`、`firebase_messaging`
-3. 获取 FCM token 后调用已有接口：
-
-```dart
-await messagesApi.registerPushToken(
-  deviceId: deviceId,
-  token: fcmToken, // 替换当前的 local:<deviceId>
-  platform: 'android', // 或 ios
-);
-```
-
-现有 `InboxService.registerPushChannel` 已支持传入 `fcmToken` 参数；未集成 Firebase 时使用 `local:` 占位，不影响站内信。
+Android 通知渠道：`messages`（「消息」）。  
+前台：`FirebaseMessaging.onMessage` → 软件内横幅（不叠系统通知）。
 
 ## 3. 越狱 iOS 注意
 

@@ -112,7 +112,7 @@ class AdminSession extends ChangeNotifier {
     realtime.connectionState.addListener(_onRtConnChanged);
     _rtSub = realtime.events.listen((e) {
       final type = e['type']?.toString();
-      if (type == 'inbox' || type == 'support') {
+      if (type == 'inbox' || type == 'support' || type == 'chat') {
         realtimeTick++;
         notifyListeners();
         _maybeShowInAppNotice(e);
@@ -206,6 +206,21 @@ class AdminSession extends ChangeNotifier {
           pendingMessagesTab = 2;
           pendingThreadId = tid;
           pendingMessageId = null;
+          notifyListeners();
+        },
+      );
+      return;
+    }
+    if (type == 'chat') {
+      if (event != 'message') return;
+      final who = (e['sender_username'] as String?)?.trim();
+      InAppNotifier.instance.show(
+        title: who != null && who.isNotEmpty ? '用户聊天 · $who' : '用户聊天有新消息',
+        body: (e['preview'] as String?) ?? '',
+        onTap: () {
+          pendingMessagesTab = 3;
+          pendingMessageId = null;
+          pendingThreadId = null;
           notifyListeners();
         },
       );

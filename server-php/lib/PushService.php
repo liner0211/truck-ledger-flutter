@@ -67,8 +67,14 @@ final class PushService
     }
 
     /** @return array{sent:int, skipped:int, errors:string[]} */
-    public static function sendToUser(PDO $pdo, array $cfg, int $userId, string $title, string $body): array
-    {
+    public static function sendToUser(
+        PDO $pdo,
+        array $cfg,
+        int $userId,
+        string $title,
+        string $body,
+        array $data = []
+    ): array {
         $key = (string)($cfg['fcm_server_key'] ?? '');
         $stmt = $pdo->prepare('SELECT token FROM push_tokens WHERE user_id=?');
         $stmt->execute([$userId]);
@@ -84,28 +90,60 @@ final class PushService
         }
         $sent = 0;
         $errors = [];
+        $skipped = 0;
         foreach ($tokens as $token) {
-            $ok = self::fcmLegacySend($key, $token, $title, $body);
+            // local: 占位 token 非 FCM，跳过
+            if (str_starts_with($token, 'local:')) {
+                $skipped++;
+                continue;
+            }
+            $ok = self::fcmLegacySend($key, $token, $title, $body, $data);
             if ($ok === true) {
                 $sent++;
             } else {
                 $errors[] = (string)$ok;
             }
         }
-        return ['sent' => $sent, 'skipped' => 0, 'errors' => $errors];
+        return ['sent' => $sent, 'skipped' => $skipped, 'errors' => $errors];
     }
 
     /** @return true|string */
-    private static function fcmLegacySend(string $serverKey, string $token, string $title, string $body)
-    {
+    private static function fcmLegacySend(
+        string $serverKey,
+        string $token,
+        string $title,
+        string $body,
+        array $data = []
+    ) {
         if (!function_exists('curl_init')) {
             return 'PHP curl 扩展不可用';
         }
+        $dataOut = array_merge([
+            'title' => $title,
+            'body' => $body,
+            'type' => 'inbox',
+        ], $data);
+        // FCM data 值须为字符串
+        foreach ($dataOut as $k => $v) {
+            $dataOut[$k] = (string)$v;
+        }
         $payload = json_encode([
             'to' => $token,
-            'notification' => ['title' => $title, 'body' => $body],
-            'data' => ['title' => $title, 'body' => $body],
+            'notification' => [
+                'title' => $title,
+                'body' => $body,
+                'android_channel_id' => 'messages',
+            ],
+            'data' => $dataOut,
             'priority' => 'high',
+            'content_available' => true,
+            'android' => [
+                'priority' => 'high',
+                'notification' => [
+                    'channel_id' => 'messages',
+                    'sound' => 'default',
+                ],
+            ],
         ], JSON_UNESCAPED_UNICODE);
         $ch = curl_init('https://fcm.googleapis.com/fcm/send');
         curl_setopt_array($ch, [
