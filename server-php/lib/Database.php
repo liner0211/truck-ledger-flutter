@@ -71,6 +71,8 @@ final class Database
             'control_version' => '1',
             'announcement' => '',
             'feature_flags' => '{"excel_export":true,"backup_import":true,"messages":true,"web_ledger":true}',
+            // 客服会话默认接待管理员 id（0=任意有 messages.send 的管理员可回复）
+            'support_admin_id' => '0',
             'apk_download_url' => '',
             'ios_download_url' => '',
             'update_release_notes' => '',
@@ -165,6 +167,8 @@ final class Database
             )'
         );
         self::ensureColumn($pdo, 'messages', 'meta_json', 'TEXT');
+        self::ensureColumn($pdo, 'messages', 'admin_id', 'INTEGER');
+        self::ensureColumn($pdo, 'messages', 'force_deleted_at', 'INTEGER');
         $msgAtt = $cfg['message_attachments_dir'] ?? ($cfg['data_dir'] . '/message_attachments');
         if (!is_dir($msgAtt)) {
             mkdir($msgAtt, 0755, true);
@@ -179,6 +183,45 @@ final class Database
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )'
         );
+        // 站内信回复线程（用户/管理员）
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS message_replies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id INTEGER NOT NULL,
+                sender_role TEXT NOT NULL,
+                sender_user_id INTEGER,
+                sender_admin_id INTEGER,
+                body TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+            )'
+        );
+        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_message_replies_msg ON message_replies(message_id, created_at)');
+        // 用户 ↔ 管理员客服会话（每用户一条线程）
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS support_threads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL UNIQUE,
+                admin_id INTEGER,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )'
+        );
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS support_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                thread_id INTEGER NOT NULL,
+                sender_role TEXT NOT NULL,
+                sender_user_id INTEGER,
+                sender_admin_id INTEGER,
+                body TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                read_by_peer_at INTEGER,
+                FOREIGN KEY (thread_id) REFERENCES support_threads(id) ON DELETE CASCADE
+            )'
+        );
+        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_support_msgs_thread ON support_messages(thread_id, created_at)');
 
         $pdo->exec(
             'CREATE TABLE IF NOT EXISTS audit_logs (

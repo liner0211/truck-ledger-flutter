@@ -49,7 +49,10 @@ server-php/
 | PUT | `/api/ledger` | 上传账本（`base_revision` 乐观锁） |
 | GET/POST | `/api/attachments…` | 附件列表/上下传 |
 | POST | `/api/devices/push-token` | 登记推送 Token |
-| GET | `/api/messages` | 站内信 |
+| GET | `/api/messages` | 站内信列表 |
+| GET/POST | `/api/messages/{id}/replies` | 站内信回复 |
+| GET | `/api/support/thread` · POST `/api/support/messages` | 客服会话 |
+| 消息关系说明 | [`docs/MESSAGING.md`](../docs/MESSAGING.md) | 通知 / 已读 / 强制删 / 客服 |
 
 ## Web 云端账本（`/app/`）
 

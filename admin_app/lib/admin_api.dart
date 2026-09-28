@@ -181,6 +181,44 @@ class AdminApi {
     });
   }
 
+  Future<List<Map<String, dynamic>>> inboxMessages({int? userId}) async {
+    final q = userId != null && userId > 0 ? '?user_id=$userId' : '';
+    final m = await _json('GET', '/api/admin/messages$q');
+    final list = m['messages'] as List? ?? [];
+    return list.map((e) => (e as Map).cast<String, dynamic>()).toList();
+  }
+
+  Future<Map<String, dynamic>> inboxMessageDetail(int id) =>
+      _json('GET', '/api/admin/messages/$id');
+
+  Future<void> forceDeleteInboxMessage(int id) =>
+      _json('DELETE', '/api/admin/messages/$id');
+
+  Future<void> replyInboxMessage(int id, String body) async {
+    await _json('POST', '/api/admin/messages/$id/replies', body: {'body': body});
+  }
+
+  Future<List<Map<String, dynamic>>> supportThreads() async {
+    final m = await _json('GET', '/api/admin/support/threads');
+    final list = m['threads'] as List? ?? [];
+    return list.map((e) => (e as Map).cast<String, dynamic>()).toList();
+  }
+
+  Future<Map<String, dynamic>> supportThreadDetail(int id) =>
+      _json('GET', '/api/admin/support/threads/$id');
+
+  Future<void> replySupportThread(int threadId, String body) async {
+    await _json('POST', '/api/admin/support/threads/$threadId/messages', body: {
+      'body': body,
+    });
+  }
+
+  Future<void> deleteSupportThread(int id) =>
+      _json('DELETE', '/api/admin/support/threads/$id');
+
+  Future<void> deleteSupportMessage(int id) =>
+      _json('DELETE', '/api/admin/support/messages/$id');
+
   Future<List<Map<String, dynamic>>> operators() async {
     final m = await _json('GET', '/api/admin/operators');
     final list = m['admins'] as List? ?? [];

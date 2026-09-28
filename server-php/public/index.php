@@ -14,6 +14,7 @@ require $root . '/lib/LedgerService.php';
 require $root . '/lib/SnapshotService.php';
 require $root . '/lib/AppControlService.php';
 require $root . '/lib/MessageService.php';
+require $root . '/lib/SupportChatService.php';
 require $root . '/lib/PushService.php';
 require $root . '/lib/AdminService.php';
 require $root . '/lib/AdminAuthService.php';
@@ -311,6 +312,71 @@ if (strpos($uri, '/api/') === 0) {
         MessageService::downloadAttachment($cfg, $msgId, urldecode($m[2]));
     }
 
+    if (preg_match('#^/api/messages/(\d+)$#', $uri, $m) && $method === 'GET') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        $detail = MessageService::findForUser($pdo, (int)$user['id'], (int)$m[1]);
+        if ($detail === null) {
+            JsonResponse::error('消息不存在', 404);
+        }
+        JsonResponse::send(['message' => $detail]);
+    }
+
+    if (preg_match('#^/api/messages/(\d+)/replies$#', $uri, $m) && $method === 'GET') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        $msgId = (int)$m[1];
+        if (!MessageService::userCanAccess($pdo, (int)$user['id'], $msgId)) {
+            JsonResponse::error('消息不存在', 404);
+        }
+        JsonResponse::send(['replies' => MessageService::listReplies($pdo, $msgId)]);
+    }
+
+    if (preg_match('#^/api/messages/(\d+)/replies$#', $uri, $m) && $method === 'POST') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        $msgId = (int)$m[1];
+        if (!MessageService::userCanAccess($pdo, (int)$user['id'], $msgId)) {
+            JsonResponse::error('消息不存在', 404);
+        }
+        RateLimitService::assert($cfg, 'msg_reply_' . $user['id'], 30, 3600);
+        $body = readJsonBody();
+        $reply = MessageService::addReply(
+            $pdo,
+            $msgId,
+            'user',
+            (string)($body['body'] ?? ''),
+            (int)$user['id'],
+            null
+        );
+        JsonResponse::send(['ok' => true, 'reply' => $reply]);
+    }
+
+    // 客服会话（用户侧）
+    if ($uri === '/api/support/thread' && $method === 'GET') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        $thread = SupportChatService::getOrCreateThread($pdo, (int)$user['id']);
+        SupportChatService::markPeerRead($pdo, (int)$thread['id'], 'user');
+        JsonResponse::send([
+            'thread' => SupportChatService::getThread($pdo, (int)$thread['id']),
+            'messages' => SupportChatService::listMessages($pdo, (int)$thread['id']),
+            'unread' => SupportChatService::unreadForUser($pdo, (int)$user['id']),
+        ]);
+    }
+
+    if ($uri === '/api/support/messages' && $method === 'POST') {
+        $user = AuthService::requireUser($pdo, $cfg);
+        RateLimitService::assert($cfg, 'support_msg_' . $user['id'], 60, 3600);
+        $thread = SupportChatService::getOrCreateThread($pdo, (int)$user['id']);
+        $body = readJsonBody();
+        $msg = SupportChatService::postMessage(
+            $pdo,
+            (int)$thread['id'],
+            'user',
+            (string)($body['body'] ?? ''),
+            (int)$user['id'],
+            null
+        );
+        JsonResponse::send(['ok' => true, 'message' => $msg]);
+    }
+
     // ---------- Admin Flutter / PC JSON API（JWT typ=admin）----------
     if ($uri === '/api/admin/login' && $method === 'POST') {
         RateLimitService::assert($cfg, 'admin_login', 20, 600);
@@ -523,10 +589,130 @@ if (strpos($uri, '/api/') === 0) {
             } else {
                 $r = PushService::broadcast($pdo, $cfg, $title, $text);
             }
+            // 记录发送管理员（若刚插入的消息可回填）
+            $lastId = (int)$pdo->lastInsertId();
+            if ($lastId > 0) {
+                $pdo->prepare('UPDATE messages SET admin_id=? WHERE id=? AND admin_id IS NULL')
+                    ->execute([$adminId, $lastId]);
+            }
             AppControlService::audit($pdo, $adminId, 'ADMIN_PUSH', 'message', (string)$userId, [
                 'title' => $title,
             ]);
             JsonResponse::send(['ok' => true, 'sent' => $r['sent'] ?? 0]);
+        }
+
+        if ($uri === '/api/admin/messages' && $method === 'GET') {
+            AdminAuthService::requirePermission($admin, 'messages.manage');
+            $uid = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
+            JsonResponse::send([
+                'messages' => MessageService::listForAdmin($pdo, 100, $uid > 0 ? $uid : null),
+            ]);
+        }
+
+        if (preg_match('#^/api/admin/messages/(\d+)$#', $uri, $m) && $method === 'GET') {
+            AdminAuthService::requirePermission($admin, 'messages.manage');
+            $msgId = (int)$m[1];
+            $raw = MessageService::findRaw($pdo, $msgId);
+            if ($raw === null) {
+                JsonResponse::error('消息不存在', 404);
+            }
+            JsonResponse::send([
+                'message' => [
+                    'id' => (int)$raw['id'],
+                    'user_id' => $raw['user_id'] !== null ? (int)$raw['user_id'] : null,
+                    'title' => $raw['title'],
+                    'body' => $raw['body'],
+                    'type' => $raw['type'],
+                    'created_at' => (int)$raw['created_at'],
+                    'admin_id' => $raw['admin_id'] !== null ? (int)$raw['admin_id'] : null,
+                ],
+                'replies' => MessageService::listReplies($pdo, $msgId),
+                'reads' => MessageService::readReceipts($pdo, $msgId),
+            ]);
+        }
+
+        if (preg_match('#^/api/admin/messages/(\d+)$#', $uri, $m) && $method === 'DELETE') {
+            AdminAuthService::requirePermission($admin, 'messages.manage');
+            $msgId = (int)$m[1];
+            if (!MessageService::forceDelete($pdo, $cfg, $msgId)) {
+                JsonResponse::error('消息不存在', 404);
+            }
+            AppControlService::audit($pdo, $adminId, 'MESSAGE_FORCE_DELETE', 'message', (string)$msgId, []);
+            JsonResponse::send(['ok' => true]);
+        }
+
+        if (preg_match('#^/api/admin/messages/(\d+)/replies$#', $uri, $m) && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'messages.manage');
+            $msgId = (int)$m[1];
+            if (MessageService::findRaw($pdo, $msgId) === null) {
+                JsonResponse::error('消息不存在', 404);
+            }
+            $body = readJsonBody();
+            $reply = MessageService::addReply(
+                $pdo,
+                $msgId,
+                'admin',
+                (string)($body['body'] ?? ''),
+                null,
+                $adminId
+            );
+            JsonResponse::send(['ok' => true, 'reply' => $reply]);
+        }
+
+        if ($uri === '/api/admin/support/threads' && $method === 'GET') {
+            AdminAuthService::requirePermission($admin, 'messages.manage');
+            JsonResponse::send(['threads' => SupportChatService::listThreadsForAdmin($pdo)]);
+        }
+
+        if (preg_match('#^/api/admin/support/threads/(\d+)$#', $uri, $m) && $method === 'GET') {
+            AdminAuthService::requirePermission($admin, 'messages.manage');
+            $tid = (int)$m[1];
+            $thread = SupportChatService::getThread($pdo, $tid);
+            if ($thread === null) {
+                JsonResponse::error('会话不存在', 404);
+            }
+            SupportChatService::markPeerRead($pdo, $tid, 'admin');
+            JsonResponse::send([
+                'thread' => SupportChatService::getThread($pdo, $tid),
+                'messages' => SupportChatService::listMessages($pdo, $tid),
+            ]);
+        }
+
+        if (preg_match('#^/api/admin/support/threads/(\d+)/messages$#', $uri, $m) && $method === 'POST') {
+            AdminAuthService::requirePermission($admin, 'messages.manage');
+            $tid = (int)$m[1];
+            if (SupportChatService::getThread($pdo, $tid) === null) {
+                JsonResponse::error('会话不存在', 404);
+            }
+            $body = readJsonBody();
+            $msg = SupportChatService::postMessage(
+                $pdo,
+                $tid,
+                'admin',
+                (string)($body['body'] ?? ''),
+                null,
+                $adminId
+            );
+            JsonResponse::send(['ok' => true, 'message' => $msg]);
+        }
+
+        if (preg_match('#^/api/admin/support/threads/(\d+)$#', $uri, $m) && $method === 'DELETE') {
+            AdminAuthService::requirePermission($admin, 'messages.manage');
+            $tid = (int)$m[1];
+            if (!SupportChatService::forceDeleteThread($pdo, $tid)) {
+                JsonResponse::error('会话不存在', 404);
+            }
+            AppControlService::audit($pdo, $adminId, 'SUPPORT_THREAD_DELETE', 'support_thread', (string)$tid, []);
+            JsonResponse::send(['ok' => true]);
+        }
+
+        if (preg_match('#^/api/admin/support/messages/(\d+)$#', $uri, $m) && $method === 'DELETE') {
+            AdminAuthService::requirePermission($admin, 'messages.manage');
+            $mid = (int)$m[1];
+            if (!SupportChatService::forceDeleteMessage($pdo, $mid)) {
+                JsonResponse::error('消息不存在', 404);
+            }
+            JsonResponse::send(['ok' => true]);
         }
 
         // JWT → 网页 Session：管理端打开与后台相同的账本编辑器

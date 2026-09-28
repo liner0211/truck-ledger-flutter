@@ -21,6 +21,7 @@ final class AdminAuthService
             'users.read',
             'users.write',
             'messages.send',
+            'messages.manage', // 列表/已读回执/强制删除/客服会话
             'ledger.read',
             'ledger.write',
         ];

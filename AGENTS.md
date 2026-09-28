@@ -38,6 +38,7 @@ CI 触发与 downloads → **[`docs/CI_AUTO_RELEASE.md`](docs/CI_AUTO_RELEASE.md
 | `BUILD_AND_DEPLOY.md` | 云端发版 / 部署权威 |
 | `docs/MIGRATION.md` | 迁机 / Secrets / 换服 |
 | `docs/CI_AUTO_RELEASE.md` | CI 与控制面回写 |
+| `docs/MESSAGING.md` | 站内通知 / 已读 / 强制删 / 客服会话 |
 | `dev/machine.env.example` | 本机配置模板 |
 | `one_click_ship.sh` | 发版总控 |
 | `one_click_server_deploy.sh` | rsync `server-php/` |

@@ -11,6 +11,7 @@ import 'change_password_screen.dart';
 import 'devices_screen.dart';
 import 'ledger_backup_actions.dart';
 import 'messages_screen.dart';
+import 'support_chat_screen.dart';
 import 'user_manual_screen.dart';
 
 /// 底部 Tab「我的」：资料、消息、账号、数据、主题、帮助。
@@ -100,10 +101,11 @@ class MeScreen extends StatelessWidget {
           const SizedBox(height: 16),
           _SectionCard(
             children: [
-              if (flags.messages)
+              if (flags.messages) ...[
                 _NavTile(
                   icon: Icons.mail_outline,
                   title: '消息中心',
+                  subtitle: '站内通知 · 已读提示 · 可回复',
                   trailing: unread > 0
                       ? Badge(
                           label: Text('$unread'),
@@ -123,6 +125,20 @@ class MeScreen extends StatelessWidget {
                     });
                   },
                 ),
+                _NavTile(
+                  icon: Icons.support_agent,
+                  title: '联系管理员',
+                  subtitle: '向管理员发送聊天消息',
+                  onTap: () {
+                    Navigator.push<void>(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SupportChatScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 12),
