@@ -50,6 +50,7 @@ class AppControlResult {
     required this.controlVersion,
     required this.offlineGraceSec,
     this.account,
+    this.jpushAppKey = '',
     FeatureFlags? featureFlags,
     AppUpdateInfo? update,
   })  : featureFlags = featureFlags ?? FeatureFlags(),
@@ -74,12 +75,15 @@ class AppControlResult {
   final int controlVersion;
   final int offlineGraceSec;
   final UserProfile? account;
+  /// 极光 AppKey（公开）；空则客户端不初始化 JPush。
+  final String jpushAppKey;
   final FeatureFlags featureFlags;
   final AppUpdateInfo update;
 
   factory AppControlResult.fromJson(Map<String, dynamic> m) {
     final app = (m['app'] as Map?)?.cast<String, dynamic>() ?? {};
     final policy = (m['policy'] as Map?)?.cast<String, dynamic>() ?? {};
+    final push = (m['push'] as Map?)?.cast<String, dynamic>() ?? {};
     final updateMap = (m['update'] as Map?)?.cast<String, dynamic>();
     UserProfile? account;
     final acc = m['account'];
@@ -100,6 +104,7 @@ class AppControlResult {
       controlVersion: (app['control_version'] as num?)?.toInt() ?? 1,
       offlineGraceSec: (policy['offline_grace_sec'] as num?)?.toInt() ?? 259200,
       account: account,
+      jpushAppKey: (push['jpush_app_key'] as String?)?.trim() ?? '',
       featureFlags: FeatureFlags.tryParse(m['feature_flags']),
       update: AppUpdateInfo.fromJson(updateMap),
     );

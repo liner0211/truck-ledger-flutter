@@ -38,21 +38,30 @@ final class PushService
     /** @return array{ok:bool,configured:bool,mode:string,detail?:string} */
     public static function status(array $cfg): array
     {
+        $jKey = trim((string)($cfg['jpush_app_key'] ?? ''));
+        $jSec = trim((string)($cfg['jpush_master_secret'] ?? ''));
+        if ($jKey !== '' && $jSec !== '') {
+            return [
+                'ok' => true,
+                'configured' => true,
+                'mode' => 'jpush',
+                'detail' => 'jpush_app_key=' . substr($jKey, 0, 8) . '…',
+            ];
+        }
         $sa = self::loadServiceAccount($cfg);
         if ($sa === null) {
             return [
                 'ok' => false,
                 'configured' => false,
                 'mode' => 'none',
-                'detail' => '未配置 fcm_service_account_file（或文件无效）',
+                'detail' => '未配置极光(jpush_*) 或 FCM；在线仍可靠 WS+本地通知栏',
             ];
         }
-        $projectId = self::projectId($cfg, $sa);
         return [
             'ok' => true,
             'configured' => true,
             'mode' => 'http_v1',
-            'detail' => 'project=' . $projectId,
+            'detail' => 'project=' . self::projectId($cfg, $sa),
         ];
     }
 
@@ -102,47 +111,162 @@ final class PushService
         $stmt->execute([$userId]);
         $tokens = [];
         foreach ($stmt as $row) {
-            $tokens[] = $row['token'];
+            $tokens[] = (string)$row['token'];
         }
         if ($tokens === []) {
             return ['sent' => 0, 'skipped' => 1, 'errors' => []];
         }
 
-        $sa = self::loadServiceAccount($cfg);
-        if ($sa === null) {
-            return [
-                'sent' => 0,
-                'skipped' => count($tokens),
-                'errors' => ['未配置 FCM 服务账号（fcm_service_account_file）'],
-            ];
-        }
-
-        $access = self::accessToken($cfg, $sa);
-        if ($access === null) {
-            return [
-                'sent' => 0,
-                'skipped' => 0,
-                'errors' => ['无法获取 FCM OAuth access token'],
-            ];
-        }
-
-        $projectId = self::projectId($cfg, $sa);
         $sent = 0;
         $errors = [];
         $skipped = 0;
+        $jpushIds = [];
+        $fcmTokens = [];
+
         foreach ($tokens as $token) {
             if (str_starts_with($token, 'local:')) {
                 $skipped++;
                 continue;
             }
-            $ok = self::fcmHttpV1Send($projectId, $access, $token, $title, $body, $data);
-            if ($ok === true) {
-                $sent++;
+            if (str_starts_with($token, 'jpush:')) {
+                $rid = substr($token, 6);
+                if ($rid !== '') {
+                    $jpushIds[] = $rid;
+                } else {
+                    $skipped++;
+                }
+                continue;
+            }
+            $fcmTokens[] = $token;
+        }
+
+        if ($jpushIds !== []) {
+            $r = self::jpushSend($cfg, $jpushIds, $title, $body, $data);
+            $sent += $r['sent'];
+            $errors = array_merge($errors, $r['errors']);
+            $skipped += $r['skipped'];
+        }
+
+        if ($fcmTokens !== []) {
+            $sa = self::loadServiceAccount($cfg);
+            if ($sa === null) {
+                $skipped += count($fcmTokens);
+                $errors[] = '未配置 FCM 服务账号，已跳过 FCM token';
             } else {
-                $errors[] = (string)$ok;
+                $access = self::accessToken($cfg, $sa);
+                if ($access === null) {
+                    $errors[] = '无法获取 FCM OAuth access token';
+                } else {
+                    $projectId = self::projectId($cfg, $sa);
+                    foreach ($fcmTokens as $token) {
+                        $ok = self::fcmHttpV1Send($projectId, $access, $token, $title, $body, $data);
+                        if ($ok === true) {
+                            $sent++;
+                        } else {
+                            $errors[] = (string)$ok;
+                        }
+                    }
+                }
             }
         }
+
+        if ($sent === 0 && $skipped === count($tokens) && $errors === []) {
+            $errors[] = '仅有 local 占位 token，无法发系统推送（需极光或 FCM）';
+        }
+
         return ['sent' => $sent, 'skipped' => $skipped, 'errors' => $errors];
+    }
+
+    /**
+     * 极光推送 REST API。
+     * @param list<string> $registrationIds
+     * @return array{sent:int, skipped:int, errors:string[]}
+     */
+    private static function jpushSend(
+        array $cfg,
+        array $registrationIds,
+        string $title,
+        string $body,
+        array $data = []
+    ): array {
+        $appKey = trim((string)($cfg['jpush_app_key'] ?? ''));
+        $secret = trim((string)($cfg['jpush_master_secret'] ?? ''));
+        if ($appKey === '' || $secret === '') {
+            return [
+                'sent' => 0,
+                'skipped' => count($registrationIds),
+                'errors' => ['未配置 jpush_app_key / jpush_master_secret'],
+            ];
+        }
+        if (!function_exists('curl_init')) {
+            return ['sent' => 0, 'skipped' => 0, 'errors' => ['PHP curl 扩展不可用']];
+        }
+
+        $extras = [];
+        foreach (array_merge(['type' => 'inbox'], $data) as $k => $v) {
+            $extras[(string)$k] = (string)$v;
+        }
+        // 客户端 LocalPushService / ChinaPush 用 payload 跳转
+        if (!isset($extras['payload'])) {
+            $type = $extras['type'] ?? 'inbox';
+            if ($type === 'chat' && !empty($extras['conversation_id'])) {
+                $extras['payload'] = 'chat:' . $extras['conversation_id'];
+            } elseif ($type === 'support') {
+                $extras['payload'] = 'support';
+            } elseif ($type === 'inbox' && !empty($extras['message_id'])) {
+                $extras['payload'] = 'inbox:' . $extras['message_id'];
+            } else {
+                $extras['payload'] = 'hub:0';
+            }
+        }
+
+        $payload = [
+            'platform' => 'all',
+            'audience' => ['registration_id' => array_values(array_unique($registrationIds))],
+            'notification' => [
+                'alert' => $body !== '' ? $body : $title,
+                'android' => [
+                    'title' => $title,
+                    'alert' => $body !== '' ? $body : $title,
+                    'extras' => $extras,
+                ],
+                'ios' => [
+                    'alert' => [
+                        'title' => $title,
+                        'body' => $body !== '' ? $body : $title,
+                    ],
+                    'sound' => 'default',
+                    'badge' => '+1',
+                    'extras' => $extras,
+                ],
+            ],
+            'options' => [
+                'apns_production' => !empty($cfg['jpush_apns_production']),
+            ],
+        ];
+
+        $ch = curl_init('https://api.jpush.cn/v3/push');
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Authorization: Basic ' . base64_encode($appKey . ':' . $secret),
+            ],
+            CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
+        ]);
+        $resp = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+        if ($resp === false) {
+            return ['sent' => 0, 'skipped' => 0, 'errors' => [$err ?: 'jpush curl 失败']];
+        }
+        if ($code < 200 || $code >= 300) {
+            return ['sent' => 0, 'skipped' => 0, 'errors' => ["JPush HTTP {$code}: {$resp}"]];
+        }
+        return ['sent' => count($registrationIds), 'skipped' => 0, 'errors' => []];
     }
 
     /** @return array<string,mixed>|null */
@@ -150,7 +274,6 @@ final class PushService
     {
         $path = trim((string)($cfg['fcm_service_account_file'] ?? ''));
         if ($path === '') {
-            // 默认路径：站点根 data/fcm-service-account.json
             $root = dirname(__DIR__);
             $path = $root . '/data/fcm-service-account.json';
         } elseif ($path[0] !== '/') {
@@ -183,9 +306,7 @@ final class PushService
         return (string)$sa['project_id'];
     }
 
-    /**
-     * @param array<string,mixed> $sa
-     */
+    /** @param array<string,mixed> $sa */
     private static function accessToken(array $cfg, array $sa): ?string
     {
         $now = time();
@@ -212,7 +333,6 @@ final class PushService
         if ($jwt === null) {
             return null;
         }
-
         if (!function_exists('curl_init')) {
             return null;
         }

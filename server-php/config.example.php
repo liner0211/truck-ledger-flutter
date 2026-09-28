@@ -20,12 +20,15 @@ return [
     'max_upload_bytes' => 20 * 1024 * 1024,
     // CORS：生产建议改为具体域名列表，例如 ['https://truck.liner0211.online']
     'cors_origins' => ['*'],
-    // FCM HTTP v1：服务账号 JSON 路径（相对站点根或绝对路径）。默认 data/fcm-service-account.json
+    // FCM（海外/有 GMS，可选）
     'fcm_service_account_file' => 'data/fcm-service-account.json',
-    // 可选：覆盖 JSON 内 project_id
     'fcm_project_id' => '',
-    // 已废弃（Legacy API 已停用）；保留键名以免旧 config 报错
     'fcm_server_key' => '',
+    // 极光推送（国内主通道；AppKey 会下发给客户端，Master Secret 仅服务端）
+    'jpush_app_key' => '',
+    'jpush_master_secret' => '',
+    // iOS 正式环境证书时设 true；开发包 false
+    'jpush_apns_production' => false,
     // WebSocket 实时通道。本机跑：bash ws/start_ws.sh；Nginx 反代 /ws
     'ws_enabled' => true,
     'ws_port' => 8765,

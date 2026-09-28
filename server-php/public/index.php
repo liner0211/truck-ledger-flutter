@@ -203,7 +203,15 @@ if (strpos($uri, '/api/') === 0) {
         $body = $method === 'POST' ? readJsonBody() : [];
         $version = (string)($body['app_version'] ?? $_GET['app_version'] ?? requestHeader('X-App-Version') ?: '0.0.0');
         $deviceId = (string)($body['device_id'] ?? $_GET['device_id'] ?? requestHeader('X-Device-Id') ?: '');
-        JsonResponse::send(AppControlService::check($pdo, $user, $version, $deviceId !== '' ? $deviceId : null));
+        JsonResponse::send(array_merge(
+            AppControlService::check($pdo, $user, $version, $deviceId !== '' ? $deviceId : null),
+            [
+                'push' => [
+                    'provider' => trim((string)($cfg['jpush_app_key'] ?? '')) !== '' ? 'jpush' : 'local',
+                    'jpush_app_key' => (string)($cfg['jpush_app_key'] ?? ''),
+                ],
+            ]
+        ));
     }
 
     if ($uri === '/api/ledger' && $method === 'GET') {

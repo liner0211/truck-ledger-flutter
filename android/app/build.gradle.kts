@@ -39,6 +39,15 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // 极光：可用 -PJPUSH_APPKEY=xxx 或环境变量；未配置时用占位（setup 仍可用服务端下发的 key）
+        val jpushKey = (System.getenv("JPUSH_APPKEY")
+            ?: (project.findProperty("JPUSH_APPKEY") as String?))
+            ?.trim()
+            .orEmpty()
+            .ifEmpty { "000000000000000000000000" }
+        manifestPlaceholders["JPUSH_PKGNAME"] = applicationId!!
+        manifestPlaceholders["JPUSH_APPKEY"] = jpushKey
+        manifestPlaceholders["JPUSH_CHANNEL"] = "developer-default"
     }
 
     signingConfigs {

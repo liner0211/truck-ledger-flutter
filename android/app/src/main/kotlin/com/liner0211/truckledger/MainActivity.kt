@@ -11,6 +11,9 @@ class MainActivity : FlutterActivity() {
         ensureMessageChannel()
     }
 
+    // Flutter 3.29+：关闭深链接，避免极光厂商通道离线点击白屏
+    override fun shouldHandleDeeplinking(): Boolean = false
+
     private fun ensureMessageChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = getSystemService(NotificationManager::class.java) ?: return

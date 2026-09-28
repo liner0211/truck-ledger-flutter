@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import 'app_nav.dart';
 import 'services/api_http_client.dart';
+import 'services/local_push_service.dart';
 import 'services/push_bootstrap.dart';
 import 'state/auth_controller.dart';
 import 'state/ledger_controller.dart';
@@ -15,11 +16,12 @@ import 'ui/permission_bootstrap_gate.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   initApiHttpClient();
-  // 必须在 runApp 前注册（即使 init 失败也不影响）
   try {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   } catch (_) {}
-  // 启动只做短超时探测，完整 token 在登录后后台重试
+  try {
+    await LocalPushService.instance.init().timeout(const Duration(seconds: 5));
+  } catch (_) {}
   try {
     await PushBootstrap.ensureInitialized(quick: true)
         .timeout(const Duration(seconds: 5));

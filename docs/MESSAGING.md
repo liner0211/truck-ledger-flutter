@@ -83,23 +83,15 @@ PHP 写库后向本机 `http://127.0.0.1:8765/publish` 发事件（`type`: `inbo
 | `bash ws/setup_baota_ws.sh` | 装 Node、注入 Nginx `/ws`、systemd |
 | `GET /api/health?deep=1` | `checks.websocket` |
 
-## 系统推送（FCM / APNs）
+## 系统推送（国内优先）
 
-默认 **双发**：写库后同时 `RealtimeHub` + `PushService::sendToUser`。  
-前台 App 收到 FCM 时走 `InAppNotifier`（iOS 关闭前台系统横幅），避免与软件内横幅叠两层。  
-`local:` 占位 token 不发 FCM。
+国内无 Google Play：**不要依赖 FCM**。
 
-### 运维配置（HTTP v1）
+1. **在线**：WebSocket → `LocalPushService` 系统通知栏 + 点击跳转（Android/iOS）  
+2. **杀进程**：配置 [极光 JPush](CN_PUSH.md)（`jpush_app_key` / `jpush_master_secret`）  
+3. FCM 仅作可选备用  
 
-1. Firebase 下载服务账号 JSON + `google-services.json`（+ iOS plist）到 `dev/fcm/`  
-2. 执行 `./scripts/apply_fcm_credentials.sh`（上传服务端、本机客户端、可选 GitHub Secret）  
-3. `config.php`：`fcm_service_account_file` → `data/fcm-service-account.json`  
-4. CI Secret：`GOOGLE_SERVICES_JSON_BASE64`（Release APK 注入）  
-5. Android 渠道 id：`messages`
-
-详见 [`server-php/FCM_SETUP.md`](../server-php/FCM_SETUP.md)。
-
-**说明：** 未配置服务账号或客户端未放 google-services 时，仍可靠站内信 + WS；杀进程后无系统通知。
+详见 [`docs/CN_PUSH.md`](CN_PUSH.md)。
 
 ### 试用到期推送
 

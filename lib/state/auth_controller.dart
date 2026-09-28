@@ -9,10 +9,12 @@ import '../app_nav.dart';
 import '../services/app_control_api.dart';
 import '../services/auth_api.dart';
 import '../services/device_id_service.dart';
+import '../services/china_push_bootstrap.dart';
 import '../services/chat_api.dart';
 import '../services/devices_api.dart';
 import '../services/feature_flags.dart';
 import '../services/inbox_service.dart';
+import '../services/local_push_service.dart';
 import '../services/messages_api.dart';
 import '../services/push_bootstrap.dart';
 import '../services/realtime_socket.dart';
@@ -316,33 +318,32 @@ class AuthController extends ChangeNotifier {
           ? (e['title'] as String)
           : (event == 'reply' ? '消息有新回复' : '新站内信');
       final body = (e['preview'] as String?) ?? '';
-      InAppNotifier.instance.show(
-        title: title,
-        body: body.isEmpty ? null : body,
-        onTap: () {
-          if (mid != null && mid > 0) {
-            AppNav.push(
-              MaterialPageRoute<void>(
-                builder: (_) => MessageDetailScreen(messageId: mid),
-              ),
-            );
-          } else {
-            AppNav.push(
-              MaterialPageRoute<void>(
-                builder: (_) => const MessagesHubScreen(initialTab: 0),
-              ),
-            );
-          }
-        },
-      );
+      final payload =
+          (mid != null && mid > 0) ? 'inbox:$mid' : 'hub:0';
+      _notifyUser(title: title, body: body, payload: payload, onTap: () {
+        if (mid != null && mid > 0) {
+          AppNav.push(
+            MaterialPageRoute<void>(
+              builder: (_) => MessageDetailScreen(messageId: mid),
+            ),
+          );
+        } else {
+          AppNav.push(
+            MaterialPageRoute<void>(
+              builder: (_) => const MessagesHubScreen(initialTab: 0),
+            ),
+          );
+        }
+      });
       return;
     }
     if (type == 'support') {
       if (event != 'message') return;
       if (e['sender_role'] == 'user') return;
-      InAppNotifier.instance.show(
+      _notifyUser(
         title: '客服新消息',
         body: (e['preview'] as String?) ?? '管理员回复了你',
+        payload: 'support',
         onTap: () {
           AppNav.push(
             MaterialPageRoute<void>(
@@ -359,9 +360,13 @@ class AuthController extends ChangeNotifier {
       if (sid != null && sid == _userId) return;
       final cid = (e['conversation_id'] as num?)?.toInt() ?? 0;
       final who = (e['sender_username'] as String?)?.trim();
-      InAppNotifier.instance.show(
-        title: who != null && who.isNotEmpty ? who : '新聊天消息',
-        body: (e['preview'] as String?) ?? '',
+      final title = who != null && who.isNotEmpty ? who : '新聊天消息';
+      final body = (e['preview'] as String?) ?? '';
+      final payload = cid > 0 ? 'chat:$cid' : 'hub:2';
+      _notifyUser(
+        title: title,
+        body: body,
+        payload: payload,
         onTap: () {
           if (cid > 0) {
             AppNav.push(
@@ -382,6 +387,27 @@ class AuthController extends ChangeNotifier {
         },
       );
     }
+  }
+
+  /// 前台横幅 + 系统通知栏（可点开跳转）。不依赖 Google。
+  void _notifyUser({
+    required String title,
+    String? body,
+    required String payload,
+    required VoidCallback onTap,
+  }) {
+    InAppNotifier.instance.show(
+      title: title,
+      body: body == null || body.isEmpty ? null : body,
+      onTap: onTap,
+    );
+    unawaited(
+      LocalPushService.instance.show(
+        title: title,
+        body: body,
+        payload: payload,
+      ),
+    );
   }
 
   void _onRtConnChanged() => notifyListeners();
@@ -461,11 +487,12 @@ class AuthController extends ChangeNotifier {
       if (fresh.isNotEmpty) {
         final first = fresh.first;
         final more = fresh.length - 1;
-        InAppNotifier.instance.show(
+        _notifyUser(
           title: first.title.isNotEmpty ? first.title : '新站内信',
           body: more > 0
               ? '${first.body}\n还有 $more 条未读'
               : (first.body.isEmpty ? null : first.body),
+          payload: 'inbox:${first.id}',
           onTap: () {
             AppNav.push(
               MaterialPageRoute<void>(
@@ -475,9 +502,10 @@ class AuthController extends ChangeNotifier {
           },
         );
       } else if (_unreadSupport > prevSupport && _unreadSupport > 0) {
-        InAppNotifier.instance.show(
+        _notifyUser(
           title: '客服新消息',
           body: '有 $_unreadSupport 条未读客服消息',
+          payload: 'support',
           onTap: () {
             AppNav.push(
               MaterialPageRoute<void>(
@@ -487,9 +515,10 @@ class AuthController extends ChangeNotifier {
           },
         );
       } else if (unreadChat > prevChat && unreadChat > 0) {
-        InAppNotifier.instance.show(
+        _notifyUser(
           title: '聊天未读',
           body: '有 $unreadChat 条聊天未读',
+          payload: 'hub:2',
           onTap: () {
             AppNav.push(
               MaterialPageRoute<void>(
@@ -499,9 +528,10 @@ class AuthController extends ChangeNotifier {
           },
         );
       } else if (unreadMessages > prevTotal && unreadMessages > 0) {
-        InAppNotifier.instance.show(
+        _notifyUser(
           title: '未读消息',
           body: '您有 $unreadMessages 条未读',
+          payload: 'hub:0',
           onTap: () {
             AppNav.push(
               MaterialPageRoute<void>(
@@ -535,26 +565,34 @@ class AuthController extends ChangeNotifier {
   Future<void> bootstrapPushAndInbox() async {
     final api = messagesApi;
     if (api == null) return;
-    // 先拉未读 + 连 WS，保证进主界面不被 FCM 卡住
     try {
       await refreshInbox().timeout(const Duration(seconds: 10));
     } catch (_) {}
     _connectRealtime();
     startForegroundPolling();
-    // FCM 登记放到后台；超时/失败不影响进入应用
+    // 国内推送优先极光；FCM 可选（无 Google 时自然失败）
     unawaited(() async {
+      try {
+        await ChinaPushBootstrap.registerIfConfigured(
+          api: api,
+          inbox: inbox,
+          platform: platformName,
+          jpushAppKey: _lastControl?.jpushAppKey,
+          production: true,
+        ).timeout(const Duration(seconds: 25));
+      } catch (e) {
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('bootstrap JPush skipped: $e');
+        }
+      }
       try {
         await PushBootstrap.registerToken(
           api: api,
           platform: platformName,
           inbox: inbox,
-        ).timeout(const Duration(seconds: 20));
-      } catch (e) {
-        if (kDebugMode) {
-          // ignore: avoid_print
-          print('bootstrap FCM skipped: $e');
-        }
-      }
+        ).timeout(const Duration(seconds: 15));
+      } catch (_) {}
     }());
   }
 

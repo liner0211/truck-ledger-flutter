@@ -93,13 +93,32 @@ jobs:
           echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > android/app/google-services.json
           echo "google-services.json injected."
 
+      - name: Inject JPush AppKey (optional)
+        env:
+          JPUSH_APPKEY: ${{ secrets.JPUSH_APPKEY }}
+        run: |
+          set -euo pipefail
+          if [ -n "${JPUSH_APPKEY:-}" ]; then
+            echo "JPUSH_APPKEY is set for Android manifest."
+            echo "JPUSH_APPKEY=${JPUSH_APPKEY}" >> "$GITHUB_ENV"
+          else
+            echo "JPUSH_APPKEY secret not set; using placeholder (server-side key still works for setup)."
+          fi
+
       - name: Build Release APK
+        env:
+          JPUSH_APPKEY: ${{ secrets.JPUSH_APPKEY }}
         run: |
           set -euo pipefail
           source ./scripts/flutter_build_version_env.sh
+          EXTRA=()
+          if [ -n "${JPUSH_APPKEY:-}" ]; then
+            EXTRA+=(-PJPUSH_APPKEY="$JPUSH_APPKEY")
+          fi
           flutter build apk --release \
             --build-name="$APP_BUILD_NAME" \
-            --build-number="$APP_BUILD_NUMBER"
+            --build-number="$APP_BUILD_NUMBER" \
+            "${EXTRA[@]}"
           mkdir -p dist
           cp -f build/app/outputs/flutter-apk/app-release.apk \
             "dist/truckledger-${APP_BUILD_NAME}-${APP_BUILD_NUMBER}-release.apk"
