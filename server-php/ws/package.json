@@ -1,0 +1,17 @@
+{
+  "name": "truck-ledger-ws",
+  "version": "1.0.0",
+  "private": true,
+  "description": "站内信/客服 WebSocket 枢纽（无 FCM）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "install-prod": "npm install --omit=dev"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

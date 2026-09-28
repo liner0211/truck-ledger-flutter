@@ -1,18 +1,26 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'admin_api.dart';
+import 'realtime_socket.dart';
 
 class AdminSession extends ChangeNotifier {
   AdminSession(this.prefs);
   final SharedPreferences prefs;
 
   final api = AdminApi(baseUrl: AdminApi.defaultBaseUrl());
+  final realtime = RealtimeSocket();
+  StreamSubscription? _rtSub;
   AdminProfile? admin;
   String? error;
   bool busy = false;
+  int realtimeTick = 0;
 
   bool get isLoggedIn => api.token != null && api.token!.isNotEmpty && admin != null;
+
+  Stream<Map<String, dynamic>> get realtimeEvents => realtime.events;
 
   Future<void> restore() async {
     final url = prefs.getString('admin_base_url');
@@ -34,6 +42,7 @@ class AdminSession extends ChangeNotifier {
         final me = await api.me();
         admin = me;
         await _persist();
+        _connectRealtime();
         notifyListeners();
       } catch (_) {
         await logout();
@@ -53,10 +62,12 @@ class AdminSession extends ChangeNotifier {
       admin = r.admin;
       await prefs.setString('admin_last_login_user', username.trim());
       await _persist();
+      _connectRealtime();
     } catch (e) {
       error = '$e';
       admin = null;
       api.token = null;
+      realtime.disconnect();
     } finally {
       busy = false;
       notifyListeners();
@@ -64,6 +75,9 @@ class AdminSession extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    _rtSub?.cancel();
+    _rtSub = null;
+    realtime.disconnect();
     api.token = null;
     admin = null;
     await prefs.remove('admin_token');
@@ -72,6 +86,20 @@ class AdminSession extends ChangeNotifier {
     await prefs.remove('admin_perms');
     await prefs.remove('admin_id');
     notifyListeners();
+  }
+
+  void _connectRealtime() {
+    final t = api.token;
+    if (t == null || t.isEmpty) return;
+    _rtSub?.cancel();
+    realtime.connect(baseUrl: api.baseUrl, token: t);
+    _rtSub = realtime.events.listen((e) {
+      final type = e['type'];
+      if (type == 'inbox' || type == 'support') {
+        realtimeTick++;
+        notifyListeners();
+      }
+    });
   }
 
   Future<void> _persist() async {

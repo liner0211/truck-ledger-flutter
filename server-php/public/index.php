@@ -15,6 +15,7 @@ require $root . '/lib/SnapshotService.php';
 require $root . '/lib/AppControlService.php';
 require $root . '/lib/MessageService.php';
 require $root . '/lib/SupportChatService.php';
+require $root . '/lib/RealtimeHub.php';
 require $root . '/lib/PushService.php';
 require $root . '/lib/AdminService.php';
 require $root . '/lib/AdminAuthService.php';
@@ -299,7 +300,9 @@ if (strpos($uri, '/api/') === 0) {
 
     if (preg_match('#^/api/messages/(\d+)/read$#', $uri, $m) && $method === 'POST') {
         $user = AuthService::requireUser($pdo, $cfg);
-        MessageService::markRead($pdo, (int)$user['id'], (int)$m[1]);
+        $msgId = (int)$m[1];
+        MessageService::markRead($pdo, (int)$user['id'], $msgId);
+        RealtimeHub::inboxUpdated($cfg, (int)$user['id'], 'read', ['message_id' => $msgId]);
         JsonResponse::send(['ok' => true]);
     }
 
@@ -346,6 +349,12 @@ if (strpos($uri, '/api/') === 0) {
             (int)$user['id'],
             null
         );
+        $raw = MessageService::findRaw($pdo, $msgId);
+        $targetUid = $raw && $raw['user_id'] !== null ? (int)$raw['user_id'] : (int)$user['id'];
+        RealtimeHub::inboxUpdated($cfg, $targetUid, 'reply', [
+            'message_id' => $msgId,
+            'reply_id' => (int)$reply['id'],
+        ]);
         JsonResponse::send(['ok' => true, 'reply' => $reply]);
     }
 
@@ -373,6 +382,13 @@ if (strpos($uri, '/api/') === 0) {
             (string)($body['body'] ?? ''),
             (int)$user['id'],
             null
+        );
+        RealtimeHub::supportUpdated(
+            $cfg,
+            (int)$user['id'],
+            (int)$thread['id'],
+            'message',
+            ['message_id' => (int)$msg['id']]
         );
         JsonResponse::send(['ok' => true, 'message' => $msg]);
     }
@@ -436,7 +452,7 @@ if (strpos($uri, '/api/') === 0) {
                 'trip_title' => $tripTitle,
                 'images' => [],
             ];
-            $msgId = MessageService::create($pdo, $userId, $title, $text, 'ops.reconcile', null, $meta);
+            $msgId = MessageService::create($pdo, $userId, $title, $text, 'ops.reconcile', null, $meta, $adminId);
             $images = MessageService::saveUploadedImages($cfg, $msgId);
             if ($images !== []) {
                 $meta['images'] = $images;
@@ -446,6 +462,7 @@ if (strpos($uri, '/api/') === 0) {
                 ]);
             }
             PushService::sendToUser($pdo, $cfg, $userId, $title, $text);
+            RealtimeHub::inboxUpdated($cfg, $userId, 'created', ['message_id' => $msgId]);
             AppControlService::audit($pdo, $adminId, 'ADMIN_RECONCILE_MSG', 'user', (string)$userId, [
                 'message_id' => $msgId,
                 'trip_id' => $tripId,
@@ -634,9 +651,12 @@ if (strpos($uri, '/api/') === 0) {
         if (preg_match('#^/api/admin/messages/(\d+)$#', $uri, $m) && $method === 'DELETE') {
             AdminAuthService::requirePermission($admin, 'messages.manage');
             $msgId = (int)$m[1];
-            if (!MessageService::forceDelete($pdo, $cfg, $msgId)) {
+            $raw = MessageService::findRaw($pdo, $msgId);
+            if ($raw === null || !MessageService::forceDelete($pdo, $cfg, $msgId)) {
                 JsonResponse::error('消息不存在', 404);
             }
+            $uid = $raw['user_id'] !== null ? (int)$raw['user_id'] : null;
+            RealtimeHub::inboxUpdated($cfg, $uid, 'deleted', ['message_id' => $msgId]);
             AppControlService::audit($pdo, $adminId, 'MESSAGE_FORCE_DELETE', 'message', (string)$msgId, []);
             JsonResponse::send(['ok' => true]);
         }
@@ -644,7 +664,8 @@ if (strpos($uri, '/api/') === 0) {
         if (preg_match('#^/api/admin/messages/(\d+)/replies$#', $uri, $m) && $method === 'POST') {
             AdminAuthService::requirePermission($admin, 'messages.manage');
             $msgId = (int)$m[1];
-            if (MessageService::findRaw($pdo, $msgId) === null) {
+            $raw = MessageService::findRaw($pdo, $msgId);
+            if ($raw === null) {
                 JsonResponse::error('消息不存在', 404);
             }
             $body = readJsonBody();
@@ -656,6 +677,11 @@ if (strpos($uri, '/api/') === 0) {
                 null,
                 $adminId
             );
+            $uid = $raw['user_id'] !== null ? (int)$raw['user_id'] : null;
+            RealtimeHub::inboxUpdated($cfg, $uid, 'reply', [
+                'message_id' => $msgId,
+                'reply_id' => (int)$reply['id'],
+            ]);
             JsonResponse::send(['ok' => true, 'reply' => $reply]);
         }
 
@@ -681,7 +707,8 @@ if (strpos($uri, '/api/') === 0) {
         if (preg_match('#^/api/admin/support/threads/(\d+)/messages$#', $uri, $m) && $method === 'POST') {
             AdminAuthService::requirePermission($admin, 'messages.manage');
             $tid = (int)$m[1];
-            if (SupportChatService::getThread($pdo, $tid) === null) {
+            $thread = SupportChatService::getThread($pdo, $tid);
+            if ($thread === null) {
                 JsonResponse::error('会话不存在', 404);
             }
             $body = readJsonBody();
@@ -693,15 +720,29 @@ if (strpos($uri, '/api/') === 0) {
                 null,
                 $adminId
             );
+            RealtimeHub::supportUpdated(
+                $cfg,
+                (int)$thread['user_id'],
+                $tid,
+                'message',
+                ['message_id' => (int)$msg['id']]
+            );
             JsonResponse::send(['ok' => true, 'message' => $msg]);
         }
 
         if (preg_match('#^/api/admin/support/threads/(\d+)$#', $uri, $m) && $method === 'DELETE') {
             AdminAuthService::requirePermission($admin, 'messages.manage');
             $tid = (int)$m[1];
-            if (!SupportChatService::forceDeleteThread($pdo, $tid)) {
+            $thread = SupportChatService::getThread($pdo, $tid);
+            if ($thread === null || !SupportChatService::forceDeleteThread($pdo, $tid)) {
                 JsonResponse::error('会话不存在', 404);
             }
+            RealtimeHub::supportUpdated(
+                $cfg,
+                (int)$thread['user_id'],
+                $tid,
+                'deleted'
+            );
             AppControlService::audit($pdo, $adminId, 'SUPPORT_THREAD_DELETE', 'support_thread', (string)$tid, []);
             JsonResponse::send(['ok' => true]);
         }
@@ -712,6 +753,12 @@ if (strpos($uri, '/api/') === 0) {
             if (!SupportChatService::forceDeleteMessage($pdo, $mid)) {
                 JsonResponse::error('消息不存在', 404);
             }
+            // 无法廉价取 thread；通知全体管理员刷新即可
+            RealtimeHub::publish($cfg, [['role' => 'admin']], [
+                'type' => 'support',
+                'event' => 'message_deleted',
+                'message_id' => $mid,
+            ]);
             JsonResponse::send(['ok' => true]);
         }
 

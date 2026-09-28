@@ -40,6 +40,9 @@ rsync -avz --delete \
   --exclude '.user.ini' \
   --exclude '.well-known/' \
   --exclude 'public/.well-known/' \
+  --exclude 'ws/node_modules/' \
+  --exclude 'data/ws.pid' \
+  --exclude 'data/ws.log' \
   -e "$RSYNC_SSH" \
   "$SRC" "$DEST"
 
@@ -59,6 +62,13 @@ fi
 # 语法检查（若有 php）
 if command -v php >/dev/null 2>&1; then
   php -l public/index.php >/dev/null && echo 'PHP 语法 OK'
+fi
+# WebSocket 枢纽（无 FCM；需本机 Node.js）
+if command -v node >/dev/null 2>&1 && [[ -f ws/start_ws.sh ]]; then
+  chmod +x ws/start_ws.sh
+  bash ws/start_ws.sh || echo 'WARN: WebSocket 启动失败（消息仍可用，仅无实时推送）'
+else
+  echo 'WARN: 未检测到 node，跳过 WebSocket（可稍后安装 Node 18+ 并运行 bash ws/start_ws.sh）'
 fi
 EOF
 

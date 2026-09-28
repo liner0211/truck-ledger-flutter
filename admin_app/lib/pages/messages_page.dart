@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -205,11 +207,21 @@ class _InboxManageTabState extends State<_InboxManageTab> {
   bool _loading = true;
   List<Map<String, dynamic>> _items = [];
   String? _error;
+  StreamSubscription? _rtSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _rtSub = context.read<AdminSession>().realtimeEvents.listen((e) {
+      if (e['type'] == 'inbox' && mounted) _load();
+    });
+  }
+
+  @override
+  void dispose() {
+    _rtSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -346,15 +358,22 @@ class _InboxDetailSheetState extends State<_InboxDetailSheet> {
   final _reply = TextEditingController();
   bool _loading = true;
   Map<String, dynamic>? _data;
+  StreamSubscription? _rtSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _rtSub = context.read<AdminSession>().realtimeEvents.listen((e) {
+      if (e['type'] != 'inbox' || !mounted) return;
+      final mid = (e['message_id'] as num?)?.toInt();
+      if (mid == null || mid == widget.messageId) _load();
+    });
   }
 
   @override
   void dispose() {
+    _rtSub?.cancel();
     _reply.dispose();
     super.dispose();
   }
@@ -482,11 +501,21 @@ class _SupportTab extends StatefulWidget {
 class _SupportTabState extends State<_SupportTab> {
   bool _loading = true;
   List<Map<String, dynamic>> _threads = [];
+  StreamSubscription? _rtSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _rtSub = context.read<AdminSession>().realtimeEvents.listen((e) {
+      if (e['type'] == 'support' && mounted) _load();
+    });
+  }
+
+  @override
+  void dispose() {
+    _rtSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -591,15 +620,25 @@ class _SupportDetailSheetState extends State<_SupportDetailSheet> {
   bool _loading = true;
   List<Map<String, dynamic>> _messages = [];
   String _username = '';
+  StreamSubscription? _rtSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _rtSub = context.read<AdminSession>().realtimeEvents.listen((e) {
+      if (e['type'] == 'support' &&
+          mounted &&
+          ((e['thread_id'] as num?)?.toInt() == widget.threadId ||
+              e['event'] == 'deleted')) {
+        _load();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _rtSub?.cancel();
     _input.dispose();
     super.dispose();
   }

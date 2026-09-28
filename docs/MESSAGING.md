@@ -30,3 +30,23 @@
 **管理端：** `GET/DELETE /api/admin/messages`、`…/replies`；`GET/POST/DELETE /api/admin/support/threads…`
 
 权限：`messages.send` 发送通知；`messages.manage` 管理/已读/客服。
+
+## 实时同步（WebSocket，不用 FCM）
+
+App 与管理端登录后连接 `wss://域名/ws?token=JWT`。  
+PHP 写库后向本机 `http://127.0.0.1:8765/publish` 发事件，枢纽推给在线连接，两端自动刷新列表/会话。
+
+| 组件 | 说明 |
+|------|------|
+| `server-php/ws/server.js` | Node 枢纽（仅监听 127.0.0.1） |
+| `bash ws/start_ws.sh` | 从 `config.php` 注入密钥并启动 |
+| Nginx `location /ws` | 反代到 8765（见 `nginx.truck.liner0211.online.conf`） |
+
+**说明：** 仅在线（App 进程保持连接）时实时；杀进程/断网后不会弹系统通知（未接 FCM）。重连后下次打开会拉最新数据。
+
+### 服务器首次启用
+
+1. 安装 Node.js 18+（宝塔「软件商店」或系统包）  
+2. 在站点 Nginx 配置中加入 `location ^~ /ws { ... }`（参考 `server-php/nginx.truck.liner0211.online.conf`），重载 Nginx  
+3. `cd /www/wwwroot/truck.liner0211.online && bash ws/start_ws.sh`  
+4. 本机部署脚本会在 rsync 后尝试自动重启 WS

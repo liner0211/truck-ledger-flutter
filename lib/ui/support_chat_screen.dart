@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -21,15 +23,22 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   bool _sending = false;
   String? _error;
   List<SupportMessage> _messages = [];
+  StreamSubscription? _rtSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _rtSub = context.read<AuthController>().realtimeEvents.listen((e) {
+      if (e['type'] == 'support' && mounted && !_sending) {
+        _load();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _rtSub?.cancel();
     _input.dispose();
     _scroll.dispose();
     super.dispose();

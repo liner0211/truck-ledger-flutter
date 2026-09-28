@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,7 @@ import '../services/devices_api.dart';
 import '../services/feature_flags.dart';
 import '../services/inbox_service.dart';
 import '../services/messages_api.dart';
+import '../services/realtime_socket.dart';
 import '../services/sync_service.dart';
 
 class AuthController extends ChangeNotifier {
@@ -55,6 +57,11 @@ class AuthController extends ChangeNotifier {
   bool get writeAllowed => _profile?.writeAllowed ?? true;
 
   final InboxService inbox = InboxService();
+  final RealtimeSocket realtime = RealtimeSocket();
+  StreamSubscription? _rtSub;
+
+  /// WebSocket 事件流（inbox / support），供消息页订阅刷新。
+  Stream<Map<String, dynamic>> get realtimeEvents => realtime.events;
 
   AuthApi get api => AuthApi(baseUrl: _serverUrl);
 
@@ -167,6 +174,7 @@ class AuthController extends ChangeNotifier {
     );
     await _saveSession(result);
     await saveLoginUsername(username);
+    _connectRealtime();
   }
 
   Future<void> login({
@@ -176,6 +184,7 @@ class AuthController extends ChangeNotifier {
     final result = await api.login(username: username, password: password);
     await _saveSession(result);
     await saveLoginUsername(username);
+    _connectRealtime();
   }
 
   Future<void> refreshProfile() async {
@@ -232,6 +241,9 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    _rtSub?.cancel();
+    _rtSub = null;
+    realtime.disconnect();
     _token = null;
     _username = null;
     _userId = null;
@@ -245,6 +257,19 @@ class AuthController extends ChangeNotifier {
     await prefs.remove(userIdKey);
     await prefs.remove(licensePlateKey);
     notifyListeners();
+  }
+
+  void _connectRealtime() {
+    final t = _token;
+    if (t == null || t.isEmpty) return;
+    _rtSub?.cancel();
+    realtime.connect(baseUrl: _serverUrl, token: t);
+    _rtSub = realtime.events.listen((e) {
+      final type = e['type'];
+      if (type == 'inbox' || type == 'support') {
+        refreshInbox();
+      }
+    });
   }
 
   Future<int> readLocalUpdatedAt() async {
@@ -281,6 +306,7 @@ class AuthController extends ChangeNotifier {
     if (api == null) return;
     await inbox.registerPushChannel(api: api, platform: platformName);
     await refreshInbox();
+    _connectRealtime();
   }
 
   Future<void> setLocalRevision(int rev) async {

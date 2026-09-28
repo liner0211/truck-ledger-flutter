@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -28,15 +29,28 @@ class _MessageDetailScreenState extends State<MessageDetailScreen> {
   bool _sending = false;
   String? _error;
   InboxMessage? _msg;
+  StreamSubscription? _rtSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _rtSub = context.read<AuthController>().realtimeEvents.listen((e) {
+      if (e['type'] != 'inbox' || !mounted || _sending) return;
+      final mid = (e['message_id'] as num?)?.toInt();
+      if (mid == null || mid == widget.messageId || e['event'] == 'deleted') {
+        if (e['event'] == 'deleted' && mid == widget.messageId) {
+          Navigator.pop(context);
+          return;
+        }
+        _load();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _rtSub?.cancel();
     _replyCtrl.dispose();
     super.dispose();
   }

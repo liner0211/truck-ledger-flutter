@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -20,11 +22,23 @@ class _MessagesScreenState extends State<MessagesScreen> {
   String? _error;
   List<InboxMessage> _messages = [];
   int _unread = 0;
+  StreamSubscription? _rtSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _rtSub = context.read<AuthController>().realtimeEvents.listen((e) {
+      if (e['type'] == 'inbox' && mounted) {
+        _load();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _rtSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
