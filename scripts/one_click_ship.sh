@@ -28,6 +28,7 @@ FORCE_CI="${SHIP_FORCE_CI:-0}"
 
 REPO_SLUG=""
 MADE_PUBLIC=0
+PRIVACY_CHECKED=0
 
 usage() {
   cat <<'EOF'
@@ -124,17 +125,20 @@ set_repo_visibility() {
 
 # 无论是否跑 CI，结束时都确认仓库为私有（误留 public 时改回）
 ensure_repo_private() {
+  [[ "$PRIVACY_CHECKED" == "1" ]] && return 0
   local priv
   priv="$(gh api "repos/$REPO_SLUG" --jq .private 2>/dev/null || echo "")"
   if [[ "$priv" == "true" ]]; then
     echo "==> 仓库可见性：私有 ✓"
     MADE_PUBLIC=0
+    PRIVACY_CHECKED=1
     return 0
   fi
   if [[ "$priv" == "false" ]]; then
     echo "==> 仓库当前为公开 → 改回私有"
     if set_repo_visibility true; then
       MADE_PUBLIC=0
+      PRIVACY_CHECKED=1
       return 0
     fi
     echo "ERROR: 改回私有失败，请手动: gh api -X PATCH repos/$REPO_SLUG -f private=true -f visibility=private" >&2
@@ -145,7 +149,7 @@ ensure_repo_private() {
 }
 
 restore_repo_private_if_needed() {
-  # trap / 早退：始终核对可见性（不仅限于本脚本临时公开过）
+  # trap：始终核对可见性（不仅限于本脚本临时公开过）
   ensure_repo_private || true
 }
 
