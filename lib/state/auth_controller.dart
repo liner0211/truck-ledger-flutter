@@ -243,6 +243,7 @@ class AuthController extends ChangeNotifier {
   Future<void> logout() async {
     _rtSub?.cancel();
     _rtSub = null;
+    realtime.connectionState.removeListener(_onRtConnChanged);
     realtime.disconnect();
     _token = null;
     _username = null;
@@ -263,7 +264,9 @@ class AuthController extends ChangeNotifier {
     final t = _token;
     if (t == null || t.isEmpty) return;
     _rtSub?.cancel();
+    realtime.connectionState.removeListener(_onRtConnChanged);
     realtime.connect(baseUrl: _serverUrl, token: t);
+    realtime.connectionState.addListener(_onRtConnChanged);
     _rtSub = realtime.events.listen((e) {
       final type = e['type'];
       if (type == 'inbox' || type == 'support') {
@@ -271,6 +274,8 @@ class AuthController extends ChangeNotifier {
       }
     });
   }
+
+  void _onRtConnChanged() => notifyListeners();
 
   Future<int> readLocalUpdatedAt() async {
     final prefs = await SharedPreferences.getInstance();

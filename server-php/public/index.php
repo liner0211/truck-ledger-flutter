@@ -470,12 +470,18 @@ if (strpos($uri, '/api/') === 0) {
             JsonResponse::send(['ok' => true, 'message_id' => $msgId, 'images' => $images]);
         }
 
+        if ($uri === '/api/admin/ws-status' && $method === 'GET') {
+            AdminAuthService::requirePermission($admin, 'dashboard.read');
+            JsonResponse::send(['websocket' => RealtimeHub::status($cfg)]);
+        }
+
         if ($uri === '/api/admin/dashboard' && $method === 'GET') {
             AdminAuthService::requirePermission($admin, 'dashboard.read');
             $settings = AppControlService::settings($pdo);
             JsonResponse::send([
                 'stats' => AdminService::stats($pdo, $cfg),
                 'health' => AdminService::health($pdo, $cfg),
+                'websocket' => RealtimeHub::status($cfg),
                 'settings' => [
                     'app_status' => $settings['app_status'] ?? 'ACTIVE',
                     'min_version' => $settings['min_version'] ?? '',
@@ -1052,6 +1058,7 @@ if ($uri === '/admin/dashboard' && $method === 'GET') {
     AdminService::requireLogin();
     $sessionAdmin = AdminAuthService::currentSessionAdmin($pdo);
     $settings = AppControlService::settings($pdo);
+    $wsToken = $sessionAdmin ? AdminAuthService::createToken($sessionAdmin, $cfg) : '';
     render('admin_dashboard.php', [
         'stats' => AdminService::stats($pdo, $cfg),
         'users' => AdminService::listUsers($pdo, $cfg),
@@ -1059,6 +1066,8 @@ if ($uri === '/admin/dashboard' && $method === 'GET') {
         'settings' => $settings,
         'audits' => AppControlService::recentAudits($pdo, 30),
         'health' => AdminService::health($pdo, $cfg),
+        'websocket' => RealtimeHub::status($cfg),
+        'ws_token' => $wsToken,
         'csrf' => AdminService::csrfToken(),
         'message' => (string)($_GET['msg'] ?? ''),
         'admin' => $sessionAdmin ? AdminAuthService::publicAdmin($sessionAdmin) : null,

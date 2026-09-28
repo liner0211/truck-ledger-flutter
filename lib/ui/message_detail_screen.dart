@@ -27,35 +27,43 @@ class _MessageDetailScreenState extends State<MessageDetailScreen> {
   final _replyCtrl = TextEditingController();
   bool _loading = true;
   bool _sending = false;
+  bool _refreshing = false;
   String? _error;
   InboxMessage? _msg;
   StreamSubscription? _rtSub;
+  Timer? _debounce;
 
   @override
   void initState() {
     super.initState();
     _load();
     _rtSub = context.read<AuthController>().realtimeEvents.listen((e) {
-      if (e['type'] != 'inbox' || !mounted || _sending) return;
+      if (e['type'] != 'inbox' || !mounted) return;
       final mid = (e['message_id'] as num?)?.toInt();
-      if (mid == null || mid == widget.messageId || e['event'] == 'deleted') {
-        if (e['event'] == 'deleted' && mid == widget.messageId) {
-          Navigator.pop(context);
-          return;
-        }
-        _load();
+      final event = e['event']?.toString();
+      if (event == 'deleted' && mid == widget.messageId) {
+        Navigator.pop(context);
+        return;
+      }
+      // 本条回复/已读变更，或广播类事件（无 message_id）
+      if (mid == widget.messageId || (mid == null && event != 'deleted')) {
+        _debounce?.cancel();
+        _debounce = Timer(const Duration(milliseconds: 280), () {
+          if (mounted && !_sending) _load(silent: true);
+        });
       }
     });
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _rtSub?.cancel();
     _replyCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool silent = false}) async {
     final api = context.read<AuthController>().messagesApi;
     if (api == null) {
       setState(() {
@@ -64,31 +72,38 @@ class _MessageDetailScreenState extends State<MessageDetailScreen> {
       });
       return;
     }
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (_refreshing) return;
+    _refreshing = true;
+    if (!silent || _msg == null) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
-      await api.markRead(widget.messageId);
+      if (!silent) await api.markRead(widget.messageId);
       final detail = await api.detail(widget.messageId);
       if (!mounted) return;
       setState(() {
         _msg = detail;
         _loading = false;
+        _error = null;
       });
       await context.read<AuthController>().refreshInbox();
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e.message;
+        if (!silent) _error = e.message;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = '$e';
+        if (!silent) _error = '$e';
       });
+    } finally {
+      _refreshing = false;
     }
   }
 

@@ -74,6 +74,8 @@ class AdminLabels {
         return '推送 FCM';
       case 'user_count':
         return '用户数';
+      case 'websocket':
+        return 'WebSocket 实时通道';
       default:
         return '$raw';
     }

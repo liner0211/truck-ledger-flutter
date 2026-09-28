@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../services/auth_api.dart';
 import '../services/messages_api.dart';
+import '../services/realtime_socket.dart';
 import '../state/auth_controller.dart';
 
 /// 用户 ↔ 管理员客服会话。
@@ -21,30 +22,43 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   final _scroll = ScrollController();
   bool _loading = true;
   bool _sending = false;
+  bool _refreshing = false;
   String? _error;
   List<SupportMessage> _messages = [];
   StreamSubscription? _rtSub;
+  Timer? _debounce;
+  Timer? _poll;
 
   @override
   void initState() {
     super.initState();
     _load();
     _rtSub = context.read<AuthController>().realtimeEvents.listen((e) {
-      if (e['type'] == 'support' && mounted && !_sending) {
-        _load();
+      if (e['type'] == 'support' && mounted) {
+        _debounce?.cancel();
+        _debounce = Timer(const Duration(milliseconds: 280), () {
+          if (mounted && !_sending) _load(silent: true);
+        });
       }
+    });
+    _poll = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (!mounted || _sending) return;
+      final st = context.read<AuthController>().realtime.connectionState.value;
+      if (st != RealtimeConnState.online) _load(silent: true);
     });
   }
 
   @override
   void dispose() {
+    _poll?.cancel();
+    _debounce?.cancel();
     _rtSub?.cancel();
     _input.dispose();
     _scroll.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool silent = false}) async {
     final api = context.read<AuthController>().messagesApi;
     if (api == null) {
       setState(() {
@@ -53,30 +67,37 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
       });
       return;
     }
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (_refreshing) return;
+    _refreshing = true;
+    if (!silent || _messages.isEmpty) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final r = await api.supportThread();
       if (!mounted) return;
       setState(() {
         _messages = r.messages;
         _loading = false;
+        _error = null;
       });
       _jumpBottom();
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e.message;
+        if (!silent) _error = e.message;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = '$e';
+        if (!silent) _error = '$e';
       });
+    } finally {
+      _refreshing = false;
     }
   }
 

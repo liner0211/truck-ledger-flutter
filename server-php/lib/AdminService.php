@@ -157,9 +157,20 @@ final class AdminService
             ? 'ok' : 'weak';
         $checks['fcm'] = !empty($cfg['fcm_server_key']) ? 'configured' : 'optional';
         $checks['user_count'] = (int)$pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
+        $ws = RealtimeHub::status($cfg);
+        $checks['websocket'] = !empty($ws['ok'])
+            ? ('ok clients=' . (int)($ws['clients'] ?? 0)
+                . ' admins=' . (int)($ws['admins'] ?? 0)
+                . ' users=' . (int)($ws['users'] ?? 0))
+            : ('down:' . (string)($ws['error'] ?? 'unknown'));
+        if (empty($ws['ok'])) {
+            // WS 宕机不把整体标成 fail（消息仍可用），仅 degraded 提示
+            $ok = false;
+        }
         return [
             'status' => $ok ? 'ok' : 'degraded',
             'checks' => $checks,
+            'websocket' => $ws,
             'time' => gmdate('c'),
         ];
     }

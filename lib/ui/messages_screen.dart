@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../services/auth_api.dart';
 import '../services/messages_api.dart';
+import '../services/realtime_socket.dart';
 import '../state/auth_controller.dart';
 import 'message_detail_screen.dart';
 import 'support_chat_screen.dart';
@@ -19,10 +20,13 @@ class MessagesScreen extends StatefulWidget {
 
 class _MessagesScreenState extends State<MessagesScreen> {
   bool _loading = true;
+  bool _refreshing = false;
   String? _error;
   List<InboxMessage> _messages = [];
   int _unread = 0;
   StreamSubscription? _rtSub;
+  Timer? _debounce;
+  Timer? _poll;
 
   @override
   void initState() {
@@ -30,18 +34,29 @@ class _MessagesScreenState extends State<MessagesScreen> {
     _load();
     _rtSub = context.read<AuthController>().realtimeEvents.listen((e) {
       if (e['type'] == 'inbox' && mounted) {
-        _load();
+        _debounce?.cancel();
+        _debounce = Timer(const Duration(milliseconds: 280), () {
+          if (mounted) _load(silent: true);
+        });
       }
+    });
+    // WS 离线时兜底轮询，避免必须退出重进
+    _poll = Timer.periodic(const Duration(seconds: 12), (_) {
+      if (!mounted) return;
+      final st = context.read<AuthController>().realtime.connectionState.value;
+      if (st != RealtimeConnState.online) _load(silent: true);
     });
   }
 
   @override
   void dispose() {
+    _poll?.cancel();
+    _debounce?.cancel();
     _rtSub?.cancel();
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool silent = false}) async {
     final api = context.read<AuthController>().messagesApi;
     if (api == null) {
       setState(() {
@@ -50,10 +65,14 @@ class _MessagesScreenState extends State<MessagesScreen> {
       });
       return;
     }
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (_refreshing) return;
+    _refreshing = true;
+    if (!silent || _messages.isEmpty) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final r = await api.list();
       if (!mounted) return;
@@ -61,19 +80,23 @@ class _MessagesScreenState extends State<MessagesScreen> {
         _messages = r.messages;
         _unread = r.unread;
         _loading = false;
+        _error = null;
       });
+      await context.read<AuthController>().refreshInbox();
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e.message;
+        if (!silent) _error = e.message;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = '$e';
+        if (!silent) _error = '$e';
       });
+    } finally {
+      _refreshing = false;
     }
   }
 
@@ -107,9 +130,30 @@ class _MessagesScreenState extends State<MessagesScreen> {
       appBar: AppBar(
         title: Text(_unread > 0 ? '消息（$_unread）' : '消息'),
         actions: [
+          ValueListenableBuilder(
+            valueListenable: context.read<AuthController>().realtime.connectionState,
+            builder: (_, state, __) {
+              final online = state == RealtimeConnState.online;
+              final mid = state == RealtimeConnState.connecting;
+              return Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Chip(
+                  visualDensity: VisualDensity.compact,
+                  avatar: Icon(
+                    Icons.circle,
+                    size: 10,
+                    color: online
+                        ? Colors.green
+                        : (mid ? Colors.orange : Colors.redAccent),
+                  ),
+                  label: Text(online ? '实时' : (mid ? '连接中' : '离线')),
+                ),
+              );
+            },
+          ),
           if (_unread > 0)
             TextButton(onPressed: _markAll, child: const Text('全部已读')),
-          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
+          IconButton(onPressed: () => _load(), icon: const Icon(Icons.refresh)),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(

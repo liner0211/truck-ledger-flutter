@@ -77,6 +77,7 @@ class AdminSession extends ChangeNotifier {
   Future<void> logout() async {
     _rtSub?.cancel();
     _rtSub = null;
+    realtime.connectionState.removeListener(_onRtConnChanged);
     realtime.disconnect();
     api.token = null;
     admin = null;
@@ -92,7 +93,9 @@ class AdminSession extends ChangeNotifier {
     final t = api.token;
     if (t == null || t.isEmpty) return;
     _rtSub?.cancel();
+    realtime.connectionState.removeListener(_onRtConnChanged);
     realtime.connect(baseUrl: api.baseUrl, token: t);
+    realtime.connectionState.addListener(_onRtConnChanged);
     _rtSub = realtime.events.listen((e) {
       final type = e['type'];
       if (type == 'inbox' || type == 'support') {
@@ -101,6 +104,8 @@ class AdminSession extends ChangeNotifier {
       }
     });
   }
+
+  void _onRtConnChanged() => notifyListeners();
 
   Future<void> _persist() async {
     await prefs.setString('admin_base_url', api.baseUrl);

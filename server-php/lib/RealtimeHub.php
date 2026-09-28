@@ -115,4 +115,57 @@ final class RealtimeHub
             'thread_id' => $threadId,
         ], $extra));
     }
+
+    /**
+     * 探测本机 WS 枢纽健康（供管理端/网页展示）。
+     * @return array{ok:bool,reachable:bool,clients?:int,admins?:int,users?:int,error?:string,publish_url:string,port:int}
+     */
+    public static function status(array $cfg): array
+    {
+        $port = (int)($cfg['ws_port'] ?? 8765);
+        $base = [
+            'ok' => false,
+            'reachable' => false,
+            'publish_url' => self::publishUrl($cfg),
+            'port' => $port,
+            'enabled' => self::enabled($cfg),
+        ];
+        if (!self::enabled($cfg)) {
+            $base['error'] = 'disabled';
+            return $base;
+        }
+        $url = 'http://127.0.0.1:' . $port . '/health';
+        $raw = null;
+        if (function_exists('curl_init')) {
+            $ch = curl_init($url);
+            if ($ch !== false) {
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_CONNECTTIMEOUT => 1,
+                    CURLOPT_TIMEOUT => 2,
+                ]);
+                $raw = curl_exec($ch);
+                curl_close($ch);
+            }
+        } else {
+            $ctx = stream_context_create(['http' => ['timeout' => 2, 'ignore_errors' => true]]);
+            $raw = @file_get_contents($url, false, $ctx);
+        }
+        if (!is_string($raw) || $raw === '') {
+            $base['error'] = 'unreachable';
+            return $base;
+        }
+        $j = json_decode($raw, true);
+        if (!is_array($j) || empty($j['ok'])) {
+            $base['error'] = 'bad_response';
+            return $base;
+        }
+        return array_merge($base, [
+            'ok' => true,
+            'reachable' => true,
+            'clients' => (int)($j['clients'] ?? 0),
+            'admins' => (int)($j['admins'] ?? 0),
+            'users' => (int)($j['users'] ?? 0),
+        ]);
+    }
 }

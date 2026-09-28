@@ -49,10 +49,23 @@
     @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
     .health-ok { color: #2e7d32; }
     .health-bad { color: #c62828; }
+    .ws-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; background:#999; vertical-align:middle; }
+    .ws-dot.on { background:#2e7d32; }
+    .ws-dot.off { background:#c62828; }
+    .ws-dot.mid { background:#ef6c00; }
     code { font-size: .78rem; background: #f5f5f5; padding: 1px 4px; border-radius: 4px; }
+    .msg-list { max-height: 320px; overflow: auto; }
+    .msg-list li { padding: 8px 0; border-bottom: 1px solid #f0f0f0; list-style: none; }
+    .msg-list ul { margin: 0; padding: 0; }
   </style>
 </head>
 <body>
+  <?php
+    $ws = is_array($websocket ?? null) ? $websocket : [];
+    $wsOk = !empty($ws['ok']);
+    $canMsgManage = !empty($admin) && in_array('messages.manage', $admin['permissions'] ?? [], true);
+    $canMsgSend = !empty($admin) && in_array('messages.send', $admin['permissions'] ?? [], true);
+  ?>
   <header>
     <h1>卡车记账 · 管理后台</h1>
     <nav>
@@ -62,6 +75,10 @@
           · <?= htmlspecialchars($admin['role_label'] ?? ($admin['role'] === 'super' ? '开发者' : '会计管理员'), ENT_QUOTES, 'UTF-8') ?>
         </span>
       <?php endif; ?>
+      <span id="ws-header-status" style="color:#c8e6c9;font-size:.85rem;margin-right:8px">
+        <span class="ws-dot <?= $wsOk ? 'on' : 'off' ?>"></span>
+        WS <?= $wsOk ? '在线' : '离线' ?>
+      </span>
       <a href="/app/" target="_blank">用户 Web 账本</a>
       <?php if (!empty($admin) && in_array('control.write', $admin['permissions'] ?? [], true)): ?>
       <a href="/api/health?deep=1" target="_blank">健康检查</a>
@@ -93,12 +110,25 @@
     <?php if ($canControl): ?>
     <div class="grid2">
       <div class="panel">
-        <h2>系统健康</h2>
+        <h2>系统健康 · WebSocket</h2>
         <div class="panel-body">
           <div>总体：
             <strong class="<?= ($health['status'] ?? '') === 'ok' ? 'health-ok' : 'health-bad' ?>">
               <?= htmlspecialchars((string)($health['status'] ?? ''), ENT_QUOTES, 'UTF-8') ?>
             </strong>
+          </div>
+          <div style="margin-top:10px" id="ws-panel-status">
+            <span class="ws-dot <?= $wsOk ? 'on' : 'off' ?>"></span>
+            实时通道：
+            <strong class="<?= $wsOk ? 'health-ok' : 'health-bad' ?>">
+              <?= $wsOk ? '运行中' : ('未运行 (' . htmlspecialchars((string)($ws['error'] ?? 'unknown'), ENT_QUOTES, 'UTF-8') . ')') ?>
+            </strong>
+            <span class="muted" id="ws-panel-detail">
+              · 连接 <?= (int)($ws['clients'] ?? 0) ?>
+              （管理 <?= (int)($ws['admins'] ?? 0) ?> / 用户 <?= (int)($ws['users'] ?? 0) ?>）
+              · 端口 <?= (int)($ws['port'] ?? 8765) ?>
+            </span>
+            <div class="muted" style="margin-top:6px" id="ws-browser-state">浏览器：连接中…</div>
           </div>
           <ul class="muted" style="margin:10px 0 0; padding-left:18px;">
             <?php foreach (($health['checks'] ?? []) as $k => $v): ?>
@@ -215,9 +245,11 @@
     </div>
     <?php endif; ?>
 
+    <?php if ($canMsgSend || $canMsgManage): ?>
     <div class="panel">
-      <h2>远程通知 / 站内信</h2>
+      <h2>远程通知 / 站内信 · 实时管理</h2>
       <div class="panel-body">
+        <?php if ($canMsgSend): ?>
         <form method="post" action="/admin/push">
           <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') ?>">
           <div class="setting-row">
@@ -233,12 +265,28 @@
           <label class="muted">内容</label>
           <textarea name="body" required placeholder="通知正文"></textarea>
           <div style="margin-top:12px;">
-            <button type="submit" class="btn-primary">发送（站内信必达；FCM 可选）</button>
-            <span class="muted">未配置 fcm_server_key 时仍会写入站内信。</span>
+            <button type="submit" class="btn-primary">发送站内信</button>
+            <span class="muted">写入后经 WebSocket 实时推给在线用户与管理端。</span>
           </div>
         </form>
+        <?php endif; ?>
+        <?php if ($canMsgManage): ?>
+        <div class="grid2" style="margin-top:18px">
+          <div>
+            <strong>最近站内信</strong>
+            <span class="muted" id="inbox-live-hint">（实时）</span>
+            <div class="msg-list" id="inbox-live"><p class="muted">加载中…</p></div>
+          </div>
+          <div>
+            <strong>客服会话</strong>
+            <span class="muted" id="support-live-hint">（实时）</span>
+            <div class="msg-list" id="support-live"><p class="muted">加载中…</p></div>
+          </div>
+        </div>
+        <?php endif; ?>
       </div>
     </div>
+    <?php endif; ?>
 
     <div class="panel">
       <h2>用户列表</h2>
@@ -432,5 +480,146 @@
     </div>
     <?php endif; ?>
   </main>
+  <script>
+  (function () {
+    var token = <?= json_encode((string)($ws_token ?? ''), JSON_UNESCAPED_UNICODE) ?>;
+    var canManage = <?= $canMsgManage ? 'true' : 'false' ?>;
+    var hdr = document.getElementById('ws-header-status');
+    var browserEl = document.getElementById('ws-browser-state');
+    var panelDetail = document.getElementById('ws-panel-detail');
+
+    function setBrowserState(cls, text) {
+      if (!browserEl) return;
+      browserEl.innerHTML = '<span class="ws-dot ' + cls + '"></span>浏览器：' + text;
+      if (hdr) {
+        hdr.innerHTML = '<span class="ws-dot ' + cls + '"></span>WS ' + (cls === 'on' ? '已连接' : (cls === 'mid' ? '重连中' : '离线'));
+      }
+    }
+
+    function api(path, opts) {
+      opts = opts || {};
+      opts.headers = Object.assign({
+        'Authorization': 'Bearer ' + token,
+        'Accept': 'application/json'
+      }, opts.headers || {});
+      return fetch(path, opts).then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
+    }
+
+    function fmtTime(ms) {
+      var n = Number(ms) || 0;
+      if (!n) return '—';
+      var d = new Date(n);
+      return (d.getMonth() + 1) + '/' + d.getDate() + ' ' +
+        String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    }
+
+    function renderInbox(items) {
+      var el = document.getElementById('inbox-live');
+      if (!el) return;
+      if (!items || !items.length) {
+        el.innerHTML = '<p class="muted">暂无站内信</p>';
+        return;
+      }
+      el.innerHTML = '<ul>' + items.slice(0, 30).map(function (m) {
+        return '<li><strong>' + escapeHtml(m.title || '') + '</strong> · 用户 ' +
+          (m.user_id || '—') +
+          ' <span class="muted">' + fmtTime(m.created_at) +
+          (m.read_count != null ? ' · 已读 ' + m.read_count : '') +
+          '</span><div class="muted">' + escapeHtml((m.body || '').slice(0, 80)) + '</div></li>';
+      }).join('') + '</ul>';
+    }
+
+    function renderSupport(items) {
+      var el = document.getElementById('support-live');
+      if (!el) return;
+      if (!items || !items.length) {
+        el.innerHTML = '<p class="muted">暂无客服会话</p>';
+        return;
+      }
+      el.innerHTML = '<ul>' + items.slice(0, 30).map(function (t) {
+        return '<li><strong>线程 #' + t.id + '</strong> · 用户 ' +
+          (t.user_id || t.username || '—') +
+          ' <span class="muted">' + fmtTime(t.updated_at || t.created_at) +
+          (t.unread_for_admin ? ' · 未读 ' + t.unread_for_admin : '') +
+          '</span><div class="muted">' + escapeHtml((t.last_body || t.preview || '').slice(0, 80)) + '</div></li>';
+      }).join('') + '</ul>';
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+      });
+    }
+
+    var refreshTimer = null;
+    function scheduleRefresh() {
+      if (!canManage) return;
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(loadLists, 250);
+    }
+
+    function loadLists() {
+      if (!canManage || !token) return;
+      api('/api/admin/messages').then(function (d) {
+        renderInbox(d.messages || d || []);
+      }).catch(function () {
+        var el = document.getElementById('inbox-live');
+        if (el) el.innerHTML = '<p class="muted">加载失败</p>';
+      });
+      api('/api/admin/support/threads').then(function (d) {
+        renderSupport(d.threads || d || []);
+      }).catch(function () {
+        var el = document.getElementById('support-live');
+        if (el) el.innerHTML = '<p class="muted">加载失败</p>';
+      });
+      api('/api/admin/ws-status').then(function (d) {
+        var w = d.websocket || {};
+        if (panelDetail) {
+          panelDetail.textContent = '· 枢纽连接 ' + (w.clients || 0) +
+            '（管理 ' + (w.admins || 0) + ' / 用户 ' + (w.users || 0) + '）· 端口 ' + (w.port || 8765);
+        }
+      }).catch(function () {});
+    }
+
+    function connectWs() {
+      if (!token) {
+        setBrowserState('off', '无令牌');
+        return;
+      }
+      setBrowserState('mid', '连接中…');
+      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      var ws = new WebSocket(proto + '//' + location.host + '/ws?token=' + encodeURIComponent(token));
+      ws.onopen = function () { setBrowserState('mid', '已握手，等待 hello…'); };
+      ws.onmessage = function (ev) {
+        try {
+          var msg = JSON.parse(ev.data);
+          if (msg.type === 'hello') {
+            setBrowserState('on', '已连接（admin #' + msg.id + '）');
+            return;
+          }
+          if (msg.type === 'ping') {
+            ws.send(JSON.stringify({ type: 'ping' }));
+            return;
+          }
+          if (msg.type === 'inbox' || msg.type === 'support') {
+            scheduleRefresh();
+          }
+        } catch (e) {}
+      };
+      ws.onclose = function () {
+        setBrowserState('off', '已断开，3s 重连…');
+        setTimeout(connectWs, 3000);
+      };
+      ws.onerror = function () { try { ws.close(); } catch (e) {} };
+    }
+
+    loadLists();
+    connectWs();
+    setInterval(loadLists, 30000);
+  })();
+  </script>
 </body>
 </html>

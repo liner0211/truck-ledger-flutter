@@ -6,6 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../admin_session.dart';
+import '../realtime_socket.dart';
 import '../ui/admin_widgets.dart';
 import '../widgets/update_progress_dialog.dart';
 import 'control_page.dart';
@@ -253,6 +254,27 @@ class _HomeShellState extends State<HomeShell> {
           ],
         ),
         actions: [
+          ValueListenableBuilder(
+            valueListenable: context.watch<AdminSession>().realtime.connectionState,
+            builder: (_, state, __) {
+              final online = state == RealtimeConnState.online;
+              final mid = state == RealtimeConnState.connecting;
+              return Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Chip(
+                  visualDensity: VisualDensity.compact,
+                  label: Text(online ? '实时' : (mid ? '连接中' : '离线')),
+                  avatar: Icon(
+                    Icons.circle,
+                    size: 10,
+                    color: online
+                        ? Colors.green
+                        : (mid ? Colors.orange : Colors.redAccent),
+                  ),
+                ),
+              );
+            },
+          ),
           const ThemeModeMenuButton(),
           IconButton(
             tooltip: '检查更新',

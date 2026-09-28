@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../admin_session.dart';
+import '../realtime_socket.dart';
 import '../ui/admin_labels.dart';
 import '../ui/admin_widgets.dart';
 
@@ -73,7 +74,11 @@ class _DashboardPageState extends State<DashboardPage> {
     final health = (data['health'] as Map?)?.cast<String, dynamic>() ?? {};
     final settings = (data['settings'] as Map?)?.cast<String, dynamic>() ?? {};
     final checks = (health['checks'] as Map?)?.cast<String, dynamic>() ?? {};
+    final ws = (data['websocket'] as Map?)?.cast<String, dynamic>() ??
+        (health['websocket'] as Map?)?.cast<String, dynamic>() ??
+        {};
     final canControl = context.watch<AdminSession>().admin?.can('control.write') == true;
+    final rtState = context.watch<AdminSession>().realtime.connectionState.value;
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -153,6 +158,26 @@ class _DashboardPageState extends State<DashboardPage> {
             },
           ),
           const SizedBox(height: 24),
+          AdminSection(
+            title: '实时通道 (WebSocket)',
+            subtitle: ws['ok'] == true ? '枢纽运行中' : '枢纽未运行（消息仍可用，无实时推送）',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _kv('枢纽', ws['ok'] == true
+                    ? '在线 · 连接 ${ws['clients'] ?? 0}（管理 ${ws['admins'] ?? 0} / 用户 ${ws['users'] ?? 0}）'
+                    : '离线 · ${ws['error'] ?? 'unreachable'}'),
+                _kv(
+                  '本端 App',
+                  rtState == RealtimeConnState.online
+                      ? '已连接'
+                      : (rtState == RealtimeConnState.connecting ? '连接中' : '未连接'),
+                ),
+                _kv('端口', '${ws['port'] ?? 8765}'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
           AdminSection(
             title: '系统健康',
             subtitle: '状态：${AdminLabels.status(health['status'])}',

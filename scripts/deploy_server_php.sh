@@ -63,12 +63,15 @@ fi
 if command -v php >/dev/null 2>&1; then
   php -l public/index.php >/dev/null && echo 'PHP 语法 OK'
 fi
-# WebSocket 枢纽（无 FCM；需本机 Node.js）
-if command -v node >/dev/null 2>&1 && [[ -f ws/start_ws.sh ]]; then
+# WebSocket：自动装 Node（宝塔/二进制）+ Nginx /ws + 启动枢纽
+if [[ -f ws/setup_baota_ws.sh ]]; then
+  chmod +x ws/setup_baota_ws.sh ws/start_ws.sh ws/export_env.sh 2>/dev/null || true
+  bash ws/setup_baota_ws.sh || echo 'WARN: WebSocket 自动配置失败（消息仍可用，仅无实时推送）'
+elif [[ -f ws/start_ws.sh ]]; then
   chmod +x ws/start_ws.sh
-  bash ws/start_ws.sh || echo 'WARN: WebSocket 启动失败（消息仍可用，仅无实时推送）'
+  bash ws/start_ws.sh || echo 'WARN: WebSocket 启动失败'
 else
-  echo 'WARN: 未检测到 node，跳过 WebSocket（可稍后安装 Node 18+ 并运行 bash ws/start_ws.sh）'
+  echo 'WARN: 缺少 ws/setup_baota_ws.sh'
 fi
 EOF
 

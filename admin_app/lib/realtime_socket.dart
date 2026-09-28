@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+enum RealtimeConnState { offline, connecting, online }
+
 /// 管理端连接站点 `/ws`（与司机端同一枢纽，无 FCM）。
 class RealtimeSocket {
   RealtimeSocket();
@@ -19,6 +21,11 @@ class RealtimeSocket {
 
   final _events = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get events => _events.stream;
+
+  final ValueNotifier<RealtimeConnState> connectionState =
+      ValueNotifier(RealtimeConnState.offline);
+
+  bool get isConnected => connectionState.value == RealtimeConnState.online;
 
   static Uri wsUri(String baseUrl, String token) {
     final root = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
@@ -51,6 +58,13 @@ class RealtimeSocket {
     } catch (_) {}
     _ch = null;
     _attempt = 0;
+    connectionState.value = RealtimeConnState.offline;
+  }
+
+  void _setState(RealtimeConnState s) {
+    if (connectionState.value != s) {
+      connectionState.value = s;
+    }
   }
 
   void _open() {
@@ -68,6 +82,7 @@ class RealtimeSocket {
     if (kDebugMode) {
       debugPrint('[AdminRealtime] connect $uri');
     }
+    _setState(RealtimeConnState.connecting);
     try {
       final ch = WebSocketChannel.connect(uri);
       _ch = ch;
@@ -81,6 +96,9 @@ class RealtimeSocket {
               if (map['type'] == 'ping') {
                 ch.sink.add(jsonEncode({'type': 'ping'}));
                 return;
+              }
+              if (map['type'] == 'hello') {
+                _setState(RealtimeConnState.online);
               }
               _events.add(map);
             }
@@ -106,7 +124,11 @@ class RealtimeSocket {
     _sub?.cancel();
     _sub = null;
     _ping?.cancel();
-    if (!_wanted) return;
+    if (!_wanted) {
+      _setState(RealtimeConnState.offline);
+      return;
+    }
+    _setState(RealtimeConnState.connecting);
     _attempt += 1;
     final sec = (_attempt * 2).clamp(2, 30);
     _reconnect?.cancel();
@@ -115,6 +137,7 @@ class RealtimeSocket {
 
   void dispose() {
     disconnect();
+    connectionState.dispose();
     _events.close();
   }
 }

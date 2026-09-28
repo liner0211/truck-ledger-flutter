@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../admin_session.dart';
+import '../realtime_socket.dart';
 import '../ui/admin_widgets.dart';
 
 class MessagesPage extends StatefulWidget {
@@ -35,11 +36,29 @@ class _MessagesPageState extends State<MessagesPage>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Padding(
-          padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
           child: PageHeader(
             title: '消息',
             subtitle: '站内通知（可强制删除/看已读）· 客服会话（用户主动联系）',
+            trailing: ValueListenableBuilder(
+              valueListenable: context.watch<AdminSession>().realtime.connectionState,
+              builder: (_, state, __) {
+                final online = state == RealtimeConnState.online;
+                final mid = state == RealtimeConnState.connecting;
+                return Chip(
+                  visualDensity: VisualDensity.compact,
+                  avatar: Icon(
+                    Icons.circle,
+                    size: 10,
+                    color: online
+                        ? Colors.green
+                        : (mid ? Colors.orange : Colors.redAccent),
+                  ),
+                  label: Text(online ? 'WS 已连接' : (mid ? 'WS 连接中' : 'WS 离线')),
+                );
+              },
+            ),
           ),
         ),
         TabBar(
@@ -205,43 +224,58 @@ class _InboxManageTab extends StatefulWidget {
 
 class _InboxManageTabState extends State<_InboxManageTab> {
   bool _loading = true;
+  bool _refreshing = false;
   List<Map<String, dynamic>> _items = [];
   String? _error;
   StreamSubscription? _rtSub;
+  Timer? _debounce;
 
   @override
   void initState() {
     super.initState();
     _load();
     _rtSub = context.read<AdminSession>().realtimeEvents.listen((e) {
-      if (e['type'] == 'inbox' && mounted) _load();
+      if (e['type'] == 'inbox' && mounted) {
+        _debounce?.cancel();
+        _debounce = Timer(const Duration(milliseconds: 280), () {
+          if (mounted) _load(silent: true);
+        });
+      }
     });
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _rtSub?.cancel();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _load({bool silent = false}) async {
+    if (_refreshing) return;
+    _refreshing = true;
+    if (!silent || _items.isEmpty) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final list = await context.read<AdminSession>().api.inboxMessages();
       if (!mounted) return;
       setState(() {
         _items = list;
         _loading = false;
+        _error = null;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = '$e';
+        if (!silent) _error = '$e';
       });
+    } finally {
+      _refreshing = false;
     }
   }
 
@@ -250,7 +284,7 @@ class _InboxManageTabState extends State<_InboxManageTab> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => _InboxDetailSheet(messageId: id, onChanged: _load),
+      builder: (ctx) => _InboxDetailSheet(messageId: id, onChanged: () => _load()),
     );
   }
 
@@ -293,7 +327,7 @@ class _InboxManageTabState extends State<_InboxManageTab> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(_error!),
-            TextButton(onPressed: _load, child: const Text('重试')),
+            TextButton(onPressed: () => _load(), child: const Text('重试')),
           ],
         ),
       );
@@ -304,13 +338,13 @@ class _InboxManageTabState extends State<_InboxManageTab> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text('暂无站内信'),
-            TextButton(onPressed: _load, child: const Text('刷新')),
+            TextButton(onPressed: () => _load(), child: const Text('刷新')),
           ],
         ),
       );
     }
     return RefreshIndicator(
-      onRefresh: _load,
+      onRefresh: () => _load(),
       child: ListView.separated(
         padding: const EdgeInsets.all(16),
         itemCount: _items.length,
@@ -357,8 +391,10 @@ class _InboxDetailSheet extends StatefulWidget {
 class _InboxDetailSheetState extends State<_InboxDetailSheet> {
   final _reply = TextEditingController();
   bool _loading = true;
+  bool _refreshing = false;
   Map<String, dynamic>? _data;
   StreamSubscription? _rtSub;
+  Timer? _debounce;
 
   @override
   void initState() {
@@ -367,19 +403,26 @@ class _InboxDetailSheetState extends State<_InboxDetailSheet> {
     _rtSub = context.read<AdminSession>().realtimeEvents.listen((e) {
       if (e['type'] != 'inbox' || !mounted) return;
       final mid = (e['message_id'] as num?)?.toInt();
-      if (mid == null || mid == widget.messageId) _load();
+      if (mid != null && mid != widget.messageId) return;
+      _debounce?.cancel();
+      _debounce = Timer(const Duration(milliseconds: 280), () {
+        if (mounted) _load(silent: true);
+      });
     });
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _rtSub?.cancel();
     _reply.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _load({bool silent = false}) async {
+    if (_refreshing) return;
+    _refreshing = true;
+    if (!silent || _data == null) setState(() => _loading = true);
     try {
       final d = await context.read<AdminSession>().api.inboxMessageDetail(widget.messageId);
       if (!mounted) return;
@@ -390,7 +433,11 @@ class _InboxDetailSheetState extends State<_InboxDetailSheet> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } finally {
+      _refreshing = false;
     }
   }
 
@@ -500,26 +547,36 @@ class _SupportTab extends StatefulWidget {
 
 class _SupportTabState extends State<_SupportTab> {
   bool _loading = true;
+  bool _refreshing = false;
   List<Map<String, dynamic>> _threads = [];
   StreamSubscription? _rtSub;
+  Timer? _debounce;
 
   @override
   void initState() {
     super.initState();
     _load();
     _rtSub = context.read<AdminSession>().realtimeEvents.listen((e) {
-      if (e['type'] == 'support' && mounted) _load();
+      if (e['type'] == 'support' && mounted) {
+        _debounce?.cancel();
+        _debounce = Timer(const Duration(milliseconds: 280), () {
+          if (mounted) _load(silent: true);
+        });
+      }
     });
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _rtSub?.cancel();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _load({bool silent = false}) async {
+    if (_refreshing) return;
+    _refreshing = true;
+    if (!silent || _threads.isEmpty) setState(() => _loading = true);
     try {
       final list = await context.read<AdminSession>().api.supportThreads();
       if (!mounted) return;
@@ -530,7 +587,11 @@ class _SupportTabState extends State<_SupportTab> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } finally {
+      _refreshing = false;
     }
   }
 
@@ -539,9 +600,9 @@ class _SupportTabState extends State<_SupportTab> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => _SupportDetailSheet(threadId: id, onChanged: _load),
+      builder: (ctx) => _SupportDetailSheet(threadId: id, onChanged: () => _load()),
     );
-    await _load();
+    await _load(silent: true);
   }
 
   Future<void> _deleteThread(Map<String, dynamic> t) async {
@@ -571,13 +632,13 @@ class _SupportTabState extends State<_SupportTab> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text('暂无用户发起的客服会话'),
-            TextButton(onPressed: _load, child: const Text('刷新')),
+            TextButton(onPressed: () => _load(), child: const Text('刷新')),
           ],
         ),
       );
     }
     return RefreshIndicator(
-      onRefresh: _load,
+      onRefresh: () => _load(),
       child: ListView.separated(
         padding: const EdgeInsets.all(16),
         itemCount: _threads.length,
@@ -618,33 +679,43 @@ class _SupportDetailSheet extends StatefulWidget {
 class _SupportDetailSheetState extends State<_SupportDetailSheet> {
   final _input = TextEditingController();
   bool _loading = true;
+  bool _refreshing = false;
   List<Map<String, dynamic>> _messages = [];
   String _username = '';
   StreamSubscription? _rtSub;
+  Timer? _debounce;
 
   @override
   void initState() {
     super.initState();
     _load();
     _rtSub = context.read<AdminSession>().realtimeEvents.listen((e) {
-      if (e['type'] == 'support' &&
-          mounted &&
-          ((e['thread_id'] as num?)?.toInt() == widget.threadId ||
-              e['event'] == 'deleted')) {
-        _load();
+      if (e['type'] != 'support' || !mounted) return;
+      final tid = (e['thread_id'] as num?)?.toInt();
+      if (tid != null && tid != widget.threadId && e['event'] != 'deleted') return;
+      if (e['event'] == 'deleted' && tid == widget.threadId) {
+        Navigator.pop(context);
+        return;
       }
+      _debounce?.cancel();
+      _debounce = Timer(const Duration(milliseconds: 280), () {
+        if (mounted) _load(silent: true);
+      });
     });
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _rtSub?.cancel();
     _input.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _load({bool silent = false}) async {
+    if (_refreshing) return;
+    _refreshing = true;
+    if (!silent || _messages.isEmpty) setState(() => _loading = true);
     try {
       final d = await context.read<AdminSession>().api.supportThreadDetail(widget.threadId);
       if (!mounted) return;
@@ -661,7 +732,11 @@ class _SupportDetailSheetState extends State<_SupportDetailSheet> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } finally {
+      _refreshing = false;
     }
   }
 

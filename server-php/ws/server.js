@@ -105,10 +105,29 @@ function broadcast(targets, payload) {
   return n;
 }
 
+function countByRole() {
+  let admins = 0;
+  let users = 0;
+  for (const idn of clients.values()) {
+    if (idn.role === 'admin') admins += 1;
+    else if (idn.role === 'user') users += 1;
+  }
+  return { admins, users };
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === 'GET' && (req.url === '/' || req.url === '/health')) {
+    const { admins, users } = countByRole();
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, clients: clients.size }));
+    res.end(
+      JSON.stringify({
+        ok: true,
+        clients: clients.size,
+        admins,
+        users,
+        uptime_sec: Math.floor(process.uptime()),
+      })
+    );
     return;
   }
   if (req.method === 'POST' && req.url === '/publish') {

@@ -2,33 +2,37 @@
 # 从站点根目录的 config.php 读取密钥并启动 WebSocket 枢纽。
 # 用法（在服务器上）：
 #   cd /www/wwwroot/truck.liner0211.online && bash ws/start_ws.sh
+# 推荐首次：bash ws/setup_baota_ws.sh（装 Node + Nginx /ws + systemd）
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT/ws"
 
-if [[ ! -f "$ROOT/config.php" ]]; then
-  echo "ERROR: 缺少 $ROOT/config.php" >&2
+bash "$ROOT/ws/export_env.sh"
+# shellcheck disable=SC1091
+set -a
+source "$ROOT/data/ws.env"
+set +a
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "ERROR: 未找到 node，请先运行 bash ws/setup_baota_ws.sh" >&2
   exit 1
 fi
-
-eval "$(
-  php -r '
-    $c = require "'"$ROOT"'/config.php";
-    $secret = (string)($c["jwt_secret"] ?? "");
-    $internal = (string)($c["ws_internal_token"] ?? "");
-    if ($internal === "") {
-      $internal = hash("sha256", $secret . "|ws-internal");
-    }
-    $port = (int)($c["ws_port"] ?? 8765);
-    echo "export JWT_SECRET=" . escapeshellarg($secret) . "\n";
-    echo "export WS_INTERNAL_TOKEN=" . escapeshellarg($internal) . "\n";
-    echo "export WS_PORT=" . escapeshellarg((string)$port) . "\n";
-  '
-)"
 
 if [[ ! -d node_modules/ws ]]; then
   echo "==> npm install"
   npm install --omit=dev
+fi
+
+# systemd 已托管则交给它
+if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files truck-ledger-ws.service >/dev/null 2>&1; then
+  if systemctl is-enabled --quiet truck-ledger-ws 2>/dev/null || systemctl is-active --quiet truck-ledger-ws 2>/dev/null; then
+    echo "==> 通过 systemd 重启 truck-ledger-ws"
+    systemctl restart truck-ledger-ws
+    sleep 0.5
+    curl -fsS "http://127.0.0.1:${WS_PORT}/health" || true
+    echo
+    exit 0
+  fi
 fi
 
 # 若已在跑则先停
@@ -42,7 +46,7 @@ if [[ -f "$ROOT/data/ws.pid" ]]; then
 fi
 
 mkdir -p "$ROOT/data"
-echo "==> 启动 WS :${WS_PORT}"
+echo "==> 启动 WS :${WS_PORT} (node=$(command -v node))"
 nohup node server.js >>"$ROOT/data/ws.log" 2>&1 &
 echo $! >"$ROOT/data/ws.pid"
 sleep 0.5
