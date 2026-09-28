@@ -104,11 +104,12 @@ class MeScreen extends StatelessWidget {
               if (flags.messages) ...[
                 _NavTile(
                   icon: Icons.mail_outline,
-                  title: '消息中心',
+                  title: unread > 0 ? '消息中心（$unread）' : '消息中心',
                   subtitle: '站内通知 · 已读提示 · 可回复',
                   trailing: unread > 0
                       ? Badge(
-                          label: Text('$unread'),
+                          backgroundColor: Colors.redAccent,
+                          label: Text(unread > 99 ? '99+' : '$unread'),
                           child: const Icon(Icons.chevron_right),
                         )
                       : const Icon(Icons.chevron_right),
@@ -127,15 +128,32 @@ class MeScreen extends StatelessWidget {
                 ),
                 _NavTile(
                   icon: Icons.support_agent,
-                  title: '联系管理员',
+                  title: auth.unreadSupport > 0
+                      ? '联系管理员（${auth.unreadSupport}）'
+                      : '联系管理员',
                   subtitle: '向管理员发送聊天消息',
+                  trailing: auth.unreadSupport > 0
+                      ? Badge(
+                          backgroundColor: Colors.redAccent,
+                          label: Text(
+                            auth.unreadSupport > 99
+                                ? '99+'
+                                : '${auth.unreadSupport}',
+                          ),
+                          child: const Icon(Icons.chevron_right),
+                        )
+                      : const Icon(Icons.chevron_right),
                   onTap: () {
                     Navigator.push<void>(
                       context,
                       MaterialPageRoute<void>(
                         builder: (_) => const SupportChatScreen(),
                       ),
-                    );
+                    ).then((_) {
+                      if (context.mounted) {
+                        context.read<AuthController>().refreshInbox();
+                      }
+                    });
                   },
                 ),
               ],

@@ -138,7 +138,7 @@ class MessagesApi {
         'Authorization': 'Bearer $token',
       };
 
-  Future<({List<InboxMessage> messages, int unread})> list() async {
+  Future<({List<InboxMessage> messages, int unread, int supportUnread})> list() async {
     final res = await apiHttpClient
         .get(Uri.parse(_url('/api/messages')), headers: _headers)
         .timeout(const Duration(seconds: 20));
@@ -153,7 +153,11 @@ class MessagesApi {
         .whereType<Map>()
         .map((e) => InboxMessage.fromJson(e.cast<String, dynamic>()))
         .toList();
-    return (messages: list, unread: (m['unread'] as num?)?.toInt() ?? 0);
+    return (
+      messages: list,
+      unread: (m['unread'] as num?)?.toInt() ?? 0,
+      supportUnread: (m['support_unread'] as num?)?.toInt() ?? 0,
+    );
   }
 
   Future<InboxMessage> detail(int id) async {

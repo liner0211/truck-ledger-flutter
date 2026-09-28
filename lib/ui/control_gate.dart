@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
@@ -46,6 +47,17 @@ class _ControlGateState extends State<ControlGate> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _runCheck(silent: true);
+      // 回前台强制轮询消息，补漏推送
+      unawaited(
+        context.read<AuthController>().pollInboxOnForeground(notifyMissed: true),
+      );
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      // 进入后台时也立刻拉一次，减少漏消息窗口
+      unawaited(
+        context.read<AuthController>().pollInboxOnForeground(notifyMissed: false),
+      );
     }
   }
 

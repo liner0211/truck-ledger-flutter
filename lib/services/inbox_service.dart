@@ -9,13 +9,15 @@ class InboxService {
   static const _lastSeenUnreadKey = 'TruckLedger.lastSeenUnread';
 
   int unread = 0;
+  int supportUnread = 0;
   List<InboxMessage> latest = [];
 
-  Future<int> refresh(MessagesApi api) async {
+  Future<({int unread, int supportUnread})> refresh(MessagesApi api) async {
     final r = await api.list();
     unread = r.unread;
+    supportUnread = r.supportUnread;
     latest = r.messages;
-    return unread;
+    return (unread: unread, supportUnread: supportUnread);
   }
 
   /// 登记推送通道。未集成 FCM 时使用 `local:<deviceId>`，Admin 广播仍走站内信。

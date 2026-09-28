@@ -18,6 +18,8 @@ class AdminSession extends ChangeNotifier {
   String? error;
   bool busy = false;
   int realtimeTick = 0;
+  int unreadBadge = 0;
+  Timer? _fgPoll;
 
   /// 通知点击：请求主壳切到消息 Tab（1=站内信管理 2=客服）
   int? pendingMessagesTab;
@@ -49,6 +51,8 @@ class AdminSession extends ChangeNotifier {
         admin = me;
         await _persist();
         _connectRealtime();
+        startForegroundPolling();
+        unawaited(pollOnForeground(notifyMissed: false));
         notifyListeners();
       } catch (_) {
         await logout();
@@ -69,6 +73,8 @@ class AdminSession extends ChangeNotifier {
       await prefs.setString('admin_last_login_user', username.trim());
       await _persist();
       _connectRealtime();
+      startForegroundPolling();
+      unawaited(pollOnForeground(notifyMissed: false));
     } catch (e) {
       error = '$e';
       admin = null;
@@ -83,8 +89,10 @@ class AdminSession extends ChangeNotifier {
   Future<void> logout() async {
     _rtSub?.cancel();
     _rtSub = null;
+    _stopFgPoll();
     realtime.connectionState.removeListener(_onRtConnChanged);
     realtime.disconnect();
+    unreadBadge = 0;
     api.token = null;
     admin = null;
     await prefs.remove('admin_token');
@@ -108,8 +116,52 @@ class AdminSession extends ChangeNotifier {
         realtimeTick++;
         notifyListeners();
         _maybeShowInAppNotice(e);
+        unawaited(pollOnForeground(notifyMissed: false));
       }
     });
+  }
+
+  Future<void> pollOnForeground({bool notifyMissed = true}) async {
+    if (!isLoggedIn) return;
+    final prev = unreadBadge;
+    try {
+      final threads = await api.supportThreads();
+      var n = 0;
+      for (final t in threads) {
+        n += (t['unread_for_admin'] as num?)?.toInt() ?? 0;
+      }
+      unreadBadge = n;
+      notifyListeners();
+      if (realtime.connectionState.value != RealtimeConnState.online) {
+        _connectRealtime();
+      }
+      if (notifyMissed && unreadBadge > prev) {
+        InAppNotifier.instance.show(
+          title: '客服未读',
+          body: '有 $unreadBadge 条客服消息待处理',
+          onTap: () {
+            pendingMessagesTab = 2;
+            notifyListeners();
+          },
+        );
+      }
+    } catch (_) {
+      if (realtime.connectionState.value != RealtimeConnState.online) {
+        _connectRealtime();
+      }
+    }
+  }
+
+  void startForegroundPolling() {
+    _stopFgPoll();
+    _fgPoll = Timer.periodic(const Duration(seconds: 25), (_) {
+      unawaited(pollOnForeground(notifyMissed: true));
+    });
+  }
+
+  void _stopFgPoll() {
+    _fgPoll?.cancel();
+    _fgPoll = null;
   }
 
   void clearPendingNav() {

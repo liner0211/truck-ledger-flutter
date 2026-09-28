@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../state/auth_controller.dart';
 import 'home_screen.dart';
 import 'me_screen.dart';
 import 'monthly_summary_screen.dart';
@@ -15,8 +17,24 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _index = 0;
 
+  Widget _badgeIcon({
+    required IconData icon,
+    required IconData selectedIcon,
+    required bool selected,
+    required int count,
+  }) {
+    final child = Icon(selected ? selectedIcon : icon);
+    if (count <= 0) return child;
+    final label = count > 99 ? '99+' : '$count';
+    return Badge(
+      label: Text(label),
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final unread = context.watch<AuthController>().unreadMessages;
     return Scaffold(
       body: IndexedStack(
         index: _index,
@@ -29,21 +47,31 @@ class _MainShellState extends State<MainShell> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: const [
-          NavigationDestination(
+        destinations: [
+          const NavigationDestination(
             icon: Icon(Icons.local_shipping_outlined),
             selectedIcon: Icon(Icons.local_shipping),
             label: '圈次',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.bar_chart_outlined),
             selectedIcon: Icon(Icons.bar_chart),
             label: '汇总',
           ),
           NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: '我的',
+            icon: _badgeIcon(
+              icon: Icons.person_outline,
+              selectedIcon: Icons.person,
+              selected: false,
+              count: unread,
+            ),
+            selectedIcon: _badgeIcon(
+              icon: Icons.person_outline,
+              selectedIcon: Icons.person,
+              selected: true,
+              count: unread,
+            ),
+            label: unread > 0 ? '我的($unread)' : '我的',
           ),
         ],
       ),

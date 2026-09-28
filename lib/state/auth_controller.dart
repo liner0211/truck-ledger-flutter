@@ -46,6 +46,9 @@ class AuthController extends ChangeNotifier {
   bool _initialized = false;
   int _localRevision = 0;
   int _unreadMessages = 0;
+  int _unreadSupport = 0;
+  final Set<int> _knownMessageIds = {};
+  Timer? _fgPoll;
   FeatureFlags _featureFlags = FeatureFlags();
 
   String get serverUrl => _serverUrl;
@@ -58,7 +61,10 @@ class AuthController extends ChangeNotifier {
   bool get isLoggedIn => _token != null && _token!.isNotEmpty;
   bool get isInitialized => _initialized;
   int get localRevision => _localRevision;
-  int get unreadMessages => _unreadMessages;
+  /// 站内信 + 客服未读合计（红点数量）
+  int get unreadMessages => _unreadMessages + _unreadSupport;
+  int get unreadInbox => _unreadMessages;
+  int get unreadSupport => _unreadSupport;
   FeatureFlags get featureFlags => _featureFlags;
   bool get writeAllowed => _profile?.writeAllowed ?? true;
 
@@ -258,6 +264,9 @@ class AuthController extends ChangeNotifier {
     _profile = null;
     _lastControl = null;
     _unreadMessages = 0;
+    _unreadSupport = 0;
+    _knownMessageIds.clear();
+    _stopFgPoll();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(tokenKey);
     await prefs.remove(usernameKey);
@@ -357,9 +366,109 @@ class AuthController extends ChangeNotifier {
     final api = messagesApi;
     if (api == null) return;
     try {
-      _unreadMessages = await inbox.refresh(api);
+      final r = await inbox.refresh(api);
+      _unreadMessages = r.unread;
+      _unreadSupport = r.supportUnread;
+      for (final m in inbox.latest) {
+        _knownMessageIds.add(m.id);
+      }
       notifyListeners();
     } catch (_) {}
+  }
+
+  /// 回到前台 / 定时：轮询补拉，并对漏掉的新消息弹软件内通知。
+  Future<void> pollInboxOnForeground({bool notifyMissed = true}) async {
+    final api = messagesApi;
+    if (api == null || !isLoggedIn) return;
+
+    final prevIds = Set<int>.from(_knownMessageIds);
+    final prevTotal = unreadMessages;
+    final prevSupport = _unreadSupport;
+
+    try {
+      final r = await inbox.refresh(api);
+      _unreadMessages = r.unread;
+      _unreadSupport = r.supportUnread;
+      notifyListeners();
+
+      if (realtime.connectionState.value != RealtimeConnState.online) {
+        _connectRealtime();
+      }
+
+      if (!notifyMissed) {
+        for (final m in inbox.latest) {
+          _knownMessageIds.add(m.id);
+        }
+        return;
+      }
+
+      final fresh = inbox.latest
+          .where((m) => !m.isRead && !prevIds.contains(m.id))
+          .toList();
+      for (final m in inbox.latest) {
+        _knownMessageIds.add(m.id);
+      }
+
+      if (fresh.isNotEmpty) {
+        final first = fresh.first;
+        final more = fresh.length - 1;
+        InAppNotifier.instance.show(
+          title: first.title.isNotEmpty ? first.title : '新站内信',
+          body: more > 0
+              ? '${first.body}\n还有 $more 条未读'
+              : (first.body.isEmpty ? null : first.body),
+          onTap: () {
+            AppNav.push(
+              MaterialPageRoute<void>(
+                builder: (_) => MessageDetailScreen(messageId: first.id),
+              ),
+            );
+          },
+        );
+      } else if (_unreadSupport > prevSupport && _unreadSupport > 0) {
+        InAppNotifier.instance.show(
+          title: '客服新消息',
+          body: '有 $_unreadSupport 条未读客服消息',
+          onTap: () {
+            AppNav.push(
+              MaterialPageRoute<void>(
+                builder: (_) => const SupportChatScreen(),
+              ),
+            );
+          },
+        );
+      } else if (unreadMessages > prevTotal && unreadMessages > 0) {
+        InAppNotifier.instance.show(
+          title: '未读消息',
+          body: '您有 $unreadMessages 条未读',
+          onTap: () {
+            AppNav.push(
+              MaterialPageRoute<void>(
+                builder: (_) => const MessagesScreen(),
+              ),
+            );
+          },
+        );
+      }
+    } catch (_) {
+      if (realtime.connectionState.value != RealtimeConnState.online) {
+        _connectRealtime();
+      }
+    }
+  }
+
+  void startForegroundPolling() {
+    _stopFgPoll();
+    _fgPoll = Timer.periodic(const Duration(seconds: 25), (_) {
+      if (!isLoggedIn) return;
+      // 在线时轻度轮询；WS 离线时更依赖轮询
+      unawaited(pollInboxOnForeground(notifyMissed: true));
+    });
+  }
+
+  void _stopFgPoll() {
+    _fgPoll?.cancel();
+    _fgPoll = null;
   }
 
   Future<void> bootstrapPushAndInbox() async {
@@ -368,6 +477,7 @@ class AuthController extends ChangeNotifier {
     await inbox.registerPushChannel(api: api, platform: platformName);
     await refreshInbox();
     _connectRealtime();
+    startForegroundPolling();
   }
 
   Future<void> setLocalRevision(int rev) async {

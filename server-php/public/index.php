@@ -289,6 +289,7 @@ if (strpos($uri, '/api/') === 0) {
         JsonResponse::send([
             'messages' => MessageService::listForUser($pdo, (int)$user['id']),
             'unread' => MessageService::unreadCount($pdo, (int)$user['id']),
+            'support_unread' => SupportChatService::unreadForUser($pdo, (int)$user['id']),
         ]);
     }
 

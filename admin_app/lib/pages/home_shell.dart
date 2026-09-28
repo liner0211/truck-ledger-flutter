@@ -22,7 +22,7 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
   String? _updateBanner;
   String? _updateUrl;
@@ -35,7 +35,29 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkUpdate());
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkUpdate();
+      context.read<AdminSession>().pollOnForeground(notifyMissed: false);
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      context.read<AdminSession>().pollOnForeground(notifyMissed: true);
+      _checkUpdate();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      context.read<AdminSession>().pollOnForeground(notifyMissed: false);
+    }
   }
 
   Future<void> _checkUpdate() async {
@@ -202,6 +224,34 @@ class _HomeShellState extends State<HomeShell> {
       });
     }
 
+    final navDestinations = <NavigationDestination>[
+      const NavigationDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard), label: '总览'),
+      const NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: '用户'),
+      NavigationDestination(
+        icon: session.unreadBadge > 0
+            ? Badge(
+                label: Text(session.unreadBadge > 99 ? '99+' : '${session.unreadBadge}'),
+                child: const Icon(Icons.mail_outline),
+              )
+            : const Icon(Icons.mail_outline),
+        selectedIcon: session.unreadBadge > 0
+            ? Badge(
+                label: Text(session.unreadBadge > 99 ? '99+' : '${session.unreadBadge}'),
+                child: const Icon(Icons.mail),
+              )
+            : const Icon(Icons.mail),
+        label: session.unreadBadge > 0 ? '消息(${session.unreadBadge})' : '消息',
+      ),
+      if (admin.can('control.write'))
+        const NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: '控制面'),
+      if (admin.can('admins.manage'))
+        const NavigationDestination(
+          icon: Icon(Icons.admin_panel_settings_outlined),
+          selectedIcon: Icon(Icons.admin_panel_settings),
+          label: '会计',
+        ),
+    ];
+
     final railDestinations = <NavigationRailDestination>[
       const NavigationRailDestination(
         icon: Icon(Icons.dashboard_outlined),
@@ -213,10 +263,20 @@ class _HomeShellState extends State<HomeShell> {
         selectedIcon: Icon(Icons.people),
         label: Text('用户'),
       ),
-      const NavigationRailDestination(
-        icon: Icon(Icons.mail_outline),
-        selectedIcon: Icon(Icons.mail),
-        label: Text('消息'),
+      NavigationRailDestination(
+        icon: session.unreadBadge > 0
+            ? Badge(
+                label: Text(session.unreadBadge > 99 ? '99+' : '${session.unreadBadge}'),
+                child: const Icon(Icons.mail_outline),
+              )
+            : const Icon(Icons.mail_outline),
+        selectedIcon: session.unreadBadge > 0
+            ? Badge(
+                label: Text(session.unreadBadge > 99 ? '99+' : '${session.unreadBadge}'),
+                child: const Icon(Icons.mail),
+              )
+            : const Icon(Icons.mail),
+        label: Text(session.unreadBadge > 0 ? '消息(${session.unreadBadge})' : '消息'),
       ),
       if (admin.can('control.write'))
         const NavigationRailDestination(
@@ -229,20 +289,6 @@ class _HomeShellState extends State<HomeShell> {
           icon: Icon(Icons.admin_panel_settings_outlined),
           selectedIcon: Icon(Icons.admin_panel_settings),
           label: Text('会计账号'),
-        ),
-    ];
-
-    final navDestinations = <NavigationDestination>[
-      const NavigationDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard), label: '总览'),
-      const NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: '用户'),
-      const NavigationDestination(icon: Icon(Icons.mail_outline), selectedIcon: Icon(Icons.mail), label: '消息'),
-      if (admin.can('control.write'))
-        const NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: '控制面'),
-      if (admin.can('admins.manage'))
-        const NavigationDestination(
-          icon: Icon(Icons.admin_panel_settings_outlined),
-          selectedIcon: Icon(Icons.admin_panel_settings),
-          label: '会计',
         ),
     ];
 
