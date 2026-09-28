@@ -51,15 +51,19 @@ class SystemNavInset {
     return viewBottom;
   }
 
-  /// 包住 [NavigationBar]：去掉其内置 SafeArea 底垫，再按虚拟键高度抬一次。
+  /// 包住 [NavigationBar]：去掉其内置 SafeArea 底垫；
+  /// 虚拟键只在下方垫系统导航高度（背景延伸），不改变按键区域高度。
   static Widget wrap(BuildContext context, {required Widget child}) {
     final inset = bottomForNavBar(context);
     return MediaQuery.removePadding(
       context: context,
       removeBottom: true,
-      child: Padding(
-        padding: EdgeInsets.only(bottom: inset),
-        child: child,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          child,
+          if (inset > 0) SizedBox(height: inset),
+        ],
       ),
     );
   }

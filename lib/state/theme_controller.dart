@@ -93,6 +93,8 @@ class ThemeController extends ChangeNotifier {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
+        // M3 默认 80 偏高；按图标+文字内容收紧
+        height: 56,
         backgroundColor: Colors.white,
         indicatorColor: scheme.primaryContainer,
       ),
@@ -140,6 +142,7 @@ class ThemeController extends ChangeNotifier {
         ),
       ),
       navigationBarTheme: const NavigationBarThemeData(
+        height: 56,
         backgroundColor: _oledBlack,
         elevation: 0,
       ),

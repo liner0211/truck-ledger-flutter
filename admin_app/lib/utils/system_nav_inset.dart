@@ -51,9 +51,12 @@ class SystemNavInset {
     return MediaQuery.removePadding(
       context: context,
       removeBottom: true,
-      child: Padding(
-        padding: EdgeInsets.only(bottom: inset),
-        child: child,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          child,
+          if (inset > 0) SizedBox(height: inset),
+        ],
       ),
     );
   }

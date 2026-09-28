@@ -93,6 +93,7 @@ class ThemeController extends ChangeNotifier {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
+        height: 56,
         backgroundColor: scheme.surfaceContainerLowest,
         indicatorColor: scheme.secondaryContainer,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
