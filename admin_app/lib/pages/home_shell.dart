@@ -6,8 +6,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../admin_session.dart';
-import '../admin_updater.dart';
 import '../ui/admin_widgets.dart';
+import '../widgets/update_progress_dialog.dart';
 import 'control_page.dart';
 import 'dashboard_page.dart';
 import 'messages_page.dart';
@@ -25,6 +25,8 @@ class _HomeShellState extends State<HomeShell> {
   int _index = 0;
   String? _updateBanner;
   String? _updateUrl;
+  String? _updateNotes;
+  bool _forceUpdate = false;
   bool _checkingUpdate = false;
 
   static const _wideBreakpoint = 700.0;
@@ -37,6 +39,7 @@ class _HomeShellState extends State<HomeShell> {
 
   Future<void> _checkUpdate() async {
     if (_checkingUpdate) return;
+    final api = context.read<AdminSession>().api;
     setState(() => _checkingUpdate = true);
     try {
       final info = await PackageInfo.fromPlatform();
@@ -52,30 +55,52 @@ class _HomeShellState extends State<HomeShell> {
                       : Platform.isWindows
                           ? 'windows'
                           : 'unknown');
-      final api = context.read<AdminSession>().api;
       final raw = await api.checkAdminAppUpdate(ver);
       final update = (raw['update'] as Map?)?.cast<String, dynamic>();
-      if (update == null) return;
-      final available = update['available'] == true;
-      final url = '${update['download_url'] ?? ''}';
-      final latest = '${update['latest_version'] ?? ''}';
-      if (available && url.isNotEmpty && mounted) {
-        setState(() {
-          _updateBanner = '管理端有新版本 $latest（当前 $ver）';
-          _updateUrl = url;
-        });
+      if (update == null) {
+        if (mounted) {
+          setState(() {
+            _updateBanner = null;
+            _updateUrl = null;
+            _forceUpdate = false;
+          });
+        }
+        return;
       }
-      if (available && mounted && (platform == 'linux' || platform == 'windows')) {
+      final available = update['available'] == true;
+      final force = update['force'] == true;
+      var url = '${update['download_url'] ?? ''}';
+      final latest = '${update['latest_version'] ?? ''}';
+      final notes = '${update['release_notes'] ?? update['notes'] ?? ''}';
+
+      if (available && (platform == 'linux' || platform == 'windows')) {
         try {
           final d = await api.dashboard();
           final s = (d['settings'] as Map?)?.cast<String, dynamic>() ?? {};
           final prefer = platform == 'linux'
               ? '${s['admin_linux_download_url'] ?? ''}'
               : '${s['admin_windows_download_url'] ?? ''}';
-          if (prefer.isNotEmpty) {
-            setState(() => _updateUrl = prefer);
-          }
+          if (prefer.isNotEmpty) url = prefer;
         } catch (_) {}
+      }
+
+      if (!mounted) return;
+      if (available && url.isNotEmpty) {
+        setState(() {
+          _updateBanner = force
+              ? '必须更新到 $latest 才能继续使用（当前 $ver）'
+              : '管理端有新版本 $latest（当前 $ver）';
+          _updateUrl = url;
+          _updateNotes = notes.trim().isEmpty ? null : notes.trim();
+          _forceUpdate = force;
+        });
+      } else {
+        setState(() {
+          _updateBanner = null;
+          _updateUrl = null;
+          _updateNotes = null;
+          _forceUpdate = false;
+        });
       }
     } catch (_) {
     } finally {
@@ -87,7 +112,7 @@ class _HomeShellState extends State<HomeShell> {
     final url = _updateUrl;
     if (url == null || url.isEmpty) return;
     try {
-      await AdminAppUpdater.openOrInstall(url);
+      await runAdminUpdateWithProgress(context, url);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
@@ -99,6 +124,59 @@ class _HomeShellState extends State<HomeShell> {
     final s = context.watch<AdminSession>();
     final admin = s.admin!;
     final wide = MediaQuery.sizeOf(context).width >= _wideBreakpoint;
+    final cs = Theme.of(context).colorScheme;
+
+    if (_forceUpdate && _updateUrl != null && _updateUrl!.isNotEmpty) {
+      return Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Spacer(),
+                Icon(Icons.system_update_alt, size: 64, color: cs.primary),
+                const SizedBox(height: 16),
+                Text(
+                  '需要更新管理端',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _updateBanner ?? '请更新到最新版本后继续',
+                  textAlign: TextAlign.center,
+                ),
+                if (_updateNotes != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _updateNotes!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: cs.onSurfaceVariant),
+                  ),
+                ],
+                const Spacer(),
+                FilledButton.icon(
+                  onPressed: _installUpdate,
+                  icon: const Icon(Icons.download),
+                  label: const Text('立即更新'),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '将在应用内下载并打开安装包，不会跳转浏览器',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     final pages = <Widget>[
       const DashboardPage(),
@@ -153,7 +231,6 @@ class _HomeShellState extends State<HomeShell> {
     ];
 
     if (_index >= pages.length) _index = 0;
-    final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
@@ -212,7 +289,10 @@ class _HomeShellState extends State<HomeShell> {
                         style: TextStyle(color: cs.onPrimaryContainer),
                       ),
                     ),
-                    FilledButton(onPressed: _installUpdate, child: const Text('立即更新')),
+                    FilledButton(
+                      onPressed: _installUpdate,
+                      child: const Text('立即更新'),
+                    ),
                   ],
                 ),
               ),
