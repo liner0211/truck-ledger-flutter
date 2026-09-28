@@ -20,10 +20,6 @@ return [
     'max_upload_bytes' => 20 * 1024 * 1024,
     // CORS：生产建议改为具体域名列表，例如 ['https://truck.liner0211.online']
     'cors_origins' => ['*'],
-    // FCM（海外/有 GMS，可选）
-    'fcm_service_account_file' => 'data/fcm-service-account.json',
-    'fcm_project_id' => '',
-    'fcm_server_key' => '',
     // 极光推送（国内主通道；AppKey 会下发给客户端，Master Secret 仅服务端）
     'jpush_app_key' => '',
     'jpush_master_secret' => '',

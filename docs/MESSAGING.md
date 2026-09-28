@@ -1,6 +1,6 @@
 # 消息体系：站内信 / 客服 / 私聊 / 群聊
 
-四通道职责分离；在线走 WebSocket，杀进程后靠 FCM/APNs 系统通知。
+四通道职责分离；在线走 WebSocket + 本地通知栏，杀进程后靠极光（APNs/厂商通道）。
 
 ```mermaid
 flowchart LR
@@ -11,9 +11,9 @@ flowchart LR
     Group[群聊 多用户]
   end
   PHP[PHP API + RealtimeHub] --> WS[Node WS 在线实时]
-  PHP --> FCM[FCM/APNs 后台系统通知]
-  WS --> Apps[司机端与管理端前台]
-  FCM --> OS[系统通知栏]
+  PHP --> JP[极光 JPush 后台系统通知]
+  WS --> Apps[司机端与管理端]
+  JP --> OS[系统通知栏]
 ```
 
 ## 1. 站内通知（inbox / `messages`）
@@ -35,7 +35,7 @@ flowchart LR
 | 管理端 | 会话列表、回复、强制删除整会话或单条 |
 | 指定管理员 | `app_settings.support_admin_id`：`>0` 默认指派；`0` 表示任意有 `messages.manage` 的管理员可接待 |
 
-每用户最多一条客服线程。管理员回复时同时 WS + FCM。
+每用户最多一条客服线程。管理员回复时同时 WS + 极光（若已配置）。
 
 ## 3. 私聊 / 群聊（chat / `chat_*`）
 
@@ -83,13 +83,12 @@ PHP 写库后向本机 `http://127.0.0.1:8765/publish` 发事件（`type`: `inbo
 | `bash ws/setup_baota_ws.sh` | 装 Node、注入 Nginx `/ws`、systemd |
 | `GET /api/health?deep=1` | `checks.websocket` |
 
-## 系统推送（国内优先）
+## 系统推送（国内）
 
-国内无 Google Play：**不要依赖 FCM**。
+国内无 Google Play：**不使用 FCM**。
 
-1. **在线**：WebSocket → `LocalPushService` 系统通知栏 + 点击跳转（Android/iOS）  
+1. **在线**：WebSocket → `LocalPushService` 系统通知栏 + 点击跳转（司机端与管理端）  
 2. **杀进程**：配置 [极光 JPush](CN_PUSH.md)（`jpush_app_key` / `jpush_master_secret`）  
-3. FCM 仅作可选备用  
 
 详见 [`docs/CN_PUSH.md`](CN_PUSH.md)。
 

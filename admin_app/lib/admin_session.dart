@@ -6,9 +6,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'admin_api.dart';
 import 'in_app_notifier.dart';
 import 'realtime_socket.dart';
+import 'services/local_push_service.dart';
 
 class AdminSession extends ChangeNotifier {
-  AdminSession(this.prefs);
+  AdminSession(this.prefs) {
+    LocalPushService.onOpenPayload = _openPushPayload;
+  }
   final SharedPreferences prefs;
 
   final api = AdminApi(baseUrl: AdminApi.defaultBaseUrl());
@@ -136,9 +139,10 @@ class AdminSession extends ChangeNotifier {
         _connectRealtime();
       }
       if (notifyMissed && unreadBadge > prev) {
-        InAppNotifier.instance.show(
+        _notifyAdmin(
           title: '客服未读',
           body: '有 $unreadBadge 条客服消息待处理',
+          payload: 'hub:2',
           onTap: () {
             pendingMessagesTab = 2;
             notifyListeners();
@@ -181,9 +185,12 @@ class AdminSession extends ChangeNotifier {
       final mid = (e['message_id'] as num?)?.toInt();
       final title = event == 'reply' ? '用户回复了站内信' : '站内信更新';
       final body = (e['preview'] as String?) ?? (e['title'] as String?) ?? '';
-      InAppNotifier.instance.show(
+      final payload =
+          (mid != null && mid > 0) ? 'inbox:$mid' : 'hub:1';
+      _notifyAdmin(
         title: title,
         body: body.isEmpty ? null : body,
+        payload: payload,
         onTap: () {
           pendingMessagesTab = 1;
           pendingMessageId = mid;
@@ -199,9 +206,11 @@ class AdminSession extends ChangeNotifier {
       if (e['sender_role'] == 'admin') return;
       final tid = (e['thread_id'] as num?)?.toInt();
       final who = (e['username'] as String?)?.trim();
-      InAppNotifier.instance.show(
+      final payload = (tid != null && tid > 0) ? 'support:$tid' : 'hub:2';
+      _notifyAdmin(
         title: who != null && who.isNotEmpty ? '$who 发来客服消息' : '新的客服消息',
         body: (e['preview'] as String?) ?? '',
+        payload: payload,
         onTap: () {
           pendingMessagesTab = 2;
           pendingThreadId = tid;
@@ -214,9 +223,10 @@ class AdminSession extends ChangeNotifier {
     if (type == 'chat') {
       if (event != 'message') return;
       final who = (e['sender_username'] as String?)?.trim();
-      InAppNotifier.instance.show(
+      _notifyAdmin(
         title: who != null && who.isNotEmpty ? '用户聊天 · $who' : '用户聊天有新消息',
         body: (e['preview'] as String?) ?? '',
+        payload: 'hub:3',
         onTap: () {
           pendingMessagesTab = 3;
           pendingMessageId = null;
@@ -225,6 +235,51 @@ class AdminSession extends ChangeNotifier {
         },
       );
     }
+  }
+
+  /// 前台横幅 + 后台系统通知栏。
+  void _notifyAdmin({
+    required String title,
+    String? body,
+    required String payload,
+    required VoidCallback onTap,
+  }) {
+    InAppNotifier.instance.show(
+      title: title,
+      body: body == null || body.isEmpty ? null : body,
+      onTap: onTap,
+    );
+    unawaited(
+      LocalPushService.instance.show(
+        title: title,
+        body: body,
+        payload: payload,
+      ),
+    );
+  }
+
+  void _openPushPayload(String payload) {
+    final parts = payload.split(':');
+    final type = parts.isNotEmpty ? parts[0] : 'hub';
+    final id = parts.length > 1 ? int.tryParse(parts[1]) : null;
+    if (type == 'inbox') {
+      pendingMessagesTab = 1;
+      pendingMessageId = id;
+      pendingThreadId = null;
+    } else if (type == 'support') {
+      pendingMessagesTab = 2;
+      pendingThreadId = id;
+      pendingMessageId = null;
+    } else if (type == 'chat') {
+      pendingMessagesTab = 3;
+      pendingMessageId = null;
+      pendingThreadId = null;
+    } else {
+      pendingMessagesTab = (id ?? 1).clamp(1, 3);
+      pendingMessageId = null;
+      pendingThreadId = null;
+    }
+    notifyListeners();
   }
 
   void _onRtConnChanged() => notifyListeners();

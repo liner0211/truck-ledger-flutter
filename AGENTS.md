@@ -53,7 +53,7 @@ CI 触发与 downloads → **[`docs/CI_AUTO_RELEASE.md`](docs/CI_AUTO_RELEASE.md
 
 ## 云端能力（摘要）
 
-控制面、`revision` 同步与冲突、试用/到期、站内信、可选 FCM、功能开关。详情见 [`server-php/README.md`](server-php/README.md)。部署：`./one_click_server_deploy.sh`；App CI：`Release Packages`；管理端：`Release Admin Packages`。
+控制面、`revision` 同步与冲突、试用/到期、站内信、极光推送、功能开关。详情见 [`server-php/README.md`](server-php/README.md)。部署：`./one_click_server_deploy.sh`；App CI：`Release Packages`；管理端：`Release Admin Packages`。
 
 ## 版本号
 

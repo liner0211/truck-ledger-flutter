@@ -159,6 +159,24 @@ class AuthApi {
     return UserProfile.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
+  Future<UserProfile> updateProfile({
+    required String token,
+    required String licensePlate,
+  }) async {
+    final res = await apiHttpClient
+        .put(
+          Uri.parse(_url('/api/auth/profile')),
+          headers: _jsonHeaders(token),
+          body: jsonEncode({'license_plate': licensePlate}),
+        )
+        .timeout(const Duration(seconds: 15));
+    if (res.statusCode == 401) {
+      throw ApiException('登录已失效，请重新登录', statusCode: 401);
+    }
+    _throwIfAuthError(res);
+    return UserProfile.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
   Future<void> changePassword({
     required String token,
     required String oldPassword,

@@ -1,4 +1,3 @@
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
@@ -6,7 +5,6 @@ import 'package:provider/provider.dart';
 import 'app_nav.dart';
 import 'services/api_http_client.dart';
 import 'services/local_push_service.dart';
-import 'services/push_bootstrap.dart';
 import 'state/auth_controller.dart';
 import 'state/ledger_controller.dart';
 import 'state/theme_controller.dart';
@@ -17,14 +15,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   initApiHttpClient();
   try {
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-  } catch (_) {}
-  try {
     await LocalPushService.instance.init().timeout(const Duration(seconds: 5));
-  } catch (_) {}
-  try {
-    await PushBootstrap.ensureInitialized(quick: true)
-        .timeout(const Duration(seconds: 5));
   } catch (_) {}
   final theme = ThemeController();
   await theme.load();

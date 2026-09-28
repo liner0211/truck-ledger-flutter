@@ -70,8 +70,10 @@ class AdminLabels {
         return 'JWT 密钥';
       case 'admin_password':
         return '管理员密码';
-      case 'fcm':
-        return '推送 FCM';
+      case 'push':
+        return '推送（极光）';
+      case 'push_detail':
+        return '推送详情';
       case 'user_count':
         return '用户数';
       case 'websocket':

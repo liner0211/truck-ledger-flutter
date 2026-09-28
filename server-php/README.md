@@ -4,7 +4,7 @@
 
 > **生产域名**：`https://truck.liner0211.online`（PHP 8.0）  
 > **逐步部署（权威）**：[DEPLOY_truck.liner0211.online.md](./DEPLOY_truck.liner0211.online.md)  
-> DNS：[DNSPOD.md](./DNSPOD.md) · 可选推送：[FCM_SETUP.md](./FCM_SETUP.md)  
+> DNS：[DNSPOD.md](./DNSPOD.md) · 国内推送：[../docs/CN_PUSH.md](../docs/CN_PUSH.md)  
 > 本机一键：`./one_click_server_deploy.sh`（保留远端 `config.php` / `data/` / `downloads/`）
 
 ## 目录结构
@@ -28,7 +28,7 @@ server-php/
 - **控制面**：停服 / 最低版本 / 强制升级 / 离线宽限 / 全局公告
 - **用户运营**：试用、到期只读或禁登、延期、转正、踢下线、设备吊销
 - **同步**：`revision` 乐观锁，冲突 409
-- **触达**：站内信；可选 FCM HTTP v1（服务账号，见 FCM_SETUP）
+- **触达**：站内信；极光推送（见 [`docs/CN_PUSH.md`](../docs/CN_PUSH.md)）
 - **运维**：审计、账本快照、健康深检 `GET /api/health?deep=1`、Admin CSRF
 
 管理后台：`/admin`。

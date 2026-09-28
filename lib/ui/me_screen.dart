@@ -9,6 +9,7 @@ import 'about_screen.dart';
 import 'account_screen.dart';
 import 'change_password_screen.dart';
 import 'devices_screen.dart';
+import 'edit_profile_screen.dart';
 import 'ledger_backup_actions.dart';
 import 'messages_hub_screen.dart';
 import 'user_manual_screen.dart';
@@ -132,6 +133,19 @@ class MeScreen extends StatelessWidget {
           _SectionCard(
             title: '账号',
             children: [
+              _NavTile(
+                icon: Icons.badge_outlined,
+                title: '修改资料',
+                subtitle: '车牌号',
+                onTap: () {
+                  Navigator.push<void>(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => const EditProfileScreen(),
+                    ),
+                  );
+                },
+              ),
               _NavTile(
                 icon: Icons.lock_outline,
                 title: '修改密码',

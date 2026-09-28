@@ -16,7 +16,6 @@ import '../services/feature_flags.dart';
 import '../services/inbox_service.dart';
 import '../services/local_push_service.dart';
 import '../services/messages_api.dart';
-import '../services/push_bootstrap.dart';
 import '../services/realtime_socket.dart';
 import '../services/sync_service.dart';
 import '../ui/chat_room_screen.dart';
@@ -218,11 +217,33 @@ class AuthController extends ChangeNotifier {
     if (t == null) return;
     try {
       _profile = await api.me(t);
+      if (_profile?.licensePlate != null &&
+          _profile!.licensePlate!.isNotEmpty) {
+        _licensePlate = _profile!.licensePlate;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(licensePlateKey, _licensePlate!);
+      }
       notifyListeners();
     } on ApiException catch (e) {
       if (e.statusCode == 401) await logout();
       rethrow;
     }
+  }
+
+  Future<void> updateLicensePlate(String licensePlate) async {
+    final t = _token;
+    if (t == null) throw ApiException('未登录');
+    final profile = await api.updateProfile(
+      token: t,
+      licensePlate: licensePlate,
+    );
+    _profile = profile;
+    _licensePlate = profile.licensePlate;
+    final prefs = await SharedPreferences.getInstance();
+    if (_licensePlate != null && _licensePlate!.isNotEmpty) {
+      await prefs.setString(licensePlateKey, _licensePlate!);
+    }
+    notifyListeners();
   }
 
   Future<AppControlResult?> runControlCheck(String appVersion) async {
@@ -570,7 +591,7 @@ class AuthController extends ChangeNotifier {
     } catch (_) {}
     _connectRealtime();
     startForegroundPolling();
-    // 国内推送优先极光；FCM 可选（无 Google 时自然失败）
+    // 国内推送：极光（杀进程）+ 本地通知栏（前后台 WS）
     unawaited(() async {
       try {
         await ChinaPushBootstrap.registerIfConfigured(
@@ -586,13 +607,6 @@ class AuthController extends ChangeNotifier {
           print('bootstrap JPush skipped: $e');
         }
       }
-      try {
-        await PushBootstrap.registerToken(
-          api: api,
-          platform: platformName,
-          inbox: inbox,
-        ).timeout(const Duration(seconds: 15));
-      } catch (_) {}
     }());
   }
 

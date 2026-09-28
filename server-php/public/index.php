@@ -198,6 +198,17 @@ if (strpos($uri, '/api/') === 0) {
         JsonResponse::send(EntitlementService::publicProfile($pdo, $user));
     }
 
+    if ($uri === '/api/auth/profile' && ($method === 'PUT' || $method === 'POST')) {
+        RateLimitService::assert($cfg, 'update_profile', 20, 600);
+        $user = AuthService::requireUser($pdo, $cfg);
+        $body = readJsonBody();
+        JsonResponse::send(AuthService::updateProfile(
+            $pdo,
+            $user,
+            (string)($body['license_plate'] ?? '')
+        ));
+    }
+
     if ($uri === '/api/app/check' && ($method === 'GET' || $method === 'POST')) {
         $user = AuthService::requireUser($pdo, $cfg);
         $body = $method === 'POST' ? readJsonBody() : [];

@@ -184,6 +184,19 @@ final class AuthService
         )->execute([$hash, (int)$user['id']]);
     }
 
+    /** 用户自助更新资料（当前仅车牌）。 */
+    public static function updateProfile(PDO $pdo, array $user, string $licensePlate): array
+    {
+        $plate = self::validateLicensePlate($licensePlate);
+        if ($plate === null) {
+            JsonResponse::error('请填写有效车牌号（5–10 位，含省份汉字，如 京A12345）', 400);
+        }
+        $pdo->prepare('UPDATE users SET license_plate=? WHERE id=?')
+            ->execute([$plate, (int)$user['id']]);
+        $user['license_plate'] = $plate;
+        return EntitlementService::publicProfile($pdo, $user);
+    }
+
     public static function adminResetPassword(PDO $pdo, int $userId, string $newPassword): ?string
     {
         if (strlen($newPassword) < 6) {

@@ -7,10 +7,14 @@ import 'admin_session.dart';
 import 'app_nav.dart';
 import 'pages/home_shell.dart';
 import 'pages/login_page.dart';
+import 'services/local_push_service.dart';
 import 'theme_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await LocalPushService.instance.init().timeout(const Duration(seconds: 5));
+  } catch (_) {}
   final prefs = await SharedPreferences.getInstance();
   runApp(AdminRoot(prefs: prefs));
 }

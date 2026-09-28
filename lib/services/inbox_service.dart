@@ -31,7 +31,7 @@ class InboxService {
     );
   }
 
-  /// 登记推送通道。未集成 FCM 时使用 `local:<deviceId>`，Admin 广播仍走站内信。
+  /// 登记推送通道。极光为 `jpush:<registrationId>`；无极光时可不登记。
   Future<void> registerPushChannel({
     required MessagesApi api,
     required String platform,

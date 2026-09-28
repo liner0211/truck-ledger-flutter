@@ -42,7 +42,7 @@
 | `PUBLIC_BASE_URL` | 控制面下载 URL 前缀 | 迁域名必换 |
 | `CI_PUBLISH_TOKEN` | `POST /api/ci/publish-*`；须 = 远端 `ci_publish_token` | 必填且两边一致 |
 | `FORCE_UPDATE_ON_RELEASE` | 可选 `1` 强更 | 可选 |
-| `GOOGLE_SERVICES_JSON_BASE64` | Release APK 注入 `google-services.json`（FCM） | 系统推送必填 |
+| `JPUSH_APPKEY` | 可选；Release 注入 Android manifest 极光 AppKey | 杀进程推送建议填 |
 
 > 旧名 `SERVER_PUBLIC_BASE`（仅管理端）已兼容回退；新环境只配 **`PUBLIC_BASE_URL`**。
 
@@ -73,8 +73,7 @@
 | `config.php` | 从 `config.example.php` 复制；**勿覆盖迁数据** |
 | `jwt_secret` | ≥32 随机 |
 | `ci_publish_token` | = GitHub `CI_PUBLISH_TOKEN` |
-| `fcm_service_account_file` | 可选；FCM HTTP v1 服务账号 JSON 路径（默认 `data/fcm-service-account.json`） |
-| `fcm_project_id` | 可选；覆盖 JSON 内 project_id |
+| `jpush_app_key` / `jpush_master_secret` | 国内杀进程推送（极光）；见 [`CN_PUSH.md`](CN_PUSH.md) |
 | `admin_*` | 首迁超级管理员 |
 | `max_upload_bytes` | 与 nginx `client_max_body_size`（建议 ≥25m）一致 |
 | 保留目录 | `data/`、`attachments/`、`public/downloads/` |
