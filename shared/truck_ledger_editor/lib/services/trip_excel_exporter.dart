@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:image/image.dart' as img;
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -340,7 +341,7 @@ class TripExcelExporter {
     return bits.join(' ');
   }
 
-  /// AttachmentStore 只存 JPEG；非 JPEG 则跳过嵌入。
+  /// Swift `AttachmentStore` 只存 JPEG；导出时把 PNG/HEIC 等转成 JPEG 再写入 xlsx。
   static Uint8List? _jpegBytesForExport(Uint8List raw) {
     if (raw.length >= 3 &&
         raw[0] == 0xFF &&
@@ -348,7 +349,9 @@ class TripExcelExporter {
         raw[2] == 0xFF) {
       return raw;
     }
-    return null;
+    final decoded = img.decodeImage(raw);
+    if (decoded == null) return null;
+    return Uint8List.fromList(img.encodeJpg(decoded, quality: 85));
   }
 
   static Future<List<_ImagePart>> _collectImages(List<_ExportRow> rows) async {
